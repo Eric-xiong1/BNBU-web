@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#165DFF" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https:; form-action 'self'"
+  />
+  <title>BNBU Sports · 教师管理端</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">BNBU</span>
+        <span class="brand-sub">Sports 管理端</span>
+      </div>
+
+      <div class="role-switcher user-bar">
+        <p class="field-label">当前账号</p>
+        <p id="teacher-user-name" class="user-name">加载中…</p>
+        <button type="button" class="btn btn-text" id="btn-logout">退出登录</button>
+      </div>
+
+      <nav id="sidebar-nav">
+        <a class="nav-item standalone nav-workbench" data-page="home" data-roles="all">工作台首页</a>
+
+        <div class="nav-group nav-workbench" data-roles="sports_teacher,dept_head,super_admin">
+          <div class="nav-group-title" data-group="checkin">打卡管理</div>
+          <a class="nav-item" data-page="checkin-overview" data-roles="sports_teacher,dept_head,super_admin">打卡全览</a>
+          <a class="nav-item" data-page="checkin-matrix" data-roles="sports_teacher,dept_head,super_admin">多课程班级</a>
+          <a class="nav-item" data-page="checkin-settings" data-roles="sports_teacher,super_admin">打卡设置</a>
+          <a class="nav-item" data-page="checkin-history" data-roles="sports_teacher,dept_head,super_admin">历史记录</a>
+        </div>
+
+        <div class="nav-group nav-muted" data-roles="sports_teacher,team_teacher,club_teacher,super_admin">
+          <div class="nav-group-title" data-group="audit">申请审核</div>
+          <a class="nav-item" data-page="audit-workbench" data-roles="sports_teacher,team_teacher,super_admin">审核工作台</a>
+        </div>
+
+        <div class="nav-group nav-muted" data-roles="sports_teacher,dept_head,super_admin">
+          <div class="nav-group-title" data-group="exam">考核管理</div>
+          <a class="nav-item" data-page="exam-physical" data-roles="sports_teacher,dept_head,super_admin">体测录入</a>
+          <a class="nav-item" data-page="exam-final" data-roles="sports_teacher,dept_head,super_admin">期末录入</a>
+          <a class="nav-item" data-page="exam-final-items" data-roles="sports_teacher,super_admin">期末项目</a>
+          <a class="nav-item" data-page="grade-summary" data-roles="sports_teacher,dept_head,super_admin">成绩汇总</a>
+        </div>
+
+        <div class="nav-group nav-muted" data-roles="sports_teacher,super_admin">
+          <div class="nav-group-title" data-group="course-mgmt">课程教务</div>
+          <a class="nav-item" data-page="course-tasks" data-roles="sports_teacher,super_admin">课程任务</a>
+          <a class="nav-item" data-page="roster-import" data-roles="sports_teacher,super_admin">名单导入</a>
+          <a class="nav-item" data-page="attendance-scores" data-roles="sports_teacher,super_admin">签到平时分</a>
+          <a class="nav-item" data-page="grade-export" data-roles="sports_teacher,super_admin">成绩导出</a>
+          <a class="nav-item" data-page="student-detail" data-roles="sports_teacher,super_admin">学时明细</a>
+          <a class="nav-item" data-page="pending-certifications" data-roles="sports_teacher,super_admin">抵扣待确认</a>
+          <a class="nav-item" data-page="endurance-scoring" data-roles="sports_teacher,super_admin">耐力跑换算</a>
+        </div>
+
+        <div class="nav-group nav-muted" data-roles="sports_teacher,super_admin">
+          <div class="nav-group-title" data-group="basic">基础管理</div>
+          <a class="nav-item" data-page="basic-courses" data-roles="sports_teacher,super_admin">我的课程</a>
+          <a class="nav-item" data-page="basic-students" data-roles="sports_teacher,super_admin">学生名单</a>
+        </div>
+
+        <div class="nav-group nav-muted" data-roles="super_admin">
+          <div class="nav-group-title" data-group="admin">系统管理</div>
+          <a class="nav-item" data-page="admin-permissions" data-roles="super_admin">权限配置</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <!-- 工作台首页：打卡为核心 -->
+      <section class="page active" id="page-home">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">工作台</h1>
+            <p class="greeting" id="greeting-text">你好，加载中…</p>
+          </div>
+          <button class="btn btn-primary" type="button" data-page="checkin-overview">进入打卡全览</button>
+        </header>
+
+        <div class="kpi-row" id="home-kpi"></div>
+
+        <div class="box">
+          <div class="box-header">
+            <h2 class="h2">今日打卡概览</h2>
+            <input type="date" class="field-input field-input-sm" id="home-date" />
+          </div>
+          <div class="class-cards" id="home-class-cards"></div>
+        </div>
+
+        <div class="two-col">
+          <div class="box clickable-box" tabindex="0" data-page="audit-workbench" data-roles="sports_teacher,team_teacher,super_admin">
+            <h2 class="h2">待处理事项</h2>
+            <p class="box-hint" id="home-pending-audit">打卡待审 0 · 免测 0 · 免考 0</p>
+          </div>
+          <div class="box box-muted">
+            <h2 class="h2 h2-muted">教学计划</h2>
+            <p class="box-hint">非主要功能，后续迭代</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 打卡全览：三级下钻 -->
+      <section class="page" id="page-checkin-overview">
+        <header class="page-header">
+          <div>
+            <nav class="breadcrumb" id="checkin-breadcrumb">
+              <button type="button" class="crumb active" data-level="1">班级总览</button>
+            </nav>
+            <h1 class="h1">打卡全览</h1>
+            <p class="box-hint">学期累计有效时长 · 教师逐条审核 · 打满即满分</p>
+          </div>
+          <div class="toolbar">
+            <select class="field-input" id="checkin-course-filter">
+              <option value="">全部课程</option>
+            </select>
+            <input type="date" class="field-input" id="checkin-date" />
+            <button class="btn btn-secondary" type="button" id="btn-export-checkin">导出</button>
+          </div>
+        </header>
+
+        <div class="rules-banner">
+          <strong>打卡规则</strong>
+          <span>每学期需累计 <em>20 小时</em>有效运动时长（可调整）；专项课另有 <em>5 小时</em>专项项目要求。每次打卡须上传运动时长与照片/视频证据，<em>教师审核通过</em>后计入有效时长，打满即获平时分满分。免测、免考与打卡无关，仅在审核工作台统一处理。</span>
+        </div>
+
+        <!-- 第一级：班级总览 -->
+        <div id="checkin-level-1">
+          <div class="two-col checkin-l1-grid">
+            <div class="box">
+              <h2 class="h2">班级打卡情况</h2>
+              <div class="class-cards" id="checkin-class-list"></div>
+            </div>
+            <div class="box">
+              <h2 class="h2">日历热力图</h2>
+              <p class="box-hint">类似 GitHub 贡献图，颜色越深打卡率越高</p>
+              <div class="heatmap" id="checkin-heatmap"></div>
+              <div class="heatmap-legend">
+                <span>低</span><span class="heat-swatch l1"></span><span class="heat-swatch l2"></span><span class="heat-swatch l3"></span><span class="heat-swatch l4"></span><span>高</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 第二级：学生明细 -->
+        <div id="checkin-level-2" hidden>
+          <div class="box">
+            <div class="box-header">
+              <h2 class="h2" id="checkin-l2-title">学生明细</h2>
+              <div class="toolbar-inline">
+                <input type="search" class="field-input" id="student-search" placeholder="搜索姓名 / 学号" />
+                <div class="chip-group" id="status-filter">
+                  <button type="button" class="chip active" data-status="all">全部</button>
+                  <button type="button" class="chip" data-status="checked">已通过</button>
+                  <button type="button" class="chip" data-status="unchecked">未提交</button>
+                  <button type="button" class="chip" data-status="pending_review">待审核</button>
+                </div>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table" id="student-table">
+                <colgroup>
+                  <col class="col-no" />
+                  <col class="col-name" />
+                  <col class="col-hours" />
+                  <col class="col-status" />
+                  <col class="col-time" />
+                  <col class="col-photo" />
+                  <col class="col-action" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>学号</th>
+                    <th>姓名</th>
+                    <th>学期有效时长</th>
+                    <th>今日状态</th>
+                    <th>申报时长</th>
+                    <th>证据</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 第三级：证据材料 -->
+        <div id="checkin-level-3" hidden>
+          <div class="two-col evidence-layout">
+            <div class="box">
+              <h2 class="h2" id="evidence-title">打卡证据</h2>
+              <div class="timeline" id="evidence-timeline"></div>
+            </div>
+            <div class="box">
+              <h2 class="h2">材料预览</h2>
+              <div class="media-preview" id="media-preview">
+                <div class="media-placeholder">选择左侧记录查看照片 / 视频</div>
+              </div>
+              <p class="box-hint" id="evidence-desc"></p>
+              <div class="evidence-review-actions" id="evidence-review-actions" hidden></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 多课程班级矩阵 -->
+      <section class="page" id="page-checkin-matrix">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">多课程班级</h1>
+            <p class="box-hint">按课程筛选，班级格式：课程名 + 班级号</p>
+          </div>
+        </header>
+        <div class="matrix-layout">
+          <div class="box matrix-courses">
+            <h2 class="h2">课程列表</h2>
+            <ul class="list-select" id="matrix-course-list"></ul>
+          </div>
+          <div class="box matrix-main">
+            <div class="kpi-row" id="matrix-kpi"></div>
+            <h2 class="h2">班级列表</h2>
+            <div class="class-cards" id="matrix-class-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 打卡设置 -->
+      <section class="page" id="page-checkin-settings">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">打卡权限与设置</h1>
+            <p class="box-hint">按课程 / 班级粒度生效，变更可追溯</p>
+          </div>
+        </header>
+        <div class="two-col">
+          <div class="box">
+            <div class="form-grid">
+              <label class="field">
+                <span class="field-label">生效课程</span>
+                <select class="field-input" id="settings-course"></select>
+              </label>
+              <label class="field">
+                <span class="field-label">生效班级</span>
+                <select class="field-input" id="settings-class"></select>
+              </label>
+              <label class="field">
+                <span class="field-label">打卡开始时间</span>
+                <input type="time" class="field-input" id="settings-start" value="06:00" />
+              </label>
+              <label class="field">
+                <span class="field-label">打卡截止时间</span>
+                <input type="time" class="field-input" id="settings-end" value="22:00" />
+              </label>
+              <label class="field">
+                <span class="field-label">学期打卡要求（小时）</span>
+                <input type="number" class="field-input" id="settings-semester-hours" value="20" min="1" step="0.5" />
+              </label>
+              <label class="field" id="settings-specialty-wrap">
+                <span class="field-label">专项项目要求（小时）</span>
+                <input type="number" class="field-input" id="settings-specialty-hours" value="5" min="0" step="0.5" />
+                <span class="field-hint">仅专项课程生效，须计入总时长内</span>
+              </label>
+              <label class="field field-check">
+                <input type="checkbox" checked disabled />
+                <span>每次打卡须教师审核（固定开启）</span>
+              </label>
+              <label class="field field-check">
+                <input type="checkbox" id="settings-gps" />
+                <span>开启 GPS 位置验证</span>
+              </label>
+              <label class="field">
+                <span class="field-label">允许范围（米）</span>
+                <input type="number" class="field-input" id="settings-radius" value="500" min="100" />
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="button" id="btn-save-settings">保存设置</button>
+              <button class="btn btn-secondary" type="button" id="btn-reset-settings">重置</button>
+            </div>
+          </div>
+          <div class="box">
+            <h2 class="h2">变更历史</h2>
+            <ul class="log-list" id="settings-history"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- 历史记录 -->
+      <section class="page" id="page-checkin-history">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">历史打卡记录</h1>
+            <p class="box-hint">跨学期完整保留，支持导出</p>
+          </div>
+          <div class="toolbar">
+            <select class="field-input" id="history-semester"></select>
+            <select class="field-input" id="history-class"></select>
+            <button class="btn btn-secondary" type="button" id="btn-export-history">导出 Excel</button>
+          </div>
+        </header>
+        <div class="box">
+          <div class="table-wrap">
+            <table class="data-table" id="history-table">
+              <thead>
+                <tr>
+                  <th>学号</th>
+                  <th>姓名</th>
+                  <th>有效时长</th>
+                  <th>专项时长</th>
+                  <th>完成度</th>
+                  <th>平时分</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 申请审核工作台 -->
+      <section class="page" id="page-audit-workbench">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">申请审核工作台</h1>
+            <p class="box-hint">须查看证据后方可审核 · 与打卡全览共用同一审核流程</p>
+          </div>
+        </header>
+        <div id="audit-list-view">
+        <div class="tabs" id="audit-tabs">
+          <button type="button" class="tab active" data-tab="checkin_review">打卡审核</button>
+          <button type="button" class="tab" data-tab="exempt_test">免测申请</button>
+          <button type="button" class="tab" data-tab="exempt_exam">免考申请</button>
+        </div>
+        <div class="box" id="audit-panel-checkin_review">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>学号</th>
+                  <th>姓名</th>
+                  <th>班级</th>
+                  <th>申报时长</th>
+                  <th>运动内容</th>
+                  <th>提交时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="audit-checkin-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="box" id="audit-panel-exempt_test" hidden>
+          <p class="box-hint audit-panel-hint">免测指免除国家学生体质健康标准测试，不影响打卡时长要求。</p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>学号</th>
+                  <th>姓名</th>
+                  <th>类型</th>
+                  <th>有效期</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="audit-exempt-test-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="box" id="audit-panel-exempt_exam" hidden>
+          <p class="box-hint audit-panel-hint">免考指期末考核可不参加，不影响打卡时长要求。</p>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>学号</th>
+                  <th>姓名</th>
+                  <th>类型</th>
+                  <th>申请说明</th>
+                  <th>申请日期</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="audit-exempt-exam-body"></tbody>
+            </table>
+          </div>
+        </div>
+        </div>
+      </section>
+
+      <!-- 体测录入 -->
+      <section class="page" id="page-exam-physical">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">体测录入</h1>
+            <p class="box-hint">按年龄、性别匹配《国家学生体质健康标准》；免测学生不在此录入</p>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-secondary" type="button" id="btn-import-physical">导入</button>
+            <button class="btn btn-secondary" type="button" id="btn-export-physical">导出</button>
+          </div>
+        </header>
+
+        <div class="rules-banner">
+          <strong>录入说明</strong>
+          <span>体测项目按《国家学生体质健康标准》固定，按年龄、性别匹配评分表。身高体重用于 BMI；各项目录入后系统自动换算体测总分。免测学生不在此录入。</span>
+        </div>
+
+        <div class="kpi-row" id="physical-kpi"></div>
+
+        <div class="box">
+          <div class="box-header">
+            <div class="toolbar-inline">
+              <select class="field-input" id="physical-course-filter">
+                <option value="">全部课程</option>
+              </select>
+              <select class="field-input" id="physical-class-filter">
+                <option value="">全部班级</option>
+              </select>
+              <input type="search" class="field-input" id="physical-search" placeholder="搜索姓名 / 学号" />
+            </div>
+            <div class="chip-group" id="physical-status-filter">
+              <button type="button" class="chip active" data-status="all">全部</button>
+              <button type="button" class="chip" data-status="submitted">已录入</button>
+              <button type="button" class="chip" data-status="draft">草稿</button>
+              <button type="button" class="chip" data-status="pending">未录入</button>
+              <button type="button" class="chip" data-status="exempt">免测</button>
+              <button type="button" class="chip" data-status="unmatched">待核对</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="physical-table">
+              <thead>
+                <tr>
+                  <th>学号</th>
+                  <th>姓名</th>
+                  <th>班级</th>
+                  <th>年龄</th>
+                  <th>性别</th>
+                  <th>身高/体重</th>
+                  <th>体测得分</th>
+                  <th>录入进度</th>
+                  <th>匹配状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 期末录入 -->
+      <section class="page" id="page-exam-final">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">期末录入</h1>
+            <p class="box-hint">期末考核项目由教师在「期末项目」中按课程设置；免考学生不在此录入</p>
+          </div>
+          <div class="toolbar">
+            <button class="btn btn-secondary" type="button" data-page="exam-final-items">项目设置</button>
+            <button class="btn btn-secondary" type="button" id="btn-export-final">导出</button>
+          </div>
+        </header>
+        <div class="rules-banner">
+          <strong>录入说明</strong>
+          <span>不同课程可配置不同考核项目（如通用体能 vs 专项技能）。录入各项成绩后系统自动汇为期末得分，参与总评计算。</span>
+        </div>
+        <div class="kpi-row" id="final-kpi"></div>
+        <div class="box">
+          <div class="box-header">
+            <div class="toolbar-inline">
+              <select class="field-input" id="final-course-filter">
+                <option value="">全部课程</option>
+              </select>
+              <select class="field-input" id="final-class-filter">
+                <option value="">全部班级</option>
+              </select>
+              <input type="search" class="field-input" id="final-search" placeholder="搜索姓名 / 学号" />
+            </div>
+            <div class="chip-group" id="final-status-filter">
+              <button type="button" class="chip active" data-status="all">全部</button>
+              <button type="button" class="chip" data-status="submitted">已录入</button>
+              <button type="button" class="chip" data-status="draft">草稿</button>
+              <button type="button" class="chip" data-status="pending">未录入</button>
+              <button type="button" class="chip" data-status="exempt">免考</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="final-table">
+              <thead>
+                <tr>
+                  <th>学号</th>
+                  <th>姓名</th>
+                  <th>班级</th>
+                  <th>课程</th>
+                  <th>期末得分</th>
+                  <th>录入进度</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 成绩汇总 -->
+      <section class="page" id="page-grade-summary">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">成绩汇总</h1>
+            <p class="box-hint" id="grade-formula-hint">总评按权重自动计算</p>
+          </div>
+          <div class="toolbar">
+            <select class="field-input" id="grade-course-filter">
+              <option value="">全部课程</option>
+            </select>
+            <select class="field-input" id="grade-class-filter">
+              <option value="">全部班级</option>
+            </select>
+            <button class="btn btn-secondary" type="button" id="btn-export-grade">导出报表</button>
+          </div>
+        </header>
+
+        <div class="rules-banner" id="grade-rules-banner"></div>
+
+        <div class="box grade-weights-box">
+          <div class="box-header">
+            <div>
+              <h2 class="h2">总评权重设置</h2>
+              <p class="box-hint">每门课程可独立配置算分占比，各项之和须为 100%</p>
+            </div>
+            <label class="field field-inline">
+              <span class="field-label">配置课程</span>
+              <select class="field-input" id="grade-weights-course"></select>
+            </label>
+          </div>
+          <div class="grade-weights-grid" id="grade-weights-form"></div>
+          <p class="box-hint weight-hint" id="grade-weights-hint" hidden></p>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="button" id="btn-save-grade-weights">保存权重</button>
+            <button class="btn btn-secondary" type="button" id="btn-reset-grade-weights">恢复默认</button>
+          </div>
+        </div>
+
+        <div class="kpi-row" id="grade-kpi"></div>
+
+        <div class="box">
+          <div class="table-wrap">
+            <table class="data-table" id="grade-table">
+              <thead>
+                <tr>
+                  <th>学号</th>
+                  <th>姓名</th>
+                  <th>课程</th>
+                  <th>班级</th>
+                  <th>平时分</th>
+                  <th>体测</th>
+                  <th>期末</th>
+                  <th>总评</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 期末项目配置 -->
+      <section class="page" id="page-exam-final-items">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">期末项目</h1>
+            <p class="box-hint">按课程自定义期末考核项目，录入页与评分将按课程设置展示</p>
+          </div>
+        </header>
+        <div class="rules-banner">
+          <strong>配置说明</strong>
+          <span>每门课程可独立配置考核项目与算分权重。切换上方「配置课程」分别编辑；未单独配置的课程继承默认模板。</span>
+        </div>
+        <div class="rules-banner rules-banner-sub" id="final-items-weight-hint"></div>
+        <div class="box">
+          <div class="box-header">
+            <div class="toolbar-inline">
+              <label class="field field-inline">
+                <span class="field-label">配置课程</span>
+                <select class="field-input" id="final-items-course"></select>
+              </label>
+            </div>
+            <button class="btn btn-secondary" type="button" id="btn-add-final-item">添加项目</button>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="final-items-table">
+              <thead>
+                <tr>
+                  <th>项目名称</th>
+                  <th>字段标识</th>
+                  <th>单位</th>
+                  <th>越低越好</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="final-items-body"></tbody>
+            </table>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" type="button" id="btn-save-final-items">保存配置</button>
+            <button class="btn btn-secondary" type="button" id="btn-reset-final-items">恢复默认</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 课程教务（原 web-app 教师端补齐） -->
+      <section class="page" id="page-course-tasks">
+        <header class="page-header">
+          <div><h1 class="h1">课程任务</h1><p class="box-hint">发布课外训练任务，学生完成后提交证明</p></div>
+        </header>
+        <div id="legacy-course-tasks-root"></div>
+      </section>
+
+      <section class="page" id="page-roster-import">
+        <header class="page-header">
+          <div><h1 class="h1">名单导入</h1><p class="box-hint">CSV 预检与确认导入学生名单</p></div>
+        </header>
+        <div id="legacy-roster-import-root"></div>
+      </section>
+
+      <section class="page" id="page-attendance-scores">
+        <header class="page-header">
+          <div><h1 class="h1">签到 / 平时分</h1><p class="box-hint">录入每周签到与课堂表现分</p></div>
+        </header>
+        <div id="legacy-attendance-scores-root"></div>
+      </section>
+
+      <section class="page" id="page-grade-export">
+        <header class="page-header">
+          <div><h1 class="h1">成绩导出</h1><p class="box-hint">导出预检、CSV 下载与成绩交付</p></div>
+        </header>
+        <div id="legacy-grade-export-root"></div>
+      </section>
+
+      <section class="page" id="page-student-detail">
+        <header class="page-header">
+          <div><h1 class="h1">学生学时明细</h1><p class="box-hint">汇总打卡、抵扣、任务等各来源学时</p></div>
+        </header>
+        <div id="legacy-student-detail-root"></div>
+      </section>
+
+      <section class="page" id="page-pending-certifications">
+        <header class="page-header">
+          <div><h1 class="h1">抵扣待确认</h1><p class="box-hint">确认校队 / 社团 membership 抵扣学时</p></div>
+        </header>
+        <div id="legacy-pending-certifications-root"></div>
+      </section>
+
+      <section class="page" id="page-endurance-scoring">
+        <header class="page-header">
+          <div><h1 class="h1">耐力跑换算</h1><p class="box-hint">按国标将跑步用时换算为体测分数</p></div>
+        </header>
+        <div id="legacy-endurance-scoring-root"></div>
+      </section>
+
+      <!-- 我的课程 -->
+      <section class="page" id="page-basic-courses">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">我的课程</h1>
+            <p class="box-hint">当前学期授课安排与班级概览</p>
+          </div>
+        </header>
+        <div id="basic-course-list"></div>
+      </section>
+
+      <!-- 学生名单 -->
+      <section class="page" id="page-basic-students">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">学生名单</h1>
+            <p class="box-hint" id="basic-students-summary">加载中…</p>
+          </div>
+          <div class="toolbar-inline">
+            <select class="field-input" id="basic-course-filter">
+              <option value="">全部课程</option>
+            </select>
+            <select class="field-input" id="basic-class-filter">
+              <option value="">全部班级</option>
+            </select>
+            <input type="search" class="field-input" id="basic-student-search" placeholder="搜索姓名 / 学号" />
+          </div>
+        </header>
+        <div class="box">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>学号</th>
+                  <th>姓名</th>
+                  <th>班级</th>
+                  <th>性别</th>
+                  <th>年龄</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="basic-students-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 权限配置 -->
+      <section class="page" id="page-admin-permissions">
+        <header class="page-header">
+          <div>
+            <h1 class="h1">权限配置</h1>
+            <p class="box-hint">超级管理员分配各老师角色</p>
+          </div>
+        </header>
+        <div class="box">
+          <div class="table-wrap">
+            <table class="data-table" id="permissions-table">
+              <thead>
+                <tr><th>姓名</th><th>当前角色</th><th>操作</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 体测录入弹窗 -->
+  <dialog id="physical-entry-dialog" class="physical-entry-dialog">
+    <div class="physical-entry-inner">
+      <header class="audit-detail-header">
+        <div>
+          <button type="button" class="btn btn-text" id="physical-entry-close">← 关闭</button>
+          <h2 class="h1" id="physical-entry-title">体测录入</h2>
+          <p class="box-hint" id="physical-entry-subtitle"></p>
+        </div>
+      </header>
+      <div class="box">
+        <h2 class="h2">基本信息</h2>
+        <div class="form-grid physical-meta-grid" id="physical-meta-form"></div>
+      </div>
+      <div class="box">
+        <h2 class="h2">测试项目</h2>
+        <p class="box-hint">项目按国标固定；保存草稿后可继续补录</p>
+        <div class="form-grid" id="physical-scores-form"></div>
+      </div>
+      <div class="box">
+        <div class="form-actions">
+          <button class="btn btn-secondary" type="button" id="physical-btn-draft">保存草稿</button>
+          <button class="btn btn-primary" type="button" id="physical-btn-submit">提交录入</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 期末录入弹窗 -->
+  <dialog id="final-entry-dialog" class="physical-entry-dialog">
+    <div class="physical-entry-inner">
+      <header class="audit-detail-header">
+        <div>
+          <button type="button" class="btn btn-text" id="final-entry-close">← 关闭</button>
+          <h2 class="h1" id="final-entry-title">期末录入</h2>
+          <p class="box-hint" id="final-entry-subtitle"></p>
+        </div>
+      </header>
+      <div class="box">
+        <h2 class="h2">考核项目</h2>
+        <p class="box-hint">项目来自该课程的「期末项目」配置</p>
+        <div class="form-grid" id="final-scores-form"></div>
+      </div>
+      <div class="box">
+        <div class="form-actions">
+          <button class="btn btn-secondary" type="button" id="final-btn-draft">保存草稿</button>
+          <button class="btn btn-primary" type="button" id="final-btn-submit">提交录入</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 统一审核详情（打卡全览 · 审核工作台共用） -->
+  <dialog id="audit-review-dialog" class="audit-review-dialog">
+    <div class="audit-review-dialog-inner">
+      <header class="audit-detail-header">
+        <div>
+          <button type="button" class="btn btn-text" id="audit-detail-close">← 关闭</button>
+          <h2 class="h1" id="audit-detail-title">审核详情</h2>
+          <p class="box-hint" id="audit-detail-subtitle"></p>
+        </div>
+      </header>
+      <div class="two-col audit-detail-grid">
+        <div class="box">
+          <h2 class="h2">申请信息</h2>
+          <dl class="detail-dl" id="audit-detail-info"></dl>
+        </div>
+        <div class="box">
+          <h2 class="h2">证据材料</h2>
+          <p class="box-hint">请点击下方材料预览，确认无误后再审核</p>
+          <div class="evidence-grid" id="audit-detail-evidence"></div>
+        </div>
+      </div>
+      <div class="box audit-detail-actions">
+        <p class="box-hint" id="audit-detail-hint">请先点击查看证据材料</p>
+        <div class="form-actions">
+          <button class="btn btn-primary" type="button" id="audit-btn-approve" disabled>通过</button>
+          <button class="btn btn-secondary btn-danger-outline" type="button" id="audit-btn-reject" disabled>驳回</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- 证据大图预览 -->
+  <dialog id="media-dialog" class="media-dialog">
+    <div class="media-dialog-inner">
+      <button type="button" class="dialog-close" id="dialog-close">&times;</button>
+      <div class="media-dialog-content" id="dialog-media"></div>
+    </div>
+  </dialog>
+
+  <script src="auth-bridge.js"></script>
+  <script src="mock-data.js"></script>
+  <script src="api.js"></script>
+  <script src="backend-sync.js"></script>
+  <script src="legacy-pages.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

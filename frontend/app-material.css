@@ -1,0 +1,614 @@
+/**
+ * Admin / Manager SPA · Material 蓝白主题
+ * 覆盖 styles-campus-blue.css，与 teacher 端、登录页视觉一致
+ */
+:root {
+  --ink: #1D2129;
+  --paper: #F5F7FA;
+  --surface: #FFFFFF;
+  --line: #E5E6EB;
+  --muted: #86909C;
+  --soft: #E8F3FF;
+  --good: #00B42A;
+  --warn: #FF7D00;
+  --bad: #F53F3F;
+  --blue: #165DFF;
+  --blue-dark: #4080FF;
+  --blue-soft: rgba(22, 93, 255, 0.08);
+  --sidebar: 248px;
+  --gap: 16px;
+  --color-text: #1D2129;
+  --color-border: #E5E6EB;
+  --color-muted: #86909C;
+  --color-blue: #165DFF;
+  --color-line: #E5E6EB;
+  --color-blue-soft: #E8F3FF;
+  --color-red: #F53F3F;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-hover: 0 4px 16px rgba(22, 93, 255, 0.12);
+}
+
+body:has(.material-shell) {
+  color: #4E5969;
+  font-weight: 400;
+  letter-spacing: normal;
+  background: #F5F7FA;
+  background-size: auto;
+}
+
+/* ── Shell & sidebar ── */
+.material-shell {
+  display: flex;
+  min-height: 100vh;
+  background: #F5F7FA;
+}
+
+.material-shell .sidebar {
+  position: sticky;
+  top: 0;
+  width: var(--sidebar);
+  flex-shrink: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px;
+  background: #FFFFFF;
+  color: #4E5969;
+  border-right: 1px solid var(--line);
+  box-shadow: none;
+}
+
+.material-brand {
+  padding: 4px 12px 20px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+}
+
+.material-brand .brand-mark {
+  display: block;
+  width: auto;
+  height: auto;
+  border: none;
+  background: none;
+  font-size: 20px;
+  font-weight: 700;
+  color: #165DFF;
+  letter-spacing: -0.02em;
+}
+
+.material-brand .brand-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.material-shell .nav-list {
+  flex: 1;
+  padding: 8px 0;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.material-shell .nav-section {
+  margin: 8px 0 4px;
+  padding: 8px 12px 4px;
+  color: #1D2129;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+.material-shell .nav-item {
+  min-height: auto;
+  padding: 8px 12px 8px 20px;
+  border: none;
+  border-left: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: #86909C;
+  font-size: 13px;
+  font-weight: 400;
+  transition: background 0.15s, color 0.15s;
+}
+
+.material-shell .nav-item:hover {
+  background: #F2F3F5;
+  color: #4E5969;
+}
+
+.material-shell .nav-item.is-active {
+  background: rgba(22, 93, 255, 0.08);
+  color: #165DFF;
+  font-weight: 600;
+}
+
+.material-shell .sidebar-footer {
+  padding: 16px 8px 4px;
+  border-top: 1px solid var(--line);
+}
+
+.material-shell .sidebar-user-label {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.material-shell .sidebar-footer strong {
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1D2129;
+}
+
+.material-shell .sidebar-footer span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.material-shell .sidebar-footer .button-row {
+  margin-top: 12px;
+  gap: 6px;
+}
+
+.material-shell .sidebar-footer .ghost-button {
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #165DFF;
+  border: none;
+  background: none;
+}
+
+.material-shell .sidebar-footer .ghost-button:hover {
+  text-decoration: underline;
+  background: none;
+}
+
+/* ── Main area & topbar ── */
+.material-shell .main-area {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.material-shell .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: auto;
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+}
+
+.material-shell .topbar h2,
+.material-shell .panel h3,
+.material-shell .hero-title h3,
+.material-shell .login-panel h2 {
+  font-family: Inter, "PingFang SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+  font-weight: 600;
+  letter-spacing: normal;
+}
+
+.material-shell .topbar h2 {
+  font-size: 22px;
+  line-height: 1.3;
+  color: #1D2129;
+}
+
+.material-shell .topbar .eyebrow,
+.material-shell .topbar-meta {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.material-shell .page {
+  padding: 24px 28px;
+  flex: 1;
+}
+
+/* ── Buttons ── */
+.material-shell .primary-button,
+.material-shell .ghost-button,
+.material-shell .danger-button,
+.material-shell .field-button,
+.material-shell .icon-button,
+.material-shell .segmented button {
+  min-height: 36px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.material-shell .primary-button {
+  background: linear-gradient(135deg, #165DFF 0%, #4080FF 100%);
+  color: #fff;
+  border: none;
+  box-shadow: 0 2px 6px rgba(22, 93, 255, 0.3);
+}
+
+.material-shell .primary-button:hover:not(:disabled) {
+  box-shadow: 0 4px 12px rgba(22, 93, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.material-shell .ghost-button,
+.material-shell .field-button {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: #4E5969;
+}
+
+.material-shell .ghost-button:hover,
+.material-shell .field-button:hover {
+  border-color: #4080FF;
+  background: rgba(22, 93, 255, 0.08);
+  color: #165DFF;
+}
+
+.material-shell .danger-button {
+  border: 1px solid rgba(245, 63, 63, 0.4);
+  color: #F53F3F;
+  background: #fff;
+}
+
+.material-shell .danger-button:hover {
+  background: rgba(245, 63, 63, 0.08);
+}
+
+.material-shell .icon-button {
+  width: 36px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 16px;
+}
+
+.material-shell .notification-badge {
+  border-radius: 999px;
+  background: #F53F3F;
+  color: #fff;
+  font-weight: 600;
+  font-size: 10px;
+}
+
+.material-shell .notification-dropdown {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-hover);
+}
+
+.material-shell .notification-header {
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+
+/* ── Panels & cards ── */
+.material-shell .panel,
+.material-shell .hero-grid,
+.material-shell .data-tile,
+.material-shell .course-card,
+.material-shell .delivery-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.material-shell .panel-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.material-shell .panel-header h3 {
+  font-size: 16px;
+  line-height: 1.4;
+  color: #1D2129;
+}
+
+.material-shell .panel-header .eyebrow {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.material-shell .panel-body {
+  padding: 16px 20px;
+}
+
+.material-shell .hero-grid {
+  overflow: hidden;
+}
+
+.material-shell .hero-title {
+  min-height: auto;
+  padding: 24px;
+  border-right: 1px solid var(--line);
+}
+
+.material-shell .hero-title h3 {
+  font-size: 28px;
+  line-height: 1.25;
+}
+
+.material-shell .metric-cell {
+  min-height: 120px;
+  padding: 20px;
+}
+
+.material-shell .metric-cell span,
+.material-shell .metric-cell small {
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.material-shell .metric-cell strong {
+  font-family: inherit;
+  font-size: 24px;
+  font-weight: 700;
+  color: #1D2129;
+}
+
+.material-shell .course-card:hover,
+.material-shell .course-card.is-active {
+  background: rgba(22, 93, 255, 0.06);
+  color: inherit;
+  border-color: #4080FF;
+  box-shadow: var(--shadow-hover);
+}
+
+.material-shell .course-card h3 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* ── Tables ── */
+.material-shell th {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--muted);
+  background: #FAFBFC;
+}
+
+.material-shell td {
+  font-size: 14px;
+  font-weight: 400;
+  color: #4E5969;
+}
+
+.material-shell td small,
+.material-shell .muted {
+  font-weight: 400;
+}
+
+.material-shell th,
+.material-shell td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.material-shell .is-hot td,
+.material-shell .soft-bg {
+  background: rgba(22, 93, 255, 0.06);
+}
+
+/* ── Status badges ── */
+.material-shell .status {
+  min-height: auto;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #F2F3F5;
+}
+
+.material-shell .status.ok,
+.material-shell .status.status-ok {
+  color: #00B42A;
+  background: rgba(0, 180, 42, 0.1);
+}
+
+.material-shell .status.warn,
+.material-shell .status.status-pending {
+  color: #FF7D00;
+  background: rgba(255, 125, 0, 0.1);
+}
+
+.material-shell .status.bad,
+.material-shell .status.status-risk {
+  color: #F53F3F;
+  background: rgba(245, 63, 63, 0.1);
+}
+
+.material-shell .status.neutral,
+.material-shell .status.status-offset {
+  color: #4E5969;
+  background: #F2F3F5;
+}
+
+/* ── Forms ── */
+.material-shell .field label {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: #1D2129;
+}
+
+.material-shell .field input,
+.material-shell .field select,
+.material-shell .field textarea,
+.material-shell .input-cell,
+.material-shell .table-wrap select {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-weight: 400;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.material-shell .field input:focus,
+.material-shell .field select:focus,
+.material-shell .field textarea:focus {
+  outline: none;
+  border-color: #165DFF;
+  box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.08);
+}
+
+.material-shell .segmented {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.material-shell .segmented button {
+  border-right: 1px solid var(--line);
+}
+
+.material-shell .segmented .is-selected {
+  background: rgba(22, 93, 255, 0.08);
+  color: #165DFF;
+}
+
+/* ── Misc ── */
+.material-shell .notice {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-weight: 400;
+  font-size: 13px;
+  background: #FAFBFC;
+}
+
+.material-shell .empty {
+  padding: 32px;
+  font-weight: 400;
+  font-size: 14px;
+}
+
+.material-shell .progress-bar {
+  height: 8px;
+  border: none;
+  border-radius: 999px;
+  background: #F2F3F5;
+  overflow: hidden;
+}
+
+.material-shell .progress-bar span {
+  background: linear-gradient(90deg, #165DFF, #4080FF);
+  border-radius: 999px;
+}
+
+.material-shell .data-tile strong {
+  font-family: inherit;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.material-shell .course-menu {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-hover);
+}
+
+.material-shell .course-menu button {
+  min-height: 56px;
+  border-bottom: 1px solid var(--line);
+}
+
+.material-shell .course-menu button:hover,
+.material-shell .course-menu button.is-current {
+  background: rgba(22, 93, 255, 0.08);
+  color: #165DFF;
+}
+
+.material-shell .course-menu strong {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.material-shell .course-menu span {
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.material-shell dt {
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.material-shell dd {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.material-shell .proof-card {
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+}
+
+.material-shell .content-grid,
+.material-shell .two-col {
+  gap: var(--gap);
+}
+
+.material-shell .admin-notice,
+.material-shell .teacher-notice {
+  margin-bottom: var(--gap);
+  border: 1px solid rgba(22, 93, 255, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: rgba(22, 93, 255, 0.08);
+  color: #165DFF;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.material-shell .teacher-notice {
+  margin: 0 0 16px;
+}
+
+@media (max-width: 820px) {
+  .material-shell {
+    flex-direction: column;
+  }
+
+  .material-shell .sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+  }
+
+  .material-shell .nav-list {
+    max-height: 240px;
+  }
+
+  .material-shell .sidebar-footer {
+    display: block;
+  }
+
+  .material-shell .topbar {
+    padding: 16px;
+  }
+
+  .material-shell .page {
+    padding: 16px;
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "bnbu-system",
+  "private": true,
+  "description": "BNBU 体育成绩管理系统",
+  "scripts": {
+    "postinstall": "npm install --prefix backend",
+    "preview": "node frontend/preview-server.cjs",
+    "preapi": "npm install --prefix backend --silent",
+    "api": "node backend/server.js",
+    "premock-api": "npm install --prefix backend --silent",
+    "mock-api": "node backend/mock-api.cjs",
+    "test:web": "node frontend/self-test.cjs",
+    "test:api": "npm test --prefix backend",
+    "seed": "node database/run-seed.cjs"
+  }
+}

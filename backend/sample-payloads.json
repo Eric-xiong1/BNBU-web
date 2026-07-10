@@ -1,0 +1,222 @@
+{
+  "authLoginRequest": {
+    "account": "teacher@bnbu.edu.cn",
+    "password": "password",
+    "role": "teacher"
+  },
+  "authLoginResponse": {
+    "token": "mock.jwt.token",
+    "defaultRoute": "teacher-dashboard",
+    "user": {
+      "id": "u1",
+      "name": "王老师",
+      "email": "teacher@bnbu.edu.cn",
+      "role": "体育任课老师",
+      "scope": "GEPE101",
+      "status": "正常"
+    }
+  },
+  "course": {
+    "id": "gepe",
+    "code": "GEPE101",
+    "section": "1004",
+    "name": "全人教育体育模块",
+    "semester": "2026 SPRING",
+    "students": 82,
+    "pending": 24,
+    "completion": 63,
+    "missing": 19,
+    "deadline": "第 6 周周日 23:59"
+  },
+  "studentProgress": {
+    "id": "22301142",
+    "name": "陈雨晴",
+    "college": "工商管理学院",
+    "className": "2026A",
+    "course": 6,
+    "general": 10,
+    "rawGeneral": 10,
+    "exam": 86,
+    "attendance": 90,
+    "physical": 78,
+    "status": "差课程 4h",
+    "source": "seed",
+    "organizationCredit": {
+      "id": "m1",
+      "type": "team",
+      "organization": "羽毛球队",
+      "studentId": "22301142",
+      "studentName": "陈雨晴",
+      "status": "认证有效",
+      "validUntil": "2026-09-01",
+      "offset": "可抵扣",
+      "comment": "校队名单已确认",
+      "updatedBy": "体育部管理员",
+      "updatedAt": "2026.06.01 10:30"
+    }
+  },
+  "rosterImportPreviewResponse": {
+    "validCount": 1,
+    "invalidCount": 3,
+    "rows": [
+      {
+        "name": "吴嘉琪",
+        "id": "22301888",
+        "college": "工商管理学院",
+        "className": "2026A",
+        "courseCode": "GEPE101",
+        "section": "1004",
+        "enrollmentStatus": "已选",
+        "valid": true,
+        "status": "通过"
+      },
+      {
+        "name": "周明熙",
+        "id": "22301888",
+        "college": "理工科技学院",
+        "className": "2026B",
+        "courseCode": "GEPE101",
+        "section": "1004",
+        "enrollmentStatus": "已选",
+        "valid": false,
+        "status": "重复学号"
+      }
+    ]
+  },
+  "courseTaskCreateRequest": {
+    "title": "课外跑步训练 Week 08",
+    "hours": 2,
+    "deadline": "第 8 周周日 23:59",
+    "proof": "运动 App 截图 + 场地照片",
+    "status": "草稿"
+  },
+  "reviewDecisionRequest": {
+    "decision": "approve",
+    "approvedHours": 1.5,
+    "comment": "凭证通过，按 1.5 小时计入"
+  },
+  "examScoreBatchRequest": {
+    "rows": [
+      {
+        "studentId": "22301142",
+        "examItems": [88, 85, 84]
+      },
+      {
+        "studentId": "22301087",
+        "examItems": [80, 78, 79]
+      }
+    ]
+  },
+  "attendanceScoreBatchRequest": {
+    "rows": [
+      {
+        "studentId": "22301142",
+        "week6": "出勤",
+        "week7": "出勤",
+        "score": 90
+      }
+    ]
+  },
+  "physicalScoreBatchRequest": {
+    "rows": [
+      {
+        "studentId": "22301142",
+        "endurance": "3:58",
+        "sprint": "8.1",
+        "jump": "2.28",
+        "score": 78
+      }
+    ]
+  },
+  "gradeRow": {
+    "studentId": "22301142",
+    "studentName": "陈雨晴",
+    "checkinScore": 80,
+    "exam": 86,
+    "attendance": 90,
+    "physical": 78,
+    "total": 83,
+    "sourceTrace": "名单:课程初始名单; 打卡:组织抵扣:羽毛球队; 专项:草稿; 平时:已保存; 体测:已保存",
+    "missingItems": ["打卡未满"]
+  },
+  "exportIssues": {
+    "missingPhysical": [],
+    "checkinNotEnough": [
+      {
+        "id": "22301142",
+        "name": "陈雨晴",
+        "college": "工商管理学院",
+        "course": 6,
+        "general": 10,
+        "exam": 86,
+        "attendance": 90,
+        "physical": 78,
+        "status": "差课程 4h"
+      }
+    ],
+    "unresolvedReviews": [
+      {
+        "id": "r1",
+        "courseId": "gepe",
+        "studentId": "22301142",
+        "name": "陈雨晴",
+        "type": "课程相关",
+        "hours": 2,
+        "risk": "同图复用",
+        "status": "待确认",
+        "task": "课外跑步训练 Week 06",
+        "reason": "图片哈希命中历史记录"
+      }
+    ],
+    "templateMatched": true
+  },
+  "membershipImportPreviewResponse": {
+    "validCount": 2,
+    "invalidCount": 1,
+    "rows": [
+      {
+        "type": "club",
+        "organization": "跑步社",
+        "studentName": "新同学",
+        "studentId": "22309951",
+        "validUntil": "2026-09-01",
+        "status": "认证有效",
+        "valid": true,
+        "checkStatus": "通过"
+      },
+      {
+        "type": "club",
+        "organization": "不存在社",
+        "studentName": "无效同学",
+        "studentId": "22309952",
+        "validUntil": "2026-09-01",
+        "status": "待确认",
+        "valid": false,
+        "checkStatus": "组织不存在"
+      }
+    ]
+  },
+  "deliveryRecord": {
+    "courseId": "gepe",
+    "status": "待清理",
+    "submittedAt": "2026.06.12 11:30",
+    "submittedBy": "体育任课老师",
+    "issueCount": 7,
+    "comment": "预检提交：仍有 7 项问题，需要清理后再归档。",
+    "updatedAt": "2026.06.12 11:30"
+  },
+  "errorResponse": {
+    "code": "VALIDATION_FAILED",
+    "message": "字段校验失败",
+    "details": [
+      {
+        "field": "courseCode",
+        "reason": "课程代码不匹配"
+      },
+      {
+        "field": "section",
+        "reason": "Section不匹配"
+      }
+    ]
+  }
+}

@@ -1,0 +1,1596 @@
+openapi: 3.0.3
+info:
+  title: BNBU Sports Grade Web API
+  version: 0.1.0
+  description: Teacher/admin/organization-manager Web API contract for the BNBU sports grade management MVP.
+servers:
+  - url: https://api.example.com/api
+    description: Production placeholder
+  - url: http://127.0.0.1:8080/api
+    description: Local development placeholder
+tags:
+  - name: Auth
+  - name: Teacher
+  - name: Reviews
+  - name: Scores
+  - name: Export
+  - name: Admin
+  - name: Organizations
+  - name: Delivery
+  - name: Logs
+security:
+  - bearerAuth: []
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Login to the Web console
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [account, password, role]
+              properties:
+                account:
+                  type: string
+                  example: teacher@bnbu.edu.cn
+                password:
+                  type: string
+                  format: password
+                role:
+                  $ref: '#/components/schemas/Role'
+      responses:
+        '200':
+          description: Login result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, user, defaultRoute]
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+                  defaultRoute:
+                    type: string
+                    example: teacher-dashboard
+        '401':
+          $ref: '#/components/responses/Error'
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current Web user and route permission
+      responses:
+        '200':
+          description: Current session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, routes]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/User'
+                  routes:
+                    type: array
+                    items:
+                      type: string
+
+  /teacher/courses:
+    get:
+      tags: [Teacher]
+      summary: List courses visible to current teacher
+      responses:
+        '200':
+          description: Courses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Course'
+  /teacher/courses/{courseId}/dashboard:
+    get:
+      tags: [Teacher]
+      summary: Get course dashboard metrics
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      responses:
+        '200':
+          description: Dashboard metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseMetrics'
+  /teacher/courses/{courseId}/students:
+    get:
+      tags: [Teacher]
+      summary: Get course roster
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+        - name: keyword
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, complete, incomplete, risk]
+      responses:
+        '200':
+          description: Course students
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StudentProgress'
+  /teacher/courses/{courseId}/students/import/preview:
+    post:
+      tags: [Teacher]
+      summary: Preview roster CSV import
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Import preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RosterImportPreview'
+        '422':
+          $ref: '#/components/responses/Error'
+  /teacher/courses/{courseId}/students/import/confirm:
+    post:
+      tags: [Teacher]
+      summary: Confirm valid roster import rows
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rows]
+              properties:
+                rows:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/RosterImportRow'
+      responses:
+        '200':
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResult'
+
+  /teacher/courses/{courseId}/tasks:
+    get:
+      tags: [Teacher]
+      summary: List course tasks
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/TaskStatus'
+      responses:
+        '200':
+          description: Tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CourseTask'
+    post:
+      tags: [Teacher]
+      summary: Create a course task
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CourseTaskInput'
+      responses:
+        '201':
+          description: Created task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseTask'
+  /teacher/tasks/{taskId}:
+    patch:
+      tags: [Teacher]
+      summary: Publish or close a task
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  $ref: '#/components/schemas/TaskStatus'
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CourseTask'
+    delete:
+      tags: [Teacher]
+      summary: Delete a task
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted
+
+  /teacher/courses/{courseId}/reviews:
+    get:
+      tags: [Reviews]
+      summary: List check-in review records
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, safe, risk, closed, all]
+        - name: keyword
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Reviews
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ReviewRecord'
+  /teacher/reviews/{reviewId}/decision:
+    put:
+      tags: [Reviews]
+      summary: Review a check-in submission
+      parameters:
+        - name: reviewId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision, approvedHours]
+              properties:
+                decision:
+                  type: string
+                  enum: [approve, reject, supplement]
+                approvedHours:
+                  type: number
+                  minimum: 0
+                  maximum: 2
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Updated review and affected student progress
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [review, student]
+                properties:
+                  review:
+                    $ref: '#/components/schemas/ReviewRecord'
+                  student:
+                    $ref: '#/components/schemas/StudentProgress'
+
+  /teacher/courses/{courseId}/scores/exam:
+    put:
+      tags: [Scores]
+      summary: Batch save special exam scores
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExamScoreBatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/BatchSaved'
+  /teacher/courses/{courseId}/scores/attendance:
+    put:
+      tags: [Scores]
+      summary: Batch save attendance and performance scores
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceScoreBatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/BatchSaved'
+  /teacher/courses/{courseId}/scores/physical:
+    put:
+      tags: [Scores]
+      summary: Batch save physical test source data and converted score
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PhysicalScoreBatch'
+      responses:
+        '200':
+          $ref: '#/components/responses/BatchSaved'
+  /teacher/courses/{courseId}/grades:
+    get:
+      tags: [Scores]
+      summary: Get final grade table for a course
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      responses:
+        '200':
+          description: Grade rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GradeRow'
+
+  /teacher/courses/{courseId}/export/precheck:
+    get:
+      tags: [Export]
+      summary: Get export blocking issues
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      responses:
+        '200':
+          description: Export issues
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportIssues'
+  /teacher/courses/{courseId}/export:
+    get:
+      tags: [Export]
+      summary: Download final course grade export
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+        - name: format
+          in: query
+          schema:
+            type: string
+            enum: [csv, xlsx]
+            default: csv
+      responses:
+        '200':
+          description: Export file
+          content:
+            text/csv:
+              schema:
+                type: string
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '409':
+          $ref: '#/components/responses/Error'
+  /teacher/courses/{courseId}/delivery:
+    post:
+      tags: [Delivery]
+      summary: Submit course precheck to sports department admin
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      responses:
+        '200':
+          description: Delivery record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryRecord'
+
+  /admin/overview:
+    get:
+      tags: [Admin]
+      summary: Get school-wide course health rows
+      responses:
+        '200':
+          description: School overview
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CourseHealthRow'
+  /admin/semesters:
+    get:
+      tags: [Admin]
+      summary: List semesters
+      responses:
+        '200':
+          description: Semesters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Semester'
+    post:
+      tags: [Admin]
+      summary: Create semester
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SemesterInput'
+      responses:
+        '201':
+          description: Created semester
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Semester'
+  /admin/courses:
+    get:
+      tags: [Admin]
+      summary: List all managed courses
+      responses:
+        '200':
+          description: Courses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminCourse'
+    post:
+      tags: [Admin]
+      summary: Create course
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCourseInput'
+      responses:
+        '201':
+          description: Created course
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCourse'
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: List Web users
+      responses:
+        '200':
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+    post:
+      tags: [Admin]
+      summary: Create Web user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserInput'
+      responses:
+        '201':
+          description: Created user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /admin/sport-rules:
+    get:
+      tags: [Admin]
+      summary: Get current sports hour rule
+      responses:
+        '200':
+          description: Rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SportRule'
+    put:
+      tags: [Admin]
+      summary: Save sports hour rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SportRule'
+      responses:
+        '200':
+          description: Saved rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SportRule'
+  /admin/grade-rules:
+    get:
+      tags: [Admin]
+      summary: Get grade weights
+      responses:
+        '200':
+          description: Grade rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GradeRule'
+    put:
+      tags: [Admin]
+      summary: Save grade weights
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/GradeRule'
+      responses:
+        '200':
+          description: Saved grade rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GradeRule'
+        '422':
+          $ref: '#/components/responses/Error'
+  /admin/conversion-rules:
+    get:
+      tags: [Admin]
+      summary: Get physical test conversion rules
+      responses:
+        '200':
+          description: Conversion rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConversionRule'
+    post:
+      tags: [Admin]
+      summary: Add physical test conversion rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversionRuleInput'
+      responses:
+        '201':
+          description: Created conversion rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversionRule'
+  /admin/export-template:
+    get:
+      tags: [Admin]
+      summary: Get export template
+      responses:
+        '200':
+          description: Export template
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportTemplate'
+    put:
+      tags: [Admin]
+      summary: Save export template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportTemplate'
+      responses:
+        '200':
+          description: Saved export template
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportTemplate'
+
+  /admin/organizations:
+    get:
+      tags: [Organizations]
+      summary: List teams or clubs
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [team, club]
+      responses:
+        '200':
+          description: Organizations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Organization'
+    post:
+      tags: [Organizations]
+      summary: Create team or club
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationInput'
+      responses:
+        '201':
+          description: Created organization
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+  /manager/memberships:
+    get:
+      tags: [Organizations]
+      summary: List memberships visible to organization manager
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [team, club]
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/MembershipStatus'
+      responses:
+        '200':
+          description: Memberships
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Membership'
+    post:
+      tags: [Organizations]
+      summary: Create a membership certification row
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipInput'
+      responses:
+        '201':
+          description: Created membership
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+  /manager/memberships/import/preview:
+    post:
+      tags: [Organizations]
+      summary: Preview team or club member import
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [type, file]
+              properties:
+                type:
+                  type: string
+                  enum: [team, club]
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Import preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MembershipImportPreview'
+  /manager/memberships/import/confirm:
+    post:
+      tags: [Organizations]
+      summary: Confirm valid team or club member import rows
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, rows]
+              properties:
+                type:
+                  type: string
+                  enum: [team, club]
+                rows:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/MembershipImportRow'
+      responses:
+        '200':
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResult'
+  /manager/memberships/{membershipId}/decision:
+    put:
+      tags: [Organizations]
+      summary: Manager approves or rejects a membership certification
+      parameters:
+        - name: membershipId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [approve, reject]
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Updated membership
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+  /admin/memberships/{membershipId}/decision:
+    put:
+      tags: [Organizations]
+      summary: Admin confirms or changes organization offset
+      parameters:
+        - name: membershipId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [confirm-member, force-offset, revoke-offset]
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Updated membership
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Membership'
+
+  /admin/deliveries:
+    get:
+      tags: [Delivery]
+      summary: List course grade delivery records
+      responses:
+        '200':
+          description: Delivery records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeliveryRecord'
+  /admin/deliveries/{courseId}/decision:
+    put:
+      tags: [Delivery]
+      summary: Archive, return, or remind a course delivery
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [archive, return, remind]
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Updated delivery
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryRecord'
+        '409':
+          $ref: '#/components/responses/Error'
+
+  /admin/logs:
+    get:
+      tags: [Logs]
+      summary: List audit logs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLog'
+                  nextCursor:
+                    type: string
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    CourseId:
+      name: courseId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: gepe
+  responses:
+    Error:
+      description: Error response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    BatchSaved:
+      description: Batch save result
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [savedCount]
+            properties:
+              savedCount:
+                type: integer
+              updatedAt:
+                type: string
+                example: 2026.06.12 11:30
+  schemas:
+    Role:
+      type: string
+      enum: [teacher, admin, manager]
+    Status:
+      type: string
+      example: 正常
+    User:
+      type: object
+      required: [id, name, email, role, scope, status]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          example: 体育任课老师
+        scope:
+          type: string
+          example: GEPE101
+        status:
+          $ref: '#/components/schemas/Status'
+    UserInput:
+      type: object
+      required: [name, email, role, scope]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        scope:
+          type: string
+    Course:
+      type: object
+      required: [id, code, section, name, semester]
+      properties:
+        id:
+          type: string
+          example: gepe
+        code:
+          type: string
+          example: GEPE101
+        section:
+          type: string
+          example: '1004'
+        name:
+          type: string
+        semester:
+          type: string
+          example: 2026 SPRING
+        students:
+          type: integer
+        pending:
+          type: integer
+        completion:
+          type: integer
+        missing:
+          type: integer
+        deadline:
+          type: string
+    AdminCourse:
+      allOf:
+        - $ref: '#/components/schemas/Course'
+        - type: object
+          properties:
+            teacher:
+              type: string
+            status:
+              $ref: '#/components/schemas/Status'
+    AdminCourseInput:
+      type: object
+      required: [code, section, name, teacher, semester]
+      properties:
+        code:
+          type: string
+        section:
+          type: string
+          example: '1004'
+        name:
+          type: string
+        teacher:
+          type: string
+        students:
+          type: integer
+        semester:
+          type: string
+        status:
+          type: string
+    CourseMetrics:
+      type: object
+      required: [students, pending, completion, missing, courseHours, generalHours, exportState]
+      properties:
+        students:
+          type: integer
+        pending:
+          type: integer
+        completion:
+          type: integer
+        missing:
+          type: integer
+        courseHours:
+          type: string
+        generalHours:
+          type: string
+        exportState:
+          type: string
+    StudentProgress:
+      type: object
+      required: [id, name, college, course, general, exam, attendance, physical, status]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        college:
+          type: string
+        className:
+          type: string
+        course:
+          type: number
+        general:
+          type: number
+        rawGeneral:
+          type: number
+        exam:
+          type: integer
+        attendance:
+          type: integer
+        physical:
+          type: integer
+        status:
+          type: string
+        source:
+          type: string
+          enum: [seed, import]
+        organizationCredit:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/Membership'
+    RosterImportRow:
+      type: object
+      required: [name, id, college, courseCode, section, enrollmentStatus]
+      properties:
+        name:
+          type: string
+        id:
+          type: string
+        college:
+          type: string
+        className:
+          type: string
+        courseCode:
+          type: string
+        section:
+          type: string
+          example: '1004'
+        enrollmentStatus:
+          type: string
+          enum: [已选, 退课, 待确认]
+        valid:
+          type: boolean
+        status:
+          type: string
+    RosterImportPreview:
+      type: object
+      required: [rows, validCount, invalidCount]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/RosterImportRow'
+        validCount:
+          type: integer
+        invalidCount:
+          type: integer
+    ImportResult:
+      type: object
+      required: [importedCount, rejectedCount]
+      properties:
+        importedCount:
+          type: integer
+        rejectedCount:
+          type: integer
+        rejectedRows:
+          type: array
+          items:
+            type: object
+    TaskStatus:
+      type: string
+      enum: [草稿, 进行中, 已关闭]
+    CourseTask:
+      type: object
+      required: [id, courseId, title, hours, deadline, proof, status]
+      properties:
+        id:
+          type: string
+        courseId:
+          type: string
+        title:
+          type: string
+        hours:
+          type: number
+        deadline:
+          type: string
+        proof:
+          type: string
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        updatedAt:
+          type: string
+    CourseTaskInput:
+      type: object
+      required: [title, hours, deadline, proof, status]
+      properties:
+        title:
+          type: string
+        hours:
+          type: number
+        deadline:
+          type: string
+        proof:
+          type: string
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+    ReviewRecord:
+      type: object
+      required: [id, courseId, studentId, name, type, hours, risk, status, task, reason]
+      properties:
+        id:
+          type: string
+        courseId:
+          type: string
+        studentId:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [课程相关, 其他运动]
+        hours:
+          type: number
+        approvedHours:
+          type: number
+        risk:
+          type: string
+        status:
+          type: string
+          enum: [待确认, 需复核, 可通过, 补材料, 已通过, 已驳回]
+        task:
+          type: string
+        reason:
+          type: string
+        comment:
+          type: string
+        applied:
+          type: boolean
+    ExamScoreBatch:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items:
+            type: object
+            required: [studentId, examItems]
+            properties:
+              studentId:
+                type: string
+              examItems:
+                type: array
+                items:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+    AttendanceScoreBatch:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items:
+            type: object
+            required: [studentId, week6, week7, score]
+            properties:
+              studentId:
+                type: string
+              week6:
+                type: string
+                enum: [出勤, 迟到, 请假, 缺勤]
+              week7:
+                type: string
+                enum: [出勤, 迟到, 请假, 缺勤]
+              score:
+                type: integer
+                minimum: 0
+                maximum: 100
+    PhysicalScoreBatch:
+      type: object
+      required: [rows]
+      properties:
+        rows:
+          type: array
+          items:
+            type: object
+            required: [studentId, endurance, sprint, jump, score]
+            properties:
+              studentId:
+                type: string
+              endurance:
+                type: string
+                example: 3:58
+              sprint:
+                type: string
+                example: '8.1'
+              jump:
+                type: string
+                example: '2.28'
+              score:
+                type: integer
+                minimum: 0
+                maximum: 100
+    GradeRow:
+      type: object
+      required: [studentId, studentName, checkinScore, exam, attendance, physical, total, missingItems]
+      properties:
+        studentId:
+          type: string
+        studentName:
+          type: string
+        checkinScore:
+          type: integer
+        exam:
+          type: integer
+        attendance:
+          type: integer
+        physical:
+          type: integer
+        total:
+          type: integer
+        sourceTrace:
+          type: string
+        missingItems:
+          type: array
+          items:
+            type: string
+    ExportIssues:
+      type: object
+      required: [missingPhysical, checkinNotEnough, unresolvedReviews, templateMatched]
+      properties:
+        missingPhysical:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentProgress'
+        checkinNotEnough:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentProgress'
+        unresolvedReviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReviewRecord'
+        templateMatched:
+          type: boolean
+    Semester:
+      type: object
+      required: [id, name, dateRange, status, locked]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        dateRange:
+          type: string
+        status:
+          type: string
+        locked:
+          type: string
+    SemesterInput:
+      type: object
+      required: [name, dateRange, status]
+      properties:
+        name:
+          type: string
+        dateRange:
+          type: string
+        status:
+          type: string
+        locked:
+          type: string
+    SportRule:
+      type: object
+      required: [version, total, courseRequired, generalRequired, dailyLimit, stackAllowed, organizationOffset, status]
+      properties:
+        version:
+          type: string
+        total:
+          type: integer
+        courseRequired:
+          type: integer
+        generalRequired:
+          type: integer
+        dailyLimit:
+          type: number
+        stackAllowed:
+          type: string
+        organizationOffset:
+          type: string
+        status:
+          type: string
+    GradeRule:
+      type: object
+      required: [id, key, name, weight, source, status]
+      properties:
+        id:
+          type: string
+        key:
+          type: string
+          enum: [checkin, exam, attendance, physical]
+        name:
+          type: string
+        weight:
+          type: integer
+          minimum: 0
+          maximum: 100
+        source:
+          type: string
+        status:
+          type: string
+    ConversionRule:
+      type: object
+      required: [id, item, metric, method, version, status]
+      properties:
+        id:
+          type: string
+        item:
+          type: string
+        metric:
+          type: string
+        method:
+          type: string
+        version:
+          type: string
+        status:
+          type: string
+    ConversionRuleInput:
+      type: object
+      required: [item, metric, method, version]
+      properties:
+        item:
+          type: string
+        metric:
+          type: string
+        method:
+          type: string
+        version:
+          type: string
+    ExportTemplate:
+      type: object
+      required: [name, format, fields, status]
+      properties:
+        name:
+          type: string
+        format:
+          type: string
+          enum: [CSV, XLSX]
+        fields:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+    Organization:
+      type: object
+      required: [id, name, type, members, offset, owner, status]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        members:
+          type: integer
+        offset:
+          type: string
+          enum: [可抵扣, 不抵扣]
+        owner:
+          type: string
+        status:
+          type: string
+    OrganizationInput:
+      type: object
+      required: [name, type, offset, owner]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+        members:
+          type: integer
+        offset:
+          type: string
+          enum: [可抵扣, 不抵扣]
+        owner:
+          type: string
+    MembershipStatus:
+      type: string
+      enum: [待确认, 认证有效, 不通过, 非体育类]
+    Membership:
+      type: object
+      required: [id, type, organization, studentId, studentName, status, validUntil, offset, comment, updatedBy, updatedAt]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [team, club]
+        organization:
+          type: string
+        studentId:
+          type: string
+        studentName:
+          type: string
+        status:
+          $ref: '#/components/schemas/MembershipStatus'
+        validUntil:
+          type: string
+        offset:
+          type: string
+          enum: [可抵扣, 不抵扣, 待确认]
+        comment:
+          type: string
+        updatedBy:
+          type: string
+        updatedAt:
+          type: string
+    MembershipInput:
+      type: object
+      required: [type, organization, studentId, studentName, validUntil]
+      properties:
+        type:
+          type: string
+          enum: [team, club]
+        organization:
+          type: string
+        studentId:
+          type: string
+        studentName:
+          type: string
+        validUntil:
+          type: string
+        comment:
+          type: string
+    MembershipImportRow:
+      allOf:
+        - $ref: '#/components/schemas/MembershipInput'
+        - type: object
+          properties:
+            status:
+              $ref: '#/components/schemas/MembershipStatus'
+            valid:
+              type: boolean
+            checkStatus:
+              type: string
+    MembershipImportPreview:
+      type: object
+      required: [rows, validCount, invalidCount]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/MembershipImportRow'
+        validCount:
+          type: integer
+        invalidCount:
+          type: integer
+    DeliveryRecord:
+      type: object
+      required: [courseId, status, submittedAt, submittedBy, issueCount, comment]
+      properties:
+        courseId:
+          type: string
+        status:
+          type: string
+          enum: [未提交, 待清理, 待管理员确认, 已归档, 退回清理]
+        submittedAt:
+          type: string
+        submittedBy:
+          type: string
+        issueCount:
+          type: integer
+        comment:
+          type: string
+        updatedAt:
+          type: string
+    CourseHealthRow:
+      type: object
+      required: [course, metrics, issueCount, delivery, health]
+      properties:
+        course:
+          $ref: '#/components/schemas/Course'
+        metrics:
+          $ref: '#/components/schemas/CourseMetrics'
+        issues:
+          $ref: '#/components/schemas/ExportIssues'
+        issueCount:
+          type: integer
+        delivery:
+          $ref: '#/components/schemas/DeliveryRecord'
+        health:
+          type: string
+          enum: [已归档, 可归档, 需跟进, 正常]
+    AuditLog:
+      type: object
+      required: [id, actor, action, target, time]
+      properties:
+        id:
+          type: string
+        actor:
+          type: string
+        action:
+          type: string
+        target:
+          type: string
+        time:
+          type: string
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: VALIDATION_FAILED
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
