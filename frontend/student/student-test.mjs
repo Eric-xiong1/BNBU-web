@@ -8,6 +8,11 @@ import { routeFromHash } from "./app.js";
 import { renderBottomNav } from "./views/shell.js";
 import { validateProofSelection, validateCheckin } from "./core/upload.js";
 import { renderCheckin } from "./views/checkin.js";
+import { renderHome } from "./views/home.js";
+import { renderCourses } from "./views/courses.js";
+import { calculateGrade, renderGrades } from "./views/grades.js";
+import { filterNotifications, renderProfile } from "./views/profile.js";
+import { validateRunTime, validateExemption, renderEndurance, renderExemptions } from "./views/tools.js";
 
 test("check-in is the first navigation item", () => {
   assert.deepEqual(NAV_ITEMS.map((item) => item.id), ["checkin", "home", "courses", "grades", "profile"]);
@@ -82,4 +87,50 @@ test("check-in renders tasks submit records tabs with submit active", () => {
   const html = renderCheckin({ activeTab: "submit", tasks: [], records: [], draft: {}, uploads: [] });
   for (const label of ["任务", "提交", "记录"]) assert.match(html, new RegExp(label));
   assert.match(html, /aria-selected="true"[^>]*>提交/);
+});
+
+test("home contains all required sections", () => {
+  const html = renderHome(demoWorkspace());
+  for (const text of ["学时进度", "风险提示", "行动入口", "周计划", "近期任务", "通知"]) assert.match(html, new RegExp(text));
+});
+
+test("courses display code section tasks and related records", () => {
+  const workspace = demoWorkspace();
+  const html = renderCourses(workspace.courses, workspace.tasks, workspace.records);
+  assert.match(html, /GEPE101 \/ Section 1004/);
+  assert.match(html, /课程任务/);
+  assert.match(html, /相关记录/);
+});
+
+test("grade estimate uses 25 30 20 25 weights", () => {
+  assert.equal(calculateGrade({ checkin: 80, exam: 90, performance: 85, physical: 70 }).total, 81.5);
+});
+
+test("grade view discloses formula missing items and sources", () => {
+  const html = renderGrades({ components: { checkin: 80, exam: null, performance: 85, physical: 70 }, sources: ["教师录入", "打卡审核"] });
+  for (const text of ["总分预估", "25%", "30%", "20%", "计算公式", "缺失项", "数据来源"]) assert.match(html, new RegExp(text));
+});
+
+test("notification unread filter returns only unread items", () => {
+  assert.ok(filterNotifications(demoWorkspace().notifications, "unread").every((item) => item.isUnread));
+});
+
+test("profile exposes identity offsets notices tools settings and logout", () => {
+  const html = renderProfile(demoWorkspace());
+  for (const text of ["学生身份", "校队 / 社团抵扣", "通知", "耐力跑成绩换算", "免测申请", "设置", "退出登录"]) assert.match(html, new RegExp(text));
+});
+
+test("run time requires seconds between zero and 59", () => {
+  assert.match(validateRunTime("3", "60").join(" "), /0–59/);
+  assert.deepEqual(validateRunTime("3", "45"), []);
+});
+
+test("exemption requires type and reason", () => {
+  assert.match(validateExemption({ type: "", reason: "", proofs: [] }).join(" "), /项目/);
+  assert.match(validateExemption({ type: "800m", reason: "", proofs: [] }).join(" "), /原因/);
+});
+
+test("tool views include result and application states", () => {
+  assert.match(renderEndurance({ student: demoWorkspace().student }), /耐力跑成绩换算/);
+  assert.match(renderExemptions(demoWorkspace().exemptions), /我的申请/);
 });

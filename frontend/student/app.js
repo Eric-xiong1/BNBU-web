@@ -5,6 +5,11 @@ import { renderLogin } from "./views/login.js";
 import { renderPlaceholder, renderShell } from "./views/shell.js";
 import { renderCheckin, renderRecordDetail } from "./views/checkin.js";
 import { createUploadItems, releaseUpload, validateCheckin, validateProofSelection } from "./core/upload.js";
+import { renderHome } from "./views/home.js";
+import { renderCourseDetail, renderCourses } from "./views/courses.js";
+import { renderGrades } from "./views/grades.js";
+import { renderNotifications, renderProfile, renderSettings } from "./views/profile.js";
+import { renderEndurance, renderExemptionForm, renderExemptions, validateExemption, validateRunTime } from "./views/tools.js";
 
 const ROUTES = new Set(["checkin", "home", "courses", "grades", "profile", "notifications", "endurance", "exemptions", "exemption-new", "settings"]);
 
@@ -42,7 +47,11 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
   const demoApi = createDemoApi({ store });
   let loginError = "";
   let loginBusy = false;
-  const ui = { checkinTab: "submit", uploads: [], selectedTaskId: null, supplementRecordId: null, checkinError: "", checkinBusy: false };
+  const ui = {
+    checkinTab: "submit", uploads: [], selectedTaskId: null, supplementRecordId: null, checkinError: "", checkinBusy: false,
+    noticeFilter: "all", enduranceResult: null, enduranceError: "", enduranceBusy: false,
+    exemptionUploads: [], exemptionError: "", exemptionBusy: false,
+  };
 
   const api = () => store.getState().mode === "demo" ? demoApi : realApi;
   const go = (route) => { globalThis.location.hash = `#/${route}`; };
@@ -65,7 +74,19 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       });
     } else if (route.name === "record-detail") {
       content = renderRecordDetail(state.records.find((item) => item.id === route.id));
-    } else content = renderPlaceholder(titles[route.name] || "学生端", "BNBU 学生体育服务");
+    } else if (route.name === "home") content = renderHome(state);
+    else if (route.name === "courses") content = renderCourses(state.courses, state.tasks, state.records);
+    else if (route.name === "course-detail") {
+      const course = state.courses.find((item) => item.id === route.id);
+      content = renderCourseDetail(course, state.tasks.filter((item) => item.courseId === route.id), state.records.filter((item) => item.courseId === route.id));
+    } else if (route.name === "grades") content = renderGrades(state.grades);
+    else if (route.name === "profile") content = renderProfile(state);
+    else if (route.name === "notifications") content = renderNotifications(state.notifications, ui.noticeFilter);
+    else if (route.name === "endurance") content = renderEndurance({ student: state.student, result: ui.enduranceResult, error: ui.enduranceError, busy: ui.enduranceBusy });
+    else if (route.name === "exemptions") content = renderExemptions(state.exemptions);
+    else if (route.name === "exemption-new") content = renderExemptionForm({ student: state.student, proofs: ui.exemptionUploads, error: ui.exemptionError, busy: ui.exemptionBusy });
+    else if (route.name === "settings") content = renderSettings(state.settings);
+    else content = renderPlaceholder(titles[route.name] || "学生端", "BNBU 学生体育服务");
     root.innerHTML = renderShell({
       active: activeForRoute(route.name), title: titles[route.name], content, mode: state.mode,
       unread: state.notifications.filter((item) => item.isUnread).length,
@@ -78,9 +99,24 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     try {
       const result = await realApi.login(String(data.get("account") || ""), String(data.get("password") || ""));
       store.persistSession({ token: result.token, user: result.user }, "real");
+      await hydrateReal();
       go("checkin");
     } catch (error) { loginError = error.message; }
     finally { loginBusy = false; render(); }
+  }
+
+  async function hydrateReal() {
+    try {
+      const [summary, taskGroups, grades, identity, notifications, profile, records, exemptions] = await Promise.all([
+        realApi.summary(), realApi.tasks(), realApi.grades(), realApi.identity(), realApi.notifications(), realApi.profile(), realApi.records(), realApi.listExemptions(),
+      ]);
+      const courses = (summary.courses || []).map((course) => ({
+        id: course.courseId, courseCode: course.courseCode, section: course.courseSection,
+        name: course.courseName, teacher: course.teacherName, semester: "当前学期",
+        requiredHours: 10, completedHours: Number(course.courseHours || 0),
+      }));
+      store.patch({ summary, courses, tasks: [...(taskGroups.pending || []), ...(taskGroups.completed || [])], grades, memberships: identity.memberships || identity || [], notifications: notifications.items || notifications, student: profile.profile || profile, records, exemptions });
+    } catch (error) { loginError = `登录成功，但部分数据加载失败：${error.message}`; }
   }
 
   function checkinPayload(form) {
@@ -124,6 +160,35 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     } finally { ui.checkinBusy = false; render(); }
   }
 
+  async function submitEndurance(form) {
+    const data = new FormData(form); const minutes = String(data.get("minutes") || ""), seconds = String(data.get("seconds") || "");
+    const errors = validateRunTime(minutes, seconds);
+    if (errors.length) { ui.enduranceError = errors.join("；"); return render(); }
+    const student = store.getState().student;
+    if (!student.gender || !student.gradeLevel) { ui.enduranceError = "请先在个人资料中设置性别和年级"; return render(); }
+    ui.enduranceBusy = true; ui.enduranceError = ""; render();
+    try { ui.enduranceResult = await api().convertEndurance({ timeSeconds: Number(minutes) * 60 + Number(seconds), gender: student.gender, gradeLevel: student.gradeLevel }); }
+    catch (error) { ui.enduranceError = error.message; }
+    finally { ui.enduranceBusy = false; render(); }
+  }
+
+  async function submitExemption(form) {
+    const data = new FormData(form);
+    const payload = { type: String(data.get("type") || ""), reason: String(data.get("reason") || "").trim(), proofs: ui.exemptionUploads };
+    const errors = validateExemption(payload);
+    if (store.getState().exemptions.some((item) => item.type === payload.type && item.status === "待审核")) errors.push(`已有待审核的 ${payload.type} 免测申请`);
+    if (errors.length) { ui.exemptionError = errors.join("；"); return render(); }
+    if (!(globalThis.confirm?.(`确认提交 ${payload.type} 免测申请？`) ?? true)) return;
+    ui.exemptionBusy = true; ui.exemptionError = ""; render();
+    try {
+      const uploaded = ui.exemptionUploads.length ? await api().uploadProofs(ui.exemptionUploads.map((item) => item.file)) : [];
+      const result = await api().submitExemption({ type: payload.type, reason: payload.reason, proofFiles: uploaded.map((item) => item.url) });
+      if (store.getState().mode === "real") store.patch((state) => ({ exemptions: [{ ...payload, ...result, proofFiles: uploaded.map((item) => item.url) }, ...state.exemptions] }));
+      ui.exemptionUploads.forEach((item) => releaseUpload(item)); ui.exemptionUploads = []; go("exemptions");
+    } catch (error) { ui.exemptionError = error.message; }
+    finally { ui.exemptionBusy = false; render(); }
+  }
+
   root?.addEventListener("click", async (event) => {
     const routeButton = event.target.closest("[data-route]");
     if (routeButton) return go(routeButton.dataset.route);
@@ -137,7 +202,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     const tab = event.target.closest("[data-checkin-tab]");
     if (tab) { ui.checkinTab = tab.dataset.checkinTab; ui.checkinError = ""; return render(); }
     const taskButton = event.target.closest('[data-action="use-task"]');
-    if (taskButton) { ui.selectedTaskId = taskButton.dataset.taskId; ui.checkinTab = "submit"; return render(); }
+    if (taskButton) { ui.selectedTaskId = taskButton.dataset.taskId; ui.checkinTab = "submit"; go("checkin"); return render(); }
     const removeButton = event.target.closest('[data-action="remove-upload"]');
     if (removeButton) {
       const item = ui.uploads.find((upload) => upload.id === removeButton.dataset.uploadId);
@@ -156,10 +221,29 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       store.saveDraft({ hours: record?.hours || 1, sportType: record?.sportType || "", description: record?.description || "" });
       return go("checkin");
     }
+    const noticeFilter = event.target.closest("[data-notice-filter]");
+    if (noticeFilter) { ui.noticeFilter = noticeFilter.dataset.noticeFilter; return render(); }
+    const readNotice = event.target.closest('[data-action="read-notice"]');
+    if (readNotice) { await api().markNotificationRead(readNotice.dataset.noticeId); return render(); }
+    if (event.target.closest('[data-action="mark-all-read"]')) {
+      const unread = store.getState().notifications.filter((item) => item.isUnread);
+      await Promise.all(unread.map((item) => api().markNotificationRead(item.id)));
+      if (store.getState().mode === "real") store.patch((state) => ({ notifications: state.notifications.map((item) => ({ ...item, isUnread: false })) }));
+      return render();
+    }
+    if (event.target.closest('[data-action="logout"]')) {
+      try { await api().logout(); } catch { /* local logout still applies */ }
+      store.clearSession(); globalThis.location.hash = ""; return render();
+    }
+    if (event.target.closest('[data-action="reset-demo"]')) {
+      if (globalThis.confirm?.("确认重置演示数据？") ?? true) { const next = demoWorkspace(); store.reset(next); store.persistSession(next.session, "demo"); go("checkin"); }
+    }
   });
   root?.addEventListener("submit", (event) => {
     if (event.target.id === "student-login-form") { event.preventDefault(); handleLogin(event.target); }
     if (event.target.id === "checkin-form") { event.preventDefault(); submitCheckin(event.target); }
+    if (event.target.id === "endurance-form") { event.preventDefault(); submitEndurance(event.target); }
+    if (event.target.id === "exemption-form") { event.preventDefault(); submitExemption(event.target); }
   });
   root?.addEventListener("change", (event) => {
     if (event.target.id !== "proof-picker") return;
@@ -167,6 +251,15 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     const result = validateProofSelection(combined);
     if (!result.valid) { ui.checkinError = result.errors.join("；"); return render(); }
     ui.uploads = [...ui.uploads, ...createUploadItems(event.target.files)]; ui.checkinError = ""; render();
+  });
+  root?.addEventListener("change", (event) => {
+    if (event.target.id === "exemption-proof-picker") {
+      const combined = [...ui.exemptionUploads.map((item) => item.file), ...event.target.files];
+      const result = validateProofSelection(combined);
+      if (!result.valid) { ui.exemptionError = result.errors.join("；"); return render(); }
+      ui.exemptionUploads = [...ui.exemptionUploads, ...createUploadItems(event.target.files)]; ui.exemptionError = ""; render();
+    }
+    if (event.target.matches('[data-setting="reducedMotion"]')) store.patch((state) => ({ settings: { ...state.settings, reducedMotion: event.target.checked } }));
   });
   globalThis.addEventListener?.("hashchange", render);
   store.subscribe(render);
