@@ -6,6 +6,8 @@ import { demoWorkspace } from "./data/demo-data.js";
 import { createStudentApi } from "./core/api.js";
 import { routeFromHash } from "./app.js";
 import { renderBottomNav } from "./views/shell.js";
+import { validateProofSelection, validateCheckin } from "./core/upload.js";
+import { renderCheckin } from "./views/checkin.js";
 
 test("check-in is the first navigation item", () => {
   assert.deepEqual(NAV_ITEMS.map((item) => item.id), ["checkin", "home", "courses", "grades", "profile"]);
@@ -61,4 +63,23 @@ test("bottom nav renders check-in first and all five destinations", () => {
   const html = renderBottomNav("checkin");
   assert.ok(html.indexOf("打卡") < html.indexOf("首页"));
   for (const label of ["打卡", "首页", "课程", "成绩", "我的"]) assert.match(html, new RegExp(label));
+});
+
+test("proof selection rejects a seventh image and second video", () => {
+  const image = { type: "image/jpeg", size: 1000 };
+  const video = { type: "video/mp4", size: 1000 };
+  assert.match(validateProofSelection([...Array(7).fill(image)]).errors.join(" "), /最多 6 张/);
+  assert.match(validateProofSelection([video, video]).errors.join(" "), /最多 1 个视频/);
+});
+
+test("check-in requires proof and custom other name", () => {
+  const errors = validateCheckin({ hours: 1, sportType: "other", customSport: "", description: "南区操场慢跑", files: [] });
+  assert.match(errors.join(" "), /自定义运动名称/);
+  assert.match(errors.join(" "), /至少上传/);
+});
+
+test("check-in renders tasks submit records tabs with submit active", () => {
+  const html = renderCheckin({ activeTab: "submit", tasks: [], records: [], draft: {}, uploads: [] });
+  for (const label of ["任务", "提交", "记录"]) assert.match(html, new RegExp(label));
+  assert.match(html, /aria-selected="true"[^>]*>提交/);
 });
