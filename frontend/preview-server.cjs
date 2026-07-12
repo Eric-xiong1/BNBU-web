@@ -16,6 +16,11 @@ const contentTypes = {
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
   ".webp": "image/webp",
+  ".heic": "image/heic",
+  ".heif": "image/heif",
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".mjs": "text/javascript; charset=utf-8",
   ".ico": "image/x-icon",
 };
 

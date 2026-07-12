@@ -1,0 +1,106 @@
+:root {
+  --primary: #165DFF;
+  --primary-light: #4080FF;
+  --primary-soft: #E8F3FF;
+  --page: #F5F7FA;
+  --surface: #FFFFFF;
+  --text: #1D2129;
+  --body: #4E5969;
+  --muted: #86909C;
+  --border: #E5E6EB;
+  --success: #00B42A;
+  --warning: #FF7D00;
+  --danger: #F53F3F;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 2px 8px rgba(0, 0, 0, .06);
+  --shadow-hover: 0 4px 16px rgba(22, 93, 255, .12);
+  --nav-height: 64px;
+}
+
+* { box-sizing: border-box; }
+html { min-height: 100%; background: var(--page); }
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--body);
+  background: var(--page);
+  font: 14px/1.55 Inter, "PingFang SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+}
+button, input, select, textarea { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { min-height: 44px; }
+.student-loading { display: grid; min-height: 100vh; place-items: center; color: var(--muted); }
+
+.student-shell { min-height: 100vh; padding-bottom: calc(var(--nav-height) + env(safe-area-inset-bottom)); }
+.student-topbar {
+  position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between;
+  min-height: 58px; padding: 8px 16px; border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,.94); backdrop-filter: blur(10px);
+}
+.brand-word { color: var(--primary); font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+.topbar-title { color: var(--text); font-size: 16px; font-weight: 600; }
+.student-main { width: 100%; max-width: 1120px; margin: 0 auto; padding: 16px; }
+.page-stack { display: grid; gap: 16px; }
+.page-heading { margin: 0; color: var(--text); font-size: 24px; font-weight: 600; line-height: 1.25; }
+.page-caption { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+.card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.card-head { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.card-body { padding: 16px 20px; }
+.card-title { margin: 0; color: var(--text); font-size: 17px; font-weight: 600; }
+.muted { color: var(--muted); }
+.grid { display: grid; gap: 16px; }
+.grid-2, .grid-3 { grid-template-columns: 1fr; }
+
+.field { display: grid; gap: 7px; }
+.field > span { color: var(--text); font-size: 13px; font-weight: 500; }
+.field input, .field select, .field textarea {
+  width: 100%; min-height: 46px; padding: 10px 12px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); outline: none;
+}
+.field textarea { min-height: 108px; resize: vertical; }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(22,93,255,.08); }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 16px; border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer; font-weight: 500; }
+.button-primary { color: #fff; background: linear-gradient(135deg, var(--primary), var(--primary-light)); box-shadow: 0 2px 6px rgba(22,93,255,.28); }
+.button-secondary { color: var(--body); background: #fff; border-color: var(--border); }
+.button-danger { color: var(--danger); background: rgba(245,63,63,.08); border-color: rgba(245,63,63,.2); }
+.button-block { width: 100%; }
+.button:disabled { color: var(--muted); background: #F2F3F5; border-color: transparent; box-shadow: none; cursor: not-allowed; }
+
+.badge { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 8px; border-radius: 4px; background: #F2F3F5; font-size: 12px; font-weight: 500; }
+.badge-success { color: var(--success); background: rgba(0,180,42,.1); }
+.badge-warning { color: var(--warning); background: rgba(255,125,0,.1); }
+.badge-danger { color: var(--danger); background: rgba(245,63,63,.1); }
+.notice { padding: 12px 14px; border: 1px solid rgba(22,93,255,.2); border-radius: var(--radius-sm); color: var(--primary); background: var(--primary-soft); }
+
+.bottom-nav {
+  position: fixed; inset: auto 0 0; z-index: 40; display: grid; grid-template-columns: repeat(5, minmax(0,1fr));
+  min-height: var(--nav-height); padding: 5px 4px calc(5px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border); background: rgba(255,255,255,.97); backdrop-filter: blur(12px);
+}
+.nav-button { display: grid; place-items: center; align-content: center; gap: 2px; min-width: 0; color: var(--muted); border: 0; background: transparent; font-size: 11px; cursor: pointer; }
+.nav-button strong { font-size: 18px; line-height: 1; }
+.nav-button.is-active { color: var(--primary); font-weight: 600; }
+
+.auth-shell { display: grid; min-height: 100vh; }
+.auth-brand { padding: 28px 24px; color: #fff; background: linear-gradient(160deg,var(--primary),var(--primary-light) 55%,#6AA1FF); }
+.auth-brand h1 { margin: 20px 0 10px; font-size: 28px; line-height: 1.25; }
+.auth-brand p { max-width: 520px; margin: 0; color: rgba(255,255,255,.88); }
+.auth-main { display: grid; place-items: center; padding: 24px 16px 40px; }
+.auth-card { width: min(100%, 560px); padding: 28px; border: 1px solid var(--border); border-radius: var(--radius); background: #fff; box-shadow: var(--shadow); }
+
+@media (min-width: 601px) {
+  .student-main { padding: 24px; }
+  .grid-2 { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .grid-3 { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (min-width: 901px) {
+  .auth-shell { grid-template-columns: minmax(340px, 42%) minmax(0,1fr); }
+  .auth-brand { display: flex; flex-direction: column; justify-content: center; padding: 48px; }
+  .grid-3 { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .student-shell { padding-bottom: 88px; }
+  .bottom-nav { left: 50%; right: auto; bottom: 16px; width: min(720px,calc(100% - 32px)); transform: translateX(-50%); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-hover); }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

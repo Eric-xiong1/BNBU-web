@@ -10,6 +10,8 @@
     "premock-api": "npm install --prefix backend --silent",
     "mock-api": "node backend/mock-api.cjs",
     "test:web": "node frontend/self-test.cjs",
+    "test:student": "node --test frontend/student/student-test.mjs && node frontend/student/student-smoke.cjs",
+    "smoke:student": "node frontend/student/student-smoke.cjs",
     "test:api": "npm test --prefix backend",
     "seed": "node database/run-seed.cjs"
   }
