@@ -10,7 +10,7 @@ app.use(express.json({ limit: '1mb' }));
 // ── Dev mode flag (set ALLOW_DEMO_TOKENS=true for development) ──
 const DEV_MODE = process.env.ALLOW_DEMO_TOKENS === 'true';
 
-// ── File upload setup (proof images) ─────────────────────────────
+// ── File upload setup (student proof media) ──────────────────────
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -24,15 +24,17 @@ const storage = multer.diskStorage({
   },
 });
 
-const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
+const VIDEO_MIME = new Set(['video/mp4', 'video/quicktime']);
+const MAX_IMAGE_SIZE = 8 * 1024 * 1024;
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
 
 const upload = multer({
   storage,
-  limits: { fileSize: MAX_FILE_SIZE, files: 5 },
+  limits: { fileSize: MAX_VIDEO_SIZE, files: 7 },
   fileFilter: (_req, file, cb) => {
-    if (ALLOWED_MIME.includes(file.mimetype)) return cb(null, true);
-    cb(new Error(`不支持的文件类型: ${file.mimetype}。仅支持 JPG、PNG、WebP、HEIC`));
+    if (IMAGE_MIME.has(file.mimetype) || VIDEO_MIME.has(file.mimetype)) return cb(null, true);
+    cb(new Error(`不支持的文件类型: ${file.mimetype}。仅支持 JPG、PNG、WebP、HEIC、HEIF、MP4、MOV`));
   },
 });
 
@@ -42,13 +44,18 @@ const rosterImportUpload = multer({
 });
 
 function isAllowedProofFile(value) {
-  return typeof value === 'string' && /^\/uploads\/[A-Za-z0-9][A-Za-z0-9._-]*\.(jpe?g|png|webp|heic|heif)$/i.test(value);
+  return typeof value === 'string' && /^\/uploads\/[A-Za-z0-9][A-Za-z0-9._-]*\.(jpe?g|png|webp|heic|heif|mp4|mov)$/i.test(value);
 }
 
 function normalizeProofFiles(value) {
   if (value == null) return [];
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter(isAllowedProofFile))].slice(0, 5);
+  let list = value;
+  if (typeof list === 'string') {
+    try { list = JSON.parse(list); } catch (_error) { list = [list]; }
+  }
+  if (!Array.isArray(list)) return [];
+  const urls = list.map((item) => typeof item === 'string' ? item : item?.url);
+  return [...new Set(urls.filter(isAllowedProofFile))].slice(0, 7);
 }
 
 // Serve uploaded files statically (also served by nginx in production)
@@ -479,23 +486,37 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
-// ── Upload proof image ──────────────────────────────────────────────
+// ── Upload proof media ──────────────────────────────────────────────
 app.post('/api/upload/proof', requireRole('student'), (req, res) => {
-  upload.array('files', 5)(req, res, (err) => {
+  upload.array('files', 7)(req, res, (err) => {
     if (err) {
       if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(413).json({ code: 'FILE_TOO_LARGE', message: '文件过大，单张图片不超过 10MB' });
+        return res.status(413).json({ code: 'FILE_TOO_LARGE', message: '文件过大，图片不超过 8MB，视频不超过 100MB' });
       }
       if (err.code === 'LIMIT_FILE_COUNT') {
-        return res.status(413).json({ code: 'TOO_MANY_FILES', message: '一次最多上传 5 张图片' });
+        return res.status(413).json({ code: 'TOO_MANY_FILES', message: '一次最多上传 6 张图片和 1 个视频' });
       }
       return res.status(400).json({ code: 'UPLOAD_FAILED', message: err.message });
     }
     if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ code: 'NO_FILE', message: '请选择要上传的图片' });
+      return res.status(400).json({ code: 'NO_FILE', message: '请选择要上传的图片或视频' });
+    }
+    const imageFiles = req.files.filter((file) => IMAGE_MIME.has(file.mimetype));
+    const videoFiles = req.files.filter((file) => VIDEO_MIME.has(file.mimetype));
+    const invalidImage = imageFiles.find((file) => file.size > MAX_IMAGE_SIZE);
+    if (imageFiles.length > 6 || videoFiles.length > 1 || invalidImage) {
+      for (const file of req.files) fs.unlink(file.path, () => {});
+      if (invalidImage) return res.status(413).json({ code: 'IMAGE_TOO_LARGE', message: '单张图片不超过 8MB' });
+      return res.status(413).json({ code: 'MEDIA_LIMIT', message: '每条打卡最多 6 张图片和 1 个视频' });
     }
     const urls = req.files.map((f) => '/uploads/' + f.filename);
-    res.json({ urls, count: urls.length });
+    const files = req.files.map((file) => ({
+      url: '/uploads/' + file.filename,
+      mediaType: IMAGE_MIME.has(file.mimetype) ? 'image' : 'video',
+      mimeType: file.mimetype,
+      size: file.size,
+    }));
+    res.json({ files, urls, count: urls.length });
   });
 });
 
@@ -1607,7 +1628,7 @@ app.get('/api/sport/summary', requireAuth, async (req, res) => {
 app.post('/api/sport/records', requireAuth, async (req, res) => {
   try {
     const studentId = req.userId;
-    const { creditType, courseId, taskId, hours, description, proofFiles } = req.body || {};
+    const { creditType, courseId, taskId, hours, description, proofFiles, sportType } = req.body || {};
     if (!creditType || hours == null) {
       return res.status(400).json({ code: 'VALIDATION', message: '缺少必填字段' });
     }
@@ -1632,9 +1653,9 @@ app.post('/api/sport/records', requireAuth, async (req, res) => {
       await conn.beginTransaction();
 
       await conn.query(
-        `INSERT INTO sport_records (id, student_id, course_id, task_id, credit_type, hours, description, proof_files, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '待审核')`,
-        [id, studentId, courseId || null, taskId || null, creditType, hours, description || '', JSON.stringify(normalizeProofFiles(proofFiles))]
+        `INSERT INTO sport_records (id, student_id, course_id, task_id, credit_type, hours, description, proof_files, sport_type, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '待审核')`,
+        [id, studentId, courseId || null, taskId || null, creditType, hours, description || '', JSON.stringify(normalizeProofFiles(proofFiles)), sportType || null]
       );
 
       // Create linked review row for teacher visibility
@@ -1685,7 +1706,7 @@ app.get('/api/sport/records', requireAuth, async (req, res) => {
 
     const [rows] = await pool.query(sql, params);
     res.json(rows.map((r) => ({
-      id: r.id, courseId: r.course_id, taskId: r.task_id, creditType: r.credit_type,
+      id: r.id, courseId: r.course_id, taskId: r.task_id, creditType: r.credit_type, sportType: r.sport_type,
       hours: r.hours, approvedHours: r.approved_hours, description: r.description,
       proofFiles: typeof r.proof_files === 'string' ? JSON.parse(r.proof_files) : (r.proof_files || []),
       status: r.status, reviewComment: r.review_comment, submittedAt: r.submitted_at, reviewedAt: r.reviewed_at
@@ -1700,7 +1721,7 @@ app.get('/api/sport/records/:id', requireAuth, async (req, res) => {
     if (rows.length === 0) return res.status(404).json({ code: 'NOT_FOUND', message: '记录不存在' });
     const r = rows[0];
     res.json({
-      id: r.id, courseId: r.course_id, taskId: r.task_id, creditType: r.credit_type,
+      id: r.id, courseId: r.course_id, taskId: r.task_id, creditType: r.credit_type, sportType: r.sport_type,
       hours: r.hours, approvedHours: r.approved_hours, description: r.description,
       proofFiles: typeof r.proof_files === 'string' ? JSON.parse(r.proof_files) : (r.proof_files || []),
       status: r.status, reviewComment: r.review_comment, submittedAt: r.submitted_at, reviewedAt: r.reviewed_at
@@ -1711,7 +1732,7 @@ app.get('/api/sport/records/:id', requireAuth, async (req, res) => {
 // ── Student: supplement a rejected record ────────────────────────
 app.post('/api/sport/records/:id/supplements', requireAuth, async (req, res) => {
   try {
-    const { hours, description, proofFiles } = req.body || {};
+    const { hours, description, proofFiles, sportType } = req.body || {};
     const [existing] = await pool.query('SELECT * FROM sport_records WHERE id = ? AND student_id = ?', [req.params.id, req.userId]);
     if (existing.length === 0) return res.status(404).json({ code: 'NOT_FOUND', message: '记录不存在' });
     const record = existing[0];
@@ -1723,8 +1744,8 @@ app.post('/api/sport/records/:id/supplements', requireAuth, async (req, res) => 
     const mergedFiles = [...new Set([...oldFiles, ...normalizeProofFiles(proofFiles)])];
 
     await pool.query(
-      `UPDATE sport_records SET hours = ?, description = ?, proof_files = ?, status = '待审核', review_comment = '补充材料已提交，等待复审' WHERE id = ?`,
-      [hours || record.hours, description || record.description, JSON.stringify(mergedFiles), req.params.id]
+      `UPDATE sport_records SET hours = ?, description = ?, proof_files = ?, sport_type = ?, status = '待审核', review_comment = '补充材料已提交，等待复审' WHERE id = ?`,
+      [hours || record.hours, description || record.description, JSON.stringify(mergedFiles), sportType || record.sport_type || null, req.params.id]
     );
 
     res.json({ id: req.params.id, status: '待审核', message: '补充材料已提交' });
@@ -2079,6 +2100,94 @@ app.get('/api/student/tasks', requireAuth, async (req, res) => {
     }
 
     res.json({ pending, completed });
+  } catch (e) { res.status(500).json({ code: 'DB_ERROR', message: e.message }); }
+});
+
+// ── Student: enrolled course detail ───────────────────────────────
+app.get('/api/student/courses/:id', requireAuth, async (req, res) => {
+  try {
+    const [courses] = await pool.query(
+      `SELECT c.id, c.code, c.section, c.name, c.semester_id,
+              c.teacher_id, u.name AS teacher_name,
+              sp.course_hours, sp.general_hours
+       FROM student_progress sp
+       JOIN courses c ON c.id = sp.course_id
+       LEFT JOIN users u ON u.id = c.teacher_id
+       WHERE sp.student_id = ? AND c.id = ?`,
+      [req.userId, req.params.id]
+    );
+    if (!courses.length) return res.status(404).json({ code: 'NOT_FOUND', message: '课程不存在或未选修' });
+
+    const [tasks] = await pool.query(
+      `SELECT id, course_id, title, description, credit_type, required_hours, deadline, status
+       FROM tasks WHERE course_id = ? AND status != '草稿' ORDER BY deadline ASC`,
+      [req.params.id]
+    );
+    const [records] = await pool.query(
+      `SELECT id, task_id, credit_type, sport_type, hours, approved_hours, description,
+              proof_files, status, review_comment, submitted_at, reviewed_at
+       FROM sport_records WHERE student_id = ? AND course_id = ? ORDER BY submitted_at DESC LIMIT 50`,
+      [req.userId, req.params.id]
+    );
+    const course = courses[0];
+    res.json({
+      id: course.id,
+      courseCode: course.code,
+      section: String(course.section || '').padStart(4, '0'),
+      name: course.name,
+      semesterId: course.semester_id,
+      teacherId: course.teacher_id,
+      teacherName: course.teacher_name || '',
+      progress: { courseHours: Number(course.course_hours || 0), generalHours: Number(course.general_hours || 0) },
+      tasks: tasks.map((task) => ({
+        id: task.id, courseId: task.course_id, title: task.title, description: task.description || '',
+        creditType: task.credit_type, requiredHours: Number(task.required_hours || 0), deadline: task.deadline, status: task.status,
+      })),
+      records: records.map((record) => ({
+        id: record.id, taskId: record.task_id, creditType: record.credit_type, sportType: record.sport_type,
+        hours: Number(record.hours || 0), approvedHours: Number(record.approved_hours || 0),
+        description: record.description || '', proofFiles: normalizeProofFiles(record.proof_files),
+        status: record.status, reviewComment: record.review_comment || '',
+        submittedAt: record.submitted_at, reviewedAt: record.reviewed_at,
+      })),
+    });
+  } catch (e) { res.status(500).json({ code: 'DB_ERROR', message: e.message }); }
+});
+
+// ── Student: transparent grade estimate ───────────────────────────
+app.get('/api/student/grades', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT sp.course_hours, sp.general_hours, sp.exam_score, sp.attendance_score, sp.physical_score,
+              c.id AS course_id, c.code AS course_code, c.section AS course_section, c.name AS course_name
+       FROM student_progress sp JOIN courses c ON c.id = sp.course_id
+       WHERE sp.student_id = ?`,
+      [req.userId]
+    );
+    if (!rows.length) return res.json({ total: null, components: {}, weights: { checkin: .25, exam: .30, performance: .20, physical: .25 }, missingItems: ['课程成绩'], sources: [], updatedAt: new Date().toISOString() });
+
+    const average = (key) => {
+      const values = rows.map((row) => row[key]).filter((value) => value !== null && value !== undefined).map(Number);
+      return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+    };
+    const courseHours = rows.reduce((sum, row) => sum + Number(row.course_hours || 0), 0);
+    const generalHours = rows.reduce((sum, row) => sum + Number(row.general_hours || 0), 0);
+    const components = {
+      checkin: Math.min(100, ((Math.min(courseHours, 10) + Math.min(generalHours, 10)) / 20) * 100),
+      exam: average('exam_score'),
+      performance: average('attendance_score'),
+      physical: average('physical_score'),
+    };
+    const weights = { checkin: .25, exam: .30, performance: .20, physical: .25 };
+    const missingItems = Object.entries(components).filter(([, value]) => value === null).map(([key]) => key);
+    const total = missingItems.length ? null : Object.entries(weights).reduce((sum, [key, weight]) => sum + components[key] * weight, 0);
+    res.json({
+      total: total === null ? null : Math.round(total * 10) / 10,
+      components, weights, missingItems,
+      sources: rows.map((row) => ({ courseId: row.course_id, courseCode: row.course_code, section: row.course_section, courseName: row.course_name })),
+      formula: '体育打卡×25% + 专项考试×30% + 平时表现×20% + 体测×25%',
+      updatedAt: new Date().toISOString(),
+    });
   } catch (e) { res.status(500).json({ code: 'DB_ERROR', message: e.message }); }
 });
 

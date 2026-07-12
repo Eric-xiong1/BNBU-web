@@ -2,6 +2,20 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const { test } = require('node:test');
 const Module = require('node:module');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const serverSource = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const schemaSource = fs.readFileSync(path.join(__dirname, '..', '..', 'database', 'schema.sql'), 'utf8');
+
+test('student web backend contracts are present', () => {
+  assert.match(serverSource, /app\.get\('\/api\/student\/courses\/:id'/);
+  assert.match(serverSource, /app\.get\('\/api\/student\/grades'/);
+  assert.match(serverSource, /video\/mp4/);
+  assert.match(serverSource, /video\/quicktime/);
+  assert.match(serverSource, /files:\s*7/);
+  assert.match(schemaSource, /sport_type/i);
+});
 
 function createFakeDb() {
   const db = {
