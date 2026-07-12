@@ -224,7 +224,13 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     const noticeFilter = event.target.closest("[data-notice-filter]");
     if (noticeFilter) { ui.noticeFilter = noticeFilter.dataset.noticeFilter; return render(); }
     const readNotice = event.target.closest('[data-action="read-notice"]');
-    if (readNotice) { await api().markNotificationRead(readNotice.dataset.noticeId); return render(); }
+    if (readNotice) {
+      await api().markNotificationRead(readNotice.dataset.noticeId);
+      if (store.getState().mode === "real") {
+        store.patch((state) => ({ notifications: state.notifications.map((item) => item.id === readNotice.dataset.noticeId ? { ...item, isUnread: false } : item) }));
+      }
+      return render();
+    }
     if (event.target.closest('[data-action="mark-all-read"]')) {
       const unread = store.getState().notifications.filter((item) => item.isUnread);
       await Promise.all(unread.map((item) => api().markNotificationRead(item.id)));

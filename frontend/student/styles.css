@@ -43,10 +43,11 @@ button { min-height: 44px; }
 .topbar-title { color: var(--text); font-size: 16px; font-weight: 600; }
 .student-main { width: 100%; max-width: 1120px; margin: 0 auto; padding: 16px; }
 .page-stack { display: grid; gap: 16px; }
+.page-stack > * { min-width: 0; }
 .page-heading { margin: 0; color: var(--text); font-size: 24px; font-weight: 600; line-height: 1.25; }
 .page-caption { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 
-.card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.card { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
 .card-head { padding: 16px 20px; border-bottom: 1px solid var(--border); }
 .card-body { padding: 16px 20px; }
 .card-title { margin: 0; color: var(--text); font-size: 17px; font-weight: 600; }
@@ -110,7 +111,7 @@ button { min-height: 44px; }
 .quick-actions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; }
 .quick-actions button { display: grid; min-height: 86px; place-items: center; align-content: center; gap: 5px; border: 1px solid var(--border); border-radius: var(--radius); color: var(--body); background: #fff; cursor: pointer; }
 .quick-actions b { color: var(--primary); font-size: 22px; }
-.week-grid { display: grid; grid-template-columns: repeat(7,minmax(72px,1fr)); gap: 8px; overflow-x: auto; }
+.week-grid { display: grid; grid-template-columns: repeat(7,72px); gap: 8px; width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; }
 .week-day { display: grid; gap: 5px; min-width: 72px; padding: 10px; border-radius: 8px; background: #F7F8FA; }
 .week-day span, .week-day i { color: var(--muted); font-size: 11px; font-style: normal; }.week-day.is-done { color: var(--primary); background: var(--primary-soft); }
 .list-stack { display: grid; gap: 2px; }
