@@ -35,6 +35,24 @@ async function capture(page, name) {
   if (updateScreenshots) await page.screenshot({ path: path.join(screenshotDir, name), fullPage: true });
 }
 
+async function assertHomeEmblems(page, viewportName) {
+  const result = await page.evaluate(() => {
+    const dashboard = document.querySelector(".dashboard-emblem");
+    const nav = document.querySelector('.nav-button[aria-current="page"] .nav-brand-mark');
+    const images = [dashboard, nav].map((mark) => mark?.querySelector(".brand-mark-image"));
+    return {
+      dashboardWidth: dashboard?.getBoundingClientRect().width || 0,
+      dashboardHeight: dashboard?.getBoundingClientRect().height || 0,
+      navWidth: nav?.getBoundingClientRect().width || 0,
+      navHeight: nav?.getBoundingClientRect().height || 0,
+      loaded: images.every((image) => image?.complete && image.naturalWidth > 0),
+    };
+  });
+  assert.ok(result.dashboardWidth >= 56 && result.dashboardHeight >= 56, `${viewportName} dashboard emblem must be visible`);
+  assert.ok(result.navWidth >= 44 && result.navHeight >= 28, `${viewportName} Home emblem must retain its navigation target`);
+  assert.equal(result.loaded, true, `${viewportName} BNBU emblem asset must load`);
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || "chrome" });
   try {
@@ -47,6 +65,7 @@ async function capture(page, name) {
 
     const mobile = await openDemo(browser, { width: 390, height: 844 });
     await visit(mobile.page, "home", "学时进度");
+    await assertHomeEmblems(mobile.page, "mobile");
     await capture(mobile.page, "mobile-home.png");
     await visit(mobile.page, "checkin", "运动打卡");
     const description = mobile.page.locator('[name="description"]');
@@ -80,6 +99,7 @@ async function capture(page, name) {
 
     const desktop = await openDemo(browser, { width: 1440, height: 900 });
     await visit(desktop.page, "home", "学时进度");
+    await assertHomeEmblems(desktop.page, "desktop");
     await capture(desktop.page, "desktop-home.png");
     await visit(desktop.page, "checkin", "运动打卡");
     await capture(desktop.page, "desktop-checkin.png");

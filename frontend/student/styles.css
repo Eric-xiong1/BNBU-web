@@ -197,7 +197,13 @@ button { min-height: 44px; }
 
 .dashboard-page { gap: 20px; }
 .dashboard-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 4px; }
+.dashboard-identity { display: flex; min-width: 0; align-items: center; gap: 14px; }
+.dashboard-identity > div { min-width: 0; }
 .dashboard-header h1 { margin-top: 3px; }
+.brand-mark { position: relative; display: grid; flex: 0 0 auto; place-items: center; overflow: hidden; }
+.brand-mark-fallback { position: absolute; inset: 25%; width: 50%; height: 50%; color: var(--primary); }
+.brand-mark-image { position: relative; z-index: 1; display: block; width: 100%; height: 100%; object-fit: contain; }
+.dashboard-emblem { width: 56px; height: 56px; padding: 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow); }
 .icon-button { position: relative; display: grid; flex: 0 0 48px; width: 48px; min-height: 48px; padding: 0; place-items: center; border: 1px solid var(--border); border-radius: 50%; color: var(--text); background: var(--surface); cursor: pointer; }
 .icon-button svg { width: 23px; height: 23px; }
 .notification-button span { position: absolute; top: -3px; right: -3px; display: grid; min-width: 20px; height: 20px; padding: 0 5px; place-items: center; border-radius: 99px; color: var(--on-danger); background: var(--danger); font-size: 10px; font-weight: 700; }
@@ -248,8 +254,10 @@ button { min-height: 44px; }
 }
 .nav-button { display: grid; place-items: center; align-content: center; gap: 3px; min-width: 0; color: var(--muted); border: 0; background: transparent; font-size: 11px; cursor: pointer; }
 .nav-icon { width: 24px; height: 24px; padding: 2px 10px; box-sizing: content-box; border-radius: 999px; }
+.nav-brand-mark { width: 24px; height: 24px; padding: 2px 10px; box-sizing: content-box; border-radius: 999px; opacity: .72; }
 .nav-button.is-active { color: var(--primary); font-weight: 600; }
-.nav-button.is-active .nav-icon { color: var(--on-primary-container); background: var(--primary-container); }
+.nav-button.is-active .nav-icon,.nav-button.is-active .nav-brand-mark { color: var(--on-primary-container); background: var(--primary-container); }
+.nav-button.is-active .nav-brand-mark { opacity: 1; }
 .nav-button:focus-visible { outline: 3px solid rgba(26,115,232,.28); outline-offset: -3px; }
 
 .auth-shell { display: grid; min-height: 100vh; background: var(--page); }

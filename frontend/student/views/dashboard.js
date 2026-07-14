@@ -1,5 +1,6 @@
 import { escapeHtml, formatDate } from "../core/utils.js";
 import { icon } from "../core/icons.js";
+import { brandMark } from "../core/brand.js";
 
 const number = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
 const hours = (value) => `${number(value).toFixed(number(value) % 1 ? 1 : 0)}h`;
@@ -59,7 +60,10 @@ export function renderDashboard(state = {}) {
 
   return `<section class="page-stack dashboard-page">
     <header class="dashboard-header">
-      <div><span class="eyebrow">STUDENT DASHBOARD</span><h1 class="page-heading">你好，${escapeHtml(student.name || "同学")}</h1><p class="page-caption">本学期体育进度与下一步行动</p></div>
+      <div class="dashboard-identity">
+        ${brandMark({ className: "dashboard-emblem" })}
+        <div><span class="eyebrow">STUDENT DASHBOARD</span><h1 class="page-heading">你好，${escapeHtml(student.name || "同学")}</h1><p class="page-caption">本学期体育进度与下一步行动</p></div>
+      </div>
       <button class="icon-button notification-button" type="button" data-action="open-notifications" aria-label="打开通知">
         ${icon("notifications")}${unread ? `<span>${unread}</span>` : ""}
       </button>

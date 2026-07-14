@@ -42,6 +42,10 @@ test("dashboard derives Android progress and actionable risk", () => {
   const html = renderDashboard(workspace);
   for (const text of ["学时进度", "课程相关", "其他运动", "重点计划", "近期任务"]) assert.match(html, new RegExp(text));
   assert.match(html, /data-action="open-notifications"/);
+  assert.match(html, /class="dashboard-identity"/);
+  assert.match(html, /class="brand-mark dashboard-emblem"/);
+  assert.match(html, /src="\.\/assets\/bnbu-emblem\.svg"/);
+  assert.match(html, /alt="BNBU 校徽"/);
 });
 
 test("dashboard prioritizes supplement records over generic hour gaps", () => {
@@ -167,6 +171,10 @@ test("bottom navigation renders all Android destinations", () => {
   const dock = renderBottomNav("home");
   for (const label of ["首页", "课程", "打卡", "成绩", "我的"]) assert.match(dock, new RegExp(label));
   assert.ok(dock.indexOf("首页") < dock.indexOf("打卡"));
+  assert.match(dock, /class="brand-mark nav-brand-mark"/);
+  assert.match(dock, /src="\.\/assets\/bnbu-emblem\.svg"/);
+  assert.match(dock, /alt="" aria-hidden="true"/);
+  assert.match(dock, /brand-mark-fallback/);
   const shell = renderShell({ active: "checkin", content: "<p>内容</p>" });
   assert.doesNotMatch(shell, /checkin-action/);
   assert.match(shell, /bottom-nav/);
