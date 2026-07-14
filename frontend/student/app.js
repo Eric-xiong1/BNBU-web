@@ -57,6 +57,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     noticeFilter: "all", enduranceResult: null, enduranceError: "", enduranceBusy: false,
     notificationOpen: false, selectedNoticeId: null,
     exemptionUploads: [], exemptionError: "", exemptionBusy: false, supplementExemptionId: null,
+    syncMessage: "", syncBusy: false,
   };
 
   const api = () => store.getState().mode === "demo" ? demoApi : realApi;
@@ -103,6 +104,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     root.innerHTML = renderShell({
       active: activeForRoute(route.name), title: titles[route.name], content, mode: state.mode,
       unread: state.notifications.filter((item) => item.isUnread).length, overlay,
+      syncMessage: ui.syncMessage, syncBusy: ui.syncBusy,
     });
   }
 
@@ -119,6 +121,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
   }
 
   async function hydrateReal() {
+    ui.syncBusy = true;
     try {
       const [summary, taskGroups, grades, identity, notifications, profile, records, exemptions] = await Promise.all([
         realApi.summary(), realApi.tasks(), realApi.grades(), realApi.identity(), realApi.notifications(), realApi.profile(), realApi.records(), realApi.listExemptions(),
@@ -129,7 +132,11 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
         requiredHours: 10, completedHours: Number(course.courseHours || 0),
       }));
       store.patch({ summary, courses, tasks: [...(taskGroups.pending || []), ...(taskGroups.completed || [])], grades, memberships: identity.memberships || identity || [], notifications: notifications.items || notifications, student: profile.profile || profile, records, exemptions });
-    } catch (error) { loginError = `登录成功，但部分数据加载失败：${error.message}`; }
+      ui.syncMessage = "";
+    } catch (error) {
+      loginError = `登录成功，但部分数据加载失败：${error.message}`;
+      ui.syncMessage = `同步失败，当前展示本地可用数据：${error.message}`;
+    } finally { ui.syncBusy = false; }
   }
 
   function checkinPayload(form) {
@@ -226,6 +233,21 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       store.persistSession(demo.session, "demo");
       go("home");
       render();
+    }
+    const passwordToggle = event.target.closest('[data-action="toggle-password"]');
+    if (passwordToggle) {
+      const input = root.querySelector('[name="password"]');
+      if (!input) return;
+      const revealing = input.type === "password";
+      input.type = revealing ? "text" : "password";
+      passwordToggle.textContent = revealing ? "隐藏" : "显示";
+      passwordToggle.setAttribute("aria-label", revealing ? "隐藏密码" : "显示密码");
+      passwordToggle.setAttribute("aria-pressed", String(revealing));
+      return;
+    }
+    if (event.target.closest('[data-action="retry-sync"]')) {
+      ui.syncBusy = true; render();
+      await hydrateReal(); return render();
     }
     const tab = event.target.closest("[data-checkin-tab]");
     if (tab) { ui.checkinTab = tab.dataset.checkinTab; ui.checkinError = ""; return render(); }
@@ -366,6 +388,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
   globalThis.addEventListener?.("hashchange", render);
   store.subscribe(render);
   render();
+  if (store.getState().session && store.getState().mode === "real") hydrateReal().finally(render);
   return { store, api, render, go };
 }
 

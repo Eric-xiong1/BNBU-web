@@ -9,7 +9,7 @@ export function renderBottomNav(active) {
     </button>`).join("")}</nav>`;
 }
 
-export function renderShell({ active = "checkin", title = "运动打卡", content = "", mode = "real", unread = 0, overlay = "" }) {
+export function renderShell({ active = "checkin", title = "运动打卡", content = "", mode = "real", unread = 0, overlay = "", syncMessage = "", syncBusy = false }) {
   return `<div class="student-shell">
     <header class="student-topbar">
       <div><span class="brand-word">BNBU</span><span class="muted" style="margin-left:8px">学生端</span></div>
@@ -17,6 +17,7 @@ export function renderShell({ active = "checkin", title = "运动打卡", conten
       <button class="topbar-notification" type="button" data-action="open-notifications" aria-label="打开通知">${icon("notifications")}${unread ? `<sup>${unread}</sup>` : ""}</button>
     </header>
     ${mode === "demo" ? '<div class="notice" style="margin:12px 16px 0">演示模式（未连接后端）</div>' : ""}
+    ${syncMessage ? `<div class="sync-banner" role="status"><span>${escapeHtml(syncMessage)}</span><button type="button" data-action="retry-sync" ${syncBusy ? "disabled" : ""}>${syncBusy ? "同步中…" : "重试"}</button></div>` : ""}
     <main class="student-main">${content}</main>
     <div id="student-toast" role="status" aria-live="polite"></div>
     <div id="student-modal"></div>

@@ -18,6 +18,7 @@ import { normalizeTheme, resolvedTheme } from "./core/theme.js";
 import { dashboardRisk, renderDashboard } from "./views/dashboard.js";
 import { renderNotificationDrawer } from "./views/notifications.js";
 import { renderPrivacyPolicy } from "./views/privacy.js";
+import { renderLogin } from "./views/login.js";
 
 test("theme preference accepts Android modes and rejects unknown values", () => {
   for (const mode of ["light", "dark", "system"]) assert.equal(normalizeTheme(mode), mode);
@@ -114,6 +115,19 @@ test("bottom navigation renders all Android destinations", () => {
   const shell = renderShell({ active: "checkin", content: "<p>内容</p>" });
   assert.doesNotMatch(shell, /checkin-action/);
   assert.match(shell, /bottom-nav/);
+});
+
+test("login presents the Android student identity and password control", () => {
+  const html = renderLogin();
+  for (const text of ["BNBU SPORTS", "体育打卡与成绩进度", "学生登录", "进入演示学生端"]) assert.match(html, new RegExp(text));
+  assert.match(html, /data-action="toggle-password"/);
+  assert.match(html, /class="[^"]*auth-grid/);
+});
+
+test("shell renders a retryable cached-data banner", () => {
+  const html = renderShell({ active: "home", content: "<p>缓存内容</p>", syncMessage: "网络不可用，当前展示上次同步数据" });
+  assert.match(html, /网络不可用，当前展示上次同步数据/);
+  assert.match(html, /data-action="retry-sync"/);
 });
 
 test("proof selection rejects a seventh image and second video", () => {
