@@ -19,11 +19,6 @@ export function renderShell({ active = "checkin", title = "运动打卡", conten
     <main class="student-main">${content}</main>
     <div id="student-toast" role="status" aria-live="polite"></div>
     <div id="student-modal"></div>
-    <div class="checkin-action-wrap">
-      <button class="checkin-action ${active === "checkin" ? "is-active" : ""}" type="button" data-route="checkin" aria-current="${active === "checkin" ? "page" : "false"}" aria-label="进入运动打卡">
-        <strong aria-hidden="true">＋</strong><span>打卡</span>
-      </button>
-    </div>
     ${renderBottomNav(active)}
   </div>`;
 }

@@ -14,8 +14,9 @@ import { filterNotifications, renderProfile } from "./views/profile.js";
 import { validateRunTime, validateExemption, renderEndurance, renderExemptions } from "./views/tools.js";
 import { safeProofUrl } from "./core/utils.js";
 
-test("bottom dock contains only courses grades and profile", () => {
-  assert.deepEqual(NAV_ITEMS.map((item) => item.id), ["courses", "grades", "profile"]);
+test("student navigation matches Android tab order", () => {
+  assert.deepEqual(NAV_ITEMS.map((item) => item.id), ["home", "courses", "checkin", "grades", "profile"]);
+  assert.deepEqual(NAV_ITEMS.map((item) => item.label), ["首页", "课程", "打卡", "成绩", "我的"]);
 });
 
 test("grade weights total 100 percent", () => {
@@ -66,18 +67,19 @@ test("upload normalizes urls-only backend responses", async () => {
   assert.equal(result[0].mediaType, "image");
 });
 
-test("unknown routes fall back to check-in", () => {
-  assert.equal(routeFromHash("#unknown").name, "checkin");
-  assert.equal(routeFromHash("#/home").name, "checkin");
+test("empty and unknown routes fall back to dashboard", () => {
+  assert.equal(routeFromHash("").name, "home");
+  assert.equal(routeFromHash("#unknown").name, "home");
+  assert.equal(routeFromHash("#/home").name, "home");
 });
 
-test("shell renders a separate check-in action above the three-item dock", () => {
-  const dock = renderBottomNav("courses");
-  for (const label of ["课程", "成绩", "我的"]) assert.match(dock, new RegExp(label));
-  assert.doesNotMatch(dock, /首页|打卡/);
+test("bottom navigation renders all Android destinations", () => {
+  const dock = renderBottomNav("home");
+  for (const label of ["首页", "课程", "打卡", "成绩", "我的"]) assert.match(dock, new RegExp(label));
+  assert.ok(dock.indexOf("首页") < dock.indexOf("打卡"));
   const shell = renderShell({ active: "checkin", content: "<p>内容</p>" });
-  assert.match(shell, /class="checkin-action is-active"/);
-  assert.ok(shell.indexOf("checkin-action") < shell.indexOf("bottom-nav"));
+  assert.doesNotMatch(shell, /checkin-action/);
+  assert.match(shell, /bottom-nav/);
 });
 
 test("proof selection rejects a seventh image and second video", () => {

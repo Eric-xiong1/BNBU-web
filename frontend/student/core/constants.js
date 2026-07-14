@@ -1,7 +1,9 @@
 export const NAV_ITEMS = [
-  { id: "courses", label: "课程", route: "courses", icon: "▤" },
-  { id: "grades", label: "成绩", route: "grades", icon: "▥" },
-  { id: "profile", label: "我的", route: "profile", icon: "●" },
+  { id: "home", label: "首页", route: "home", icon: "home" },
+  { id: "courses", label: "课程", route: "courses", icon: "courses" },
+  { id: "checkin", label: "打卡", route: "checkin", icon: "checkin" },
+  { id: "grades", label: "成绩", route: "grades", icon: "grades" },
+  { id: "profile", label: "我的", route: "profile", icon: "profile" },
 ];
 
 export const GRADE_WEIGHTS = { checkin: 0.25, exam: 0.30, performance: 0.20, physical: 0.25 };

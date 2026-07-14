@@ -10,18 +10,18 @@ import { renderGrades } from "./views/grades.js";
 import { renderNotifications, renderProfile, renderSettings } from "./views/profile.js";
 import { renderEndurance, renderExemptionForm, renderExemptions, validateExemption, validateRunTime } from "./views/tools.js";
 
-const ROUTES = new Set(["checkin", "courses", "grades", "profile", "notifications", "endurance", "exemptions", "exemption-new", "settings"]);
+const ROUTES = new Set(["home", "checkin", "courses", "grades", "profile", "notifications", "endurance", "exemptions", "exemption-new", "settings"]);
 
 export function routeFromHash(hash = "") {
   const raw = String(hash).replace(/^#\/?/, "");
   const [name, id] = raw.split("/");
   if (name === "course" && id) return { name: "course-detail", id };
   if (name === "record" && id) return { name: "record-detail", id };
-  return ROUTES.has(name) ? { name } : { name: "checkin" };
+  return ROUTES.has(name) ? { name } : { name: "home" };
 }
 
 const titles = {
-  checkin: "运动打卡", courses: "课程", "course-detail": "课程详情", grades: "成绩",
+  home: "首页", checkin: "运动打卡", courses: "课程", "course-detail": "课程详情", grades: "成绩",
   profile: "我的", notifications: "通知", endurance: "耐力跑换算", exemptions: "免测申请",
   "exemption-new": "提交免测申请", settings: "设置", "record-detail": "打卡详情",
 };
@@ -98,7 +98,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       const result = await realApi.login(String(data.get("account") || ""), String(data.get("password") || ""));
       store.persistSession({ token: result.token, user: result.user }, "real");
       await hydrateReal();
-      go("checkin");
+      go("home");
     } catch (error) { loginError = error.message; }
     finally { loginBusy = false; render(); }
   }
@@ -194,7 +194,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       const demo = demoWorkspace();
       store.patch(demo);
       store.persistSession(demo.session, "demo");
-      go("checkin");
+      go("home");
       render();
     }
     const tab = event.target.closest("[data-checkin-tab]");
@@ -240,7 +240,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       store.clearSession(); globalThis.location.hash = ""; return render();
     }
     if (event.target.closest('[data-action="reset-demo"]')) {
-      if (globalThis.confirm?.("确认重置演示数据？") ?? true) { const next = demoWorkspace(); store.reset(next); store.persistSession(next.session, "demo"); go("checkin"); }
+      if (globalThis.confirm?.("确认重置演示数据？") ?? true) { const next = demoWorkspace(); store.reset(next); store.persistSession(next.session, "demo"); go("home"); }
     }
   });
   root?.addEventListener("submit", (event) => {
