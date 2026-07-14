@@ -13,6 +13,7 @@ assert.match(html, /type="module" src="\.\/app\.js"/);
 assert.match(css, /--primary:\s*#1A73E8/i);
 assert.match(css, /--page:\s*#F8F9FA/i);
 assert.match(css, /:root\[data-theme="dark"\]/);
+assert.match(css, /\.button-primary\s*\{[^}]*color:\s*var\(--on-primary\)/s);
 assert.match(css, /safe-area-inset-bottom/);
 assert.match(css, /\.page-stack\s*>\s*\*\s*\{[^}]*min-width:\s*0/s);
 assert.match(css, /\.bottom-nav\s*\{[^}]*grid-template-columns:\s*repeat\(5,/s);
