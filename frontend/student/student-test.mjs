@@ -16,6 +16,8 @@ import { safeProofUrl } from "./core/utils.js";
 import { icon } from "./core/icons.js";
 import { normalizeTheme, resolvedTheme } from "./core/theme.js";
 import { dashboardRisk, renderDashboard } from "./views/dashboard.js";
+import { renderNotificationDrawer } from "./views/notifications.js";
+import { renderPrivacyPolicy } from "./views/privacy.js";
 
 test("theme preference accepts Android modes and rejects unknown values", () => {
   for (const mode of ["light", "dark", "system"]) assert.equal(normalizeTheme(mode), mode);
@@ -207,9 +209,29 @@ test("profile exposes identity offsets notices tools settings and logout", () =>
   for (const text of ["学生身份", "校队 / 社团抵扣", "通知", "耐力跑成绩换算", "免测申请", "设置", "退出登录"]) assert.match(html, new RegExp(text));
 });
 
+test("notification drawer supports list detail and read actions", () => {
+  const notices = demoWorkspace().notifications;
+  const list = renderNotificationDrawer({ notices, filter: "all" });
+  assert.match(list, /role="dialog"/);
+  assert.match(list, /data-action="mark-all-read"/);
+  const detail = renderNotificationDrawer({ notices, selectedId: notices[0].id });
+  assert.match(detail, /通知详情/);
+  assert.match(detail, /data-action="close-notifications"/);
+});
+
+test("privacy policy includes Android data and rights sections", () => {
+  const html = renderPrivacyPolicy();
+  for (const text of ["隐私政策", "体育数据", "使用目的", "你的权利", "联系我们"]) assert.match(html, new RegExp(text));
+});
+
 test("profile exposes teacher identity organization and Android tools", () => {
   const html = renderProfile(demoWorkspace());
   for (const text of ["任课老师", "校队 / 社团认证", "耐力跑成绩换算", "免测与免打卡", "隐私政策"]) assert.match(html, new RegExp(text));
+});
+
+test("profile theme settings expose light dark and system", () => {
+  const html = renderProfile(demoWorkspace());
+  for (const value of ["light", "dark", "system"]) assert.match(html, new RegExp(`value="${value}"`));
 });
 
 test("grade page keeps the four Android weighted components", () => {

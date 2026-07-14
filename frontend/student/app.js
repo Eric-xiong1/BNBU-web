@@ -10,6 +10,9 @@ import { renderGrades } from "./views/grades.js";
 import { renderNotifications, renderProfile, renderSettings } from "./views/profile.js";
 import { renderEndurance, renderExemptionForm, renderExemptions, validateExemption, validateRunTime } from "./views/tools.js";
 import { renderDashboard } from "./views/dashboard.js";
+import { renderNotificationDrawer } from "./views/notifications.js";
+import { renderPrivacyPolicy } from "./views/privacy.js";
+import { applyTheme, normalizeTheme } from "./core/theme.js";
 
 const ROUTES = new Set(["home", "checkin", "courses", "grades", "profile", "notifications", "endurance", "exemptions", "exemption-new", "settings", "privacy"]);
 
@@ -51,6 +54,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     checkinTab: "submit", uploads: [], selectedTaskId: null, supplementRecordId: null, checkinError: "", checkinBusy: false,
     taskFilter: "all", recordFilter: "all", showAllSports: false,
     noticeFilter: "all", enduranceResult: null, enduranceError: "", enduranceBusy: false,
+    notificationOpen: false, selectedNoticeId: null,
     exemptionUploads: [], exemptionError: "", exemptionBusy: false,
   };
 
@@ -60,6 +64,8 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
   function render() {
     if (!root) return;
     const state = store.getState();
+    applyTheme(state.settings?.themeMode || "light");
+    if (globalThis.document?.documentElement) globalThis.document.documentElement.dataset.reducedMotion = state.settings?.reducedMotion ? "true" : "false";
     if (!state.session) {
       root.innerHTML = renderLogin({ error: loginError, busy: loginBusy });
       return;
@@ -83,16 +89,18 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       const course = state.courses.find((item) => item.id === route.id);
       content = renderCourseDetail(course, state.tasks.filter((item) => item.courseId === route.id), state.records.filter((item) => item.courseId === route.id));
     } else if (route.name === "grades") content = renderGrades(state.grades);
-    else if (route.name === "profile") content = renderProfile(state);
-    else if (route.name === "notifications") content = renderNotifications(state.notifications, ui.noticeFilter);
+    else if (route.name === "profile" || route.name === "notifications") content = renderProfile(state);
     else if (route.name === "endurance") content = renderEndurance({ student: state.student, result: ui.enduranceResult, error: ui.enduranceError, busy: ui.enduranceBusy });
     else if (route.name === "exemptions") content = renderExemptions(state.exemptions);
     else if (route.name === "exemption-new") content = renderExemptionForm({ student: state.student, proofs: ui.exemptionUploads, error: ui.exemptionError, busy: ui.exemptionBusy });
     else if (route.name === "settings") content = renderSettings(state.settings);
+    else if (route.name === "privacy") content = renderPrivacyPolicy();
     else content = renderPlaceholder(titles[route.name] || "学生端", "BNBU 学生体育服务");
+    const notificationOpen = ui.notificationOpen || route.name === "notifications";
+    const overlay = notificationOpen ? renderNotificationDrawer({ notices: state.notifications, filter: ui.noticeFilter, selectedId: ui.selectedNoticeId }) : "";
     root.innerHTML = renderShell({
       active: activeForRoute(route.name), title: titles[route.name], content, mode: state.mode,
-      unread: state.notifications.filter((item) => item.isUnread).length,
+      unread: state.notifications.filter((item) => item.isUnread).length, overlay,
     });
   }
 
@@ -259,6 +267,23 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     }
     const noticeFilter = event.target.closest("[data-notice-filter]");
     if (noticeFilter) { ui.noticeFilter = noticeFilter.dataset.noticeFilter; return render(); }
+    if (event.target.closest('[data-action="open-notifications"]')) { ui.notificationOpen = true; ui.selectedNoticeId = null; return render(); }
+    if (event.target.closest('[data-action="close-notifications"]')) {
+      ui.notificationOpen = false; ui.selectedNoticeId = null;
+      if (routeFromHash(globalThis.location?.hash).name === "notifications") return go("profile");
+      return render();
+    }
+    if (event.target.closest('[data-action="back-notices"]')) { ui.selectedNoticeId = null; return render(); }
+    const openNotice = event.target.closest('[data-action="open-notice"]');
+    if (openNotice) {
+      ui.selectedNoticeId = openNotice.dataset.noticeId;
+      const notice = store.getState().notifications.find((item) => item.id === ui.selectedNoticeId);
+      if (notice?.isUnread) {
+        await api().markNotificationRead(notice.id);
+        if (store.getState().mode === "real") store.patch((state) => ({ notifications: state.notifications.map((item) => item.id === notice.id ? { ...item, isUnread: false } : item) }));
+      }
+      return render();
+    }
     const readNotice = event.target.closest('[data-action="read-notice"]');
     if (readNotice) {
       await api().markNotificationRead(readNotice.dataset.noticeId);
@@ -302,6 +327,17 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       ui.exemptionUploads = [...ui.exemptionUploads, ...createUploadItems(event.target.files)]; ui.exemptionError = ""; render();
     }
     if (event.target.matches('[data-setting="reducedMotion"]')) store.patch((state) => ({ settings: { ...state.settings, reducedMotion: event.target.checked } }));
+    if (event.target.matches('[data-setting="themeMode"]')) {
+      const themeMode = normalizeTheme(event.target.value);
+      store.patch((state) => ({ settings: { ...state.settings, themeMode } }));
+      applyTheme(themeMode);
+    }
+  });
+  globalThis.addEventListener?.("keydown", (event) => {
+    if (event.key === "Escape" && ui.notificationOpen) { ui.notificationOpen = false; ui.selectedNoticeId = null; render(); }
+  });
+  globalThis.matchMedia?.("(prefers-color-scheme: dark)")?.addEventListener?.("change", () => {
+    if (store.getState().settings?.themeMode === "system") applyTheme("system");
   });
   globalThis.addEventListener?.("hashchange", render);
   store.subscribe(render);

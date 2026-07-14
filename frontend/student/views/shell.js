@@ -9,18 +9,19 @@ export function renderBottomNav(active) {
     </button>`).join("")}</nav>`;
 }
 
-export function renderShell({ active = "checkin", title = "运动打卡", content = "", mode = "real", unread = 0 }) {
+export function renderShell({ active = "checkin", title = "运动打卡", content = "", mode = "real", unread = 0, overlay = "" }) {
   return `<div class="student-shell">
     <header class="student-topbar">
       <div><span class="brand-word">BNBU</span><span class="muted" style="margin-left:8px">学生端</span></div>
       <div class="topbar-title">${escapeHtml(title)}</div>
-      <button class="button button-secondary" style="min-width:44px;padding:8px" type="button" data-route="notifications" aria-label="通知">🔔${unread ? `<sup>${unread}</sup>` : ""}</button>
+      <button class="topbar-notification" type="button" data-action="open-notifications" aria-label="打开通知">${icon("notifications")}${unread ? `<sup>${unread}</sup>` : ""}</button>
     </header>
     ${mode === "demo" ? '<div class="notice" style="margin:12px 16px 0">演示模式（未连接后端）</div>' : ""}
     <main class="student-main">${content}</main>
     <div id="student-toast" role="status" aria-live="polite"></div>
     <div id="student-modal"></div>
     ${renderBottomNav(active)}
+    ${overlay}
   </div>`;
 }
 
