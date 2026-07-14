@@ -4,7 +4,7 @@ import { NAV_ITEMS, GRADE_WEIGHTS, uploadLimits } from "./core/constants.js";
 import { createStore } from "./core/store.js";
 import { demoWorkspace } from "./data/demo-data.js";
 import { createStudentApi } from "./core/api.js";
-import { routeFromHash } from "./app.js";
+import { createInitialState, mergeCheckinDraft, normalizeHydration, routeFromHash } from "./app.js";
 import { renderBottomNav, renderShell } from "./views/shell.js";
 import { validateProofSelection, validateCheckin } from "./core/upload.js";
 import { renderCheckin, renderRecordDetail } from "./views/checkin.js";
@@ -19,6 +19,7 @@ import { dashboardRisk, renderDashboard } from "./views/dashboard.js";
 import { renderNotificationDrawer } from "./views/notifications.js";
 import { renderPrivacyPolicy } from "./views/privacy.js";
 import { renderLogin } from "./views/login.js";
+import { localEnduranceScore } from "./core/endurance.js";
 
 test("theme preference accepts Android modes and rejects unknown values", () => {
   for (const mode of ["light", "dark", "system"]) assert.equal(normalizeTheme(mode), mode);
@@ -106,6 +107,44 @@ test("empty and unknown routes fall back to dashboard", () => {
   assert.equal(routeFromHash("").name, "home");
   assert.equal(routeFromHash("#unknown").name, "home");
   assert.equal(routeFromHash("#/home").name, "home");
+});
+
+test("student API preserves HTTP status for expired-session handling", async () => {
+  const api = createStudentApi({ fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ code: "UNAUTHORIZED", message: "登录已过期" }) }) });
+  await assert.rejects(api.summary, (error) => error.status === 401 && error.code === "UNAUTHORIZED");
+});
+
+test("local endurance scoring uses the complete national threshold table", () => {
+  assert.deepEqual(localEnduranceScore({ timeSeconds: 225, gender: "female", gradeLevel: "FS" }), { score: 78, tier: "pass", timeSeconds: 225, gender: "female", gradeLevel: "FS", population: "F/FS", source: "local" });
+  assert.equal(localEnduranceScore({ timeSeconds: 225, gender: "male", gradeLevel: "JS" }).score, 78);
+  assert.equal(localEnduranceScore({ timeSeconds: 500, gender: "female", gradeLevel: "FS" }).score, 10);
+});
+
+test("real-session initial state never exposes demo student data", () => {
+  const state = createInitialState();
+  assert.deepEqual(state.student, {});
+  assert.deepEqual(state.courses, []);
+  assert.deepEqual(state.teacher, {});
+});
+
+test("hydration normalizes backend student DTOs for the views", () => {
+  const data = normalizeHydration({
+    summary: { courses: [{ courseId: "c1", courseCode: "GEPE101", courseSection: "1004", courseName: "大学体育", teacherName: "陈老师", courseHours: 5 }], teachers: [{ teacherId: "t1", teacherName: "陈老师" }] },
+    taskGroups: { pending: [{ id: "p", status: "发布" }], completed: [{ id: "d", status: "发布" }] },
+    grades: { components: {} }, identity: [{ id: "m", validUntil: "2026-12-31", offset: "可抵扣" }],
+    notifications: [{ id: "n", time: "2026-07-01T00:00:00Z", isUnread: true }],
+    profile: { id: "s1", name: "学生", gradeLevel: "sophomore" }, records: [], exemptions: [],
+  });
+  assert.equal(data.tasks[1].status, "已完成");
+  assert.equal(data.notifications[0].createdAt, "2026-07-01T00:00:00Z");
+  assert.equal(data.memberships[0].expiresAt, "2026-12-31");
+  assert.equal(data.memberships[0].offsetStatus, "可抵扣");
+  assert.equal(data.teacher.name, "陈老师");
+  assert.equal(data.student.gradeLabel, "大二");
+});
+
+test("transient check-in values override only saved draft fields", () => {
+  assert.deepEqual(mergeCheckinDraft({ hours: 1, description: "已保存" }, { hours: 1.5, description: "刚输入", sportType: "running" }), { hours: 1.5, description: "刚输入", sportType: "running" });
 });
 
 test("bottom navigation renders all Android destinations", () => {

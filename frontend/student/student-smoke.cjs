@@ -12,6 +12,7 @@ assert.match(html, /<div id="student-app"><\/div>/);
 assert.match(html, /type="module" src="\.\/app\.js"/);
 assert.match(css, /--primary:\s*#1A73E8/i);
 assert.match(css, /--page:\s*#F8F9FA/i);
+assert.match(css, /body\s*\{[^}]*background-size:\s*42px\s+42px/s);
 assert.match(css, /:root\[data-theme="dark"\]/);
 assert.match(css, /\.button-primary\s*\{[^}]*color:\s*var\(--on-primary\)/s);
 assert.match(css, /safe-area-inset-bottom/);

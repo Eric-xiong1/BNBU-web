@@ -59,7 +59,9 @@ body {
   min-height: 100vh;
   margin: 0;
   color: var(--body);
-  background: var(--page);
+  background-color: var(--page);
+  background-image: radial-gradient(circle at 1px 1px, color-mix(in srgb,var(--outline) 13%,transparent) 1px, transparent 1px);
+  background-size: 42px 42px;
   font: 14px/1.55 Inter, "PingFang SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
 }
 button, input, select, textarea { font: inherit; }

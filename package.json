@@ -11,8 +11,12 @@
     "mock-api": "node backend/mock-api.cjs",
     "test:web": "node frontend/self-test.cjs",
     "test:student": "node --test frontend/student/student-test.mjs && node frontend/student/student-smoke.cjs",
+    "test:student:browser": "node frontend/student/student-browser.cjs",
     "smoke:student": "node frontend/student/student-smoke.cjs",
     "test:api": "npm test --prefix backend",
     "seed": "node database/run-seed.cjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
   }
 }

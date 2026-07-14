@@ -1,4 +1,5 @@
 import { uid } from "./utils.js";
+import { localEnduranceScore } from "./endurance.js";
 
 function messageFrom(payload, status) {
   return payload?.message || payload?.error || `请求失败 (${status})`;
@@ -20,7 +21,12 @@ export function createStudentApi({ baseUrl = "/api", fetchImpl = globalThis.fetc
         signal: controller.signal,
       });
       const payload = typeof response.json === "function" ? await response.json() : {};
-      if (!response.ok) throw new Error(messageFrom(payload, response.status));
+      if (!response.ok) {
+        const error = new Error(messageFrom(payload, response.status));
+        error.status = response.status;
+        error.code = payload?.code;
+        throw error;
+      }
       return payload;
     } catch (error) {
       if (error?.name === "AbortError") throw new Error("请求超时，请检查网络后重试");
@@ -111,9 +117,7 @@ export function createDemoApi({ store }) {
       return { id, status: "待审核" };
     },
     async convertEndurance({ timeSeconds, gender, gradeLevel }) {
-      const baseline = gender === "male" ? 197 : 198;
-      const score = Math.max(10, Math.min(100, 100 - Math.ceil(Math.max(0, timeSeconds - baseline) / 5) * 2));
-      return { score, tier: score >= 90 ? "excellent" : score >= 80 ? "good" : score >= 60 ? "pass" : "fail", timeSeconds, gender, gradeLevel, source: "local" };
+      return localEnduranceScore({ timeSeconds, gender, gradeLevel });
     },
     async listExemptions() { return store.getState().exemptions; },
     async submitExemption(payload) {

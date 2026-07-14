@@ -13,6 +13,7 @@ import { renderDashboard } from "./views/dashboard.js";
 import { renderNotificationDrawer } from "./views/notifications.js";
 import { renderPrivacyPolicy } from "./views/privacy.js";
 import { applyTheme, normalizeTheme } from "./core/theme.js";
+import { localEnduranceScore } from "./core/endurance.js";
 
 const ROUTES = new Set(["home", "checkin", "courses", "grades", "profile", "notifications", "endurance", "exemptions", "exemption-new", "settings", "privacy"]);
 
@@ -38,15 +39,61 @@ function activeForRoute(name) {
   return name;
 }
 
-function initialState() {
+export function createInitialState() {
   const state = demoWorkspace();
   state.session = null;
   state.mode = "real";
+  state.student = {};
+  state.teacher = {};
+  state.summary = { courseHours: 0, generalHours: 0, totalCompleted: 0, pendingCount: 0, rule: { total: 20, courseRequired: 10, generalRequired: 10, dailyLimit: 2 } };
+  state.courses = [];
+  state.tasks = [];
+  state.records = [];
+  state.grades = { components: {}, sources: [] };
+  state.memberships = [];
+  state.notifications = [];
+  state.exemptions = [];
   return state;
 }
 
+const gradeMeta = {
+  freshman: ["FS", "大一"], sophomore: ["FS", "大二"], junior: ["JS", "大三"], senior: ["JS", "大四"],
+  FS: ["FS", "大一/大二"], JS: ["JS", "大三/大四"],
+};
+
+export function normalizeHydration({ summary = {}, taskGroups = {}, grades = {}, identity = [], notifications = [], profile = {}, records = [], exemptions = [] } = {}) {
+  const rawProfile = profile.profile || profile || {};
+  const [gradeLevel, gradeLabel] = gradeMeta[rawProfile.gradeLevel] || [rawProfile.gradeLevel || "", rawProfile.gradeLabel || ""];
+  const rawMemberships = identity.memberships || identity || [];
+  const rawNotifications = notifications.items || notifications || [];
+  const teacherInfo = summary.teachers?.[0] || {};
+  return {
+    summary,
+    courses: (summary.courses || []).map((course) => ({
+      id: course.courseId, courseCode: course.courseCode, section: course.courseSection,
+      name: course.courseName, teacher: course.teacherName, semester: "当前学期", semesterStatus: "current",
+      enrollmentStatus: "enrolled", requiredHours: 10, completedHours: Number(course.courseHours || 0),
+    })),
+    tasks: [
+      ...(taskGroups.pending || []).map((item) => ({ ...item, hours: Number(item.hours || item.requiredHours || 0), status: item.status === "已完成" ? "已完成" : "待完成" })),
+      ...(taskGroups.completed || []).map((item) => ({ ...item, hours: Number(item.hours || item.requiredHours || 0), status: "已完成" })),
+    ],
+    grades,
+    memberships: rawMemberships.map((item) => ({ ...item, expiresAt: item.expiresAt || item.validUntil || "", offsetStatus: item.offsetStatus || item.offset || "待确认" })),
+    notifications: rawNotifications.map((item) => ({ ...item, createdAt: item.createdAt || item.time || "" })),
+    student: { ...rawProfile, gradeLevel, gradeLabel, genderLabel: rawProfile.genderLabel || (rawProfile.gender === "male" ? "男" : rawProfile.gender === "female" ? "女" : "") },
+    teacher: { name: teacherInfo.teacherName || summary.courses?.[0]?.teacherName || "待公布", title: "大学体育任课教师", email: "pe@bnbu.edu.cn" },
+    records: Array.isArray(records) ? records : [],
+    exemptions: Array.isArray(exemptions) ? exemptions : [],
+  };
+}
+
+export function mergeCheckinDraft(saved = {}, transient = {}) {
+  return { ...(saved || {}), ...(transient || {}) };
+}
+
 export function createStudentApp({ root, storage = globalThis.localStorage } = {}) {
-  const store = createStore({ storage, initial: initialState() });
+  const store = createStore({ storage, initial: createInitialState() });
   const realApi = createStudentApi({ getToken: () => store.getState().session?.token });
   const demoApi = createDemoApi({ store });
   let loginError = "";
@@ -57,7 +104,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     noticeFilter: "all", enduranceResult: null, enduranceError: "", enduranceBusy: false,
     notificationOpen: false, selectedNoticeId: null,
     exemptionUploads: [], exemptionError: "", exemptionBusy: false, supplementExemptionId: null,
-    syncMessage: "", syncBusy: false,
+    syncMessage: "", syncBusy: false, checkinDraft: null,
   };
 
   const api = () => store.getState().mode === "demo" ? demoApi : realApi;
@@ -79,7 +126,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     } else if (route.name === "checkin") {
       const selectedTask = state.tasks.find((item) => item.id === ui.selectedTaskId) || null;
       content = renderCheckin({
-        activeTab: ui.checkinTab, tasks: state.tasks, records: state.records, draft: state.draft || {},
+        activeTab: ui.checkinTab, tasks: state.tasks, records: state.records, draft: mergeCheckinDraft(state.draft, ui.checkinDraft),
         uploads: ui.uploads, selectedTask, error: ui.checkinError, busy: ui.checkinBusy,
         dailyRemaining: state.summary?.rule?.dailyLimit || 2, taskFilter: ui.taskFilter,
         recordFilter: ui.recordFilter, showAllSports: ui.showAllSports,
@@ -126,14 +173,15 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       const [summary, taskGroups, grades, identity, notifications, profile, records, exemptions] = await Promise.all([
         realApi.summary(), realApi.tasks(), realApi.grades(), realApi.identity(), realApi.notifications(), realApi.profile(), realApi.records(), realApi.listExemptions(),
       ]);
-      const courses = (summary.courses || []).map((course) => ({
-        id: course.courseId, courseCode: course.courseCode, section: course.courseSection,
-        name: course.courseName, teacher: course.teacherName, semester: "当前学期",
-        requiredHours: 10, completedHours: Number(course.courseHours || 0),
-      }));
-      store.patch({ summary, courses, tasks: [...(taskGroups.pending || []), ...(taskGroups.completed || [])], grades, memberships: identity.memberships || identity || [], notifications: notifications.items || notifications, student: profile.profile || profile, records, exemptions });
+      store.patch(normalizeHydration({ summary, taskGroups, grades, identity, notifications, profile, records, exemptions }));
       ui.syncMessage = "";
     } catch (error) {
+      if (error.status === 401) {
+        loginError = "登录已过期，请重新登录";
+        ui.syncMessage = "";
+        store.clearSession();
+        return;
+      }
       loginError = `登录成功，但部分数据加载失败：${error.message}`;
       ui.syncMessage = `同步失败，当前展示本地可用数据：${error.message}`;
     } finally { ui.syncBusy = false; }
@@ -153,8 +201,15 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     };
   }
 
+  function captureCheckinForm() {
+    const form = root?.querySelector("#checkin-form");
+    if (form) ui.checkinDraft = checkinPayload(form);
+    return ui.checkinDraft;
+  }
+
   async function submitCheckin(form) {
     const payload = checkinPayload(form);
+    ui.checkinDraft = payload;
     const errors = validateCheckin({ ...payload, files: ui.uploads, dailyRemaining: store.getState().summary?.rule?.dailyLimit || 2 });
     if (errors.length) { ui.checkinError = errors.join("；"); return render(); }
     const confirmed = globalThis.confirm?.(`${payload.creditType} · ${payload.hours} 小时 · ${ui.uploads.length} 个凭证。确认提交？`) ?? true;
@@ -172,7 +227,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       else result = await api().submitRecord(recordPayload);
       if (store.getState().mode === "real") store.patch((state) => ({ records: [{ ...recordPayload, ...result }, ...state.records.filter((item) => item.id !== result.id)] }));
       ui.uploads.forEach((item) => releaseUpload(item));
-      ui.uploads = []; ui.selectedTaskId = null; ui.supplementRecordId = null; ui.checkinTab = "records";
+      ui.uploads = []; ui.selectedTaskId = null; ui.supplementRecordId = null; ui.checkinDraft = null; ui.checkinTab = "records";
       store.clearDraft();
     } catch (error) {
       ui.checkinError = error.message;
@@ -187,8 +242,12 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     const student = store.getState().student;
     if (!student.gender || !student.gradeLevel) { ui.enduranceError = "请先在个人资料中设置性别和年级"; return render(); }
     ui.enduranceBusy = true; ui.enduranceError = ""; render();
-    try { ui.enduranceResult = await api().convertEndurance({ timeSeconds: Number(minutes) * 60 + Number(seconds), gender: student.gender, gradeLevel: student.gradeLevel }); }
-    catch (error) { ui.enduranceError = error.message; }
+    const input = { timeSeconds: Number(minutes) * 60 + Number(seconds), gender: student.gender, gradeLevel: student.gradeLevel };
+    try { ui.enduranceResult = await api().convertEndurance(input); }
+    catch (error) {
+      ui.enduranceResult = localEnduranceScore(input);
+      ui.enduranceError = ui.enduranceResult ? "接口暂不可用，已使用完整本地规则换算" : error.message;
+    }
     finally { ui.enduranceBusy = false; render(); }
   }
 
@@ -219,6 +278,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
   root?.addEventListener("click", async (event) => {
     const routeButton = event.target.closest("[data-route]");
     if (routeButton) {
+      captureCheckinForm();
       if (routeButton.dataset.route === "exemption-new") {
         ui.supplementExemptionId = null;
         ui.exemptionUploads.forEach((item) => releaseUpload(item));
@@ -250,13 +310,13 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       await hydrateReal(); return render();
     }
     const tab = event.target.closest("[data-checkin-tab]");
-    if (tab) { ui.checkinTab = tab.dataset.checkinTab; ui.checkinError = ""; return render(); }
+    if (tab) { captureCheckinForm(); ui.checkinTab = tab.dataset.checkinTab; ui.checkinError = ""; return render(); }
     const taskFilter = event.target.closest("[data-task-filter]");
     if (taskFilter) { ui.taskFilter = taskFilter.dataset.taskFilter; return render(); }
     const recordFilter = event.target.closest("[data-record-filter]");
     if (recordFilter) { ui.recordFilter = recordFilter.dataset.recordFilter; return render(); }
     if (event.target.closest('[data-action="restore-draft"]')) { ui.checkinTab = "submit"; return render(); }
-    if (event.target.closest('[data-action="toggle-sports"]')) { ui.showAllSports = !ui.showAllSports; return render(); }
+    if (event.target.closest('[data-action="toggle-sports"]')) { captureCheckinForm(); ui.showAllSports = !ui.showAllSports; return render(); }
     const sportButton = event.target.closest("[data-sport-type]");
     if (sportButton) {
       const form = root.querySelector("#checkin-form");
@@ -285,17 +345,17 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       return;
     }
     const taskButton = event.target.closest('[data-action="use-task"]');
-    if (taskButton) { ui.selectedTaskId = taskButton.dataset.taskId; ui.checkinTab = "submit"; go("checkin"); return render(); }
+    if (taskButton) { ui.selectedTaskId = taskButton.dataset.taskId; ui.checkinDraft = null; ui.checkinTab = "submit"; go("checkin"); return render(); }
     const removeButton = event.target.closest('[data-action="remove-upload"]');
     if (removeButton) {
       const item = ui.uploads.find((upload) => upload.id === removeButton.dataset.uploadId);
       releaseUpload(item); ui.uploads = ui.uploads.filter((upload) => upload.id !== removeButton.dataset.uploadId); return render();
     }
     if (event.target.closest('[data-action="save-draft"]')) {
-      const form = root.querySelector("#checkin-form"); if (form) store.saveDraft(checkinPayload(form)); return;
+      const form = root.querySelector("#checkin-form"); if (form) { ui.checkinDraft = checkinPayload(form); store.saveDraft(ui.checkinDraft); } return;
     }
     if (event.target.closest('[data-action="clear-draft"]')) {
-      ui.uploads.forEach((item) => releaseUpload(item)); ui.uploads = []; ui.selectedTaskId = null; store.clearDraft(); return;
+      ui.uploads.forEach((item) => releaseUpload(item)); ui.uploads = []; ui.selectedTaskId = null; ui.checkinDraft = null; store.clearDraft(); return;
     }
     const supplement = event.target.closest('[data-action="supplement-record"]');
     if (supplement) {
@@ -360,6 +420,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
   });
   root?.addEventListener("change", (event) => {
     if (event.target.id !== "proof-picker") return;
+    captureCheckinForm();
     const combined = [...ui.uploads.map((item) => item.file), ...event.target.files];
     const result = validateProofSelection(combined);
     if (!result.valid) { ui.checkinError = result.errors.join("；"); return render(); }
