@@ -9,6 +9,7 @@ import { renderCourseDetail, renderCourses } from "./views/courses.js";
 import { renderGrades } from "./views/grades.js";
 import { renderNotifications, renderProfile, renderSettings } from "./views/profile.js";
 import { renderEndurance, renderExemptionForm, renderExemptions, validateExemption, validateRunTime } from "./views/tools.js";
+import { renderDashboard } from "./views/dashboard.js";
 
 const ROUTES = new Set(["home", "checkin", "courses", "grades", "profile", "notifications", "endurance", "exemptions", "exemption-new", "settings"]);
 
@@ -64,7 +65,9 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     }
     const route = routeFromHash(globalThis.location?.hash);
     let content;
-    if (route.name === "checkin") {
+    if (route.name === "home") {
+      content = renderDashboard(state);
+    } else if (route.name === "checkin") {
       const selectedTask = state.tasks.find((item) => item.id === ui.selectedTaskId) || null;
       content = renderCheckin({
         activeTab: ui.checkinTab, tasks: state.tasks, records: state.records, draft: state.draft || {},

@@ -3,7 +3,7 @@ const iso = (days = 0, hours = 0) => new Date(Date.now() + days * 86400000 + hou
 export function demoWorkspace() {
   return {
     mode: "demo",
-    route: { name: "checkin" },
+    route: { name: "home" },
     session: { token: "demo-token-student", user: { id: "22301142", name: "何同学", role: "student" } },
     student: {
       id: "22301142", name: "何同学", college: "数据科学学院", gradeLevel: "FS", gradeLabel: "大二",

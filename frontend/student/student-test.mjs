@@ -15,6 +15,7 @@ import { validateRunTime, validateExemption, renderEndurance, renderExemptions }
 import { safeProofUrl } from "./core/utils.js";
 import { icon } from "./core/icons.js";
 import { normalizeTheme, resolvedTheme } from "./core/theme.js";
+import { dashboardRisk, renderDashboard } from "./views/dashboard.js";
 
 test("theme preference accepts Android modes and rejects unknown values", () => {
   for (const mode of ["light", "dark", "system"]) assert.equal(normalizeTheme(mode), mode);
@@ -30,6 +31,19 @@ test("navigation icons are accessible inline SVG", () => {
   assert.match(icon("home"), /<svg/);
   assert.match(icon("home"), /aria-hidden="true"/);
   assert.doesNotMatch(icon("missing"), /undefined/);
+});
+
+test("dashboard derives Android progress and actionable risk", () => {
+  const workspace = demoWorkspace();
+  const html = renderDashboard(workspace);
+  for (const text of ["学时进度", "课程相关", "其他运动", "重点计划", "近期任务"]) assert.match(html, new RegExp(text));
+  assert.match(html, /data-action="open-notifications"/);
+});
+
+test("dashboard prioritizes supplement records over generic hour gaps", () => {
+  const risk = dashboardRisk({ records: [{ status: "需补材料" }], summary: { courseHours: 9, generalHours: 9, rule: { courseRequired: 10, generalRequired: 10 } } });
+  assert.equal(risk.route, "checkin");
+  assert.match(risk.message, /补交/);
 });
 
 test("student navigation matches Android tab order", () => {
