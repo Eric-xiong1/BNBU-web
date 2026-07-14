@@ -1,10 +1,11 @@
 import { NAV_ITEMS } from "../core/constants.js";
 import { escapeHtml } from "../core/utils.js";
+import { icon } from "../core/icons.js";
 
 export function renderBottomNav(active) {
   return `<nav class="bottom-nav" aria-label="学生端主导航">${NAV_ITEMS.map((item) => `
     <button class="nav-button ${active === item.id ? "is-active" : ""}" type="button" data-route="${item.route}" aria-current="${active === item.id ? "page" : "false"}">
-      <strong aria-hidden="true">${item.icon}</strong><span>${item.label}</span>
+      ${icon(item.icon, "nav-icon")}<span>${item.label}</span>
     </button>`).join("")}</nav>`;
 }
 

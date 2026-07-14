@@ -10,14 +10,14 @@ const pagesWorkflowPath = path.resolve(root, "..", "..", ".github", "workflows",
 
 assert.match(html, /<div id="student-app"><\/div>/);
 assert.match(html, /type="module" src="\.\/app\.js"/);
-assert.match(css, /--primary:\s*#165DFF/i);
-assert.match(css, /--page:\s*#F5F7FA/i);
+assert.match(css, /--primary:\s*#1A73E8/i);
+assert.match(css, /--page:\s*#F8F9FA/i);
+assert.match(css, /:root\[data-theme="dark"\]/);
 assert.match(css, /safe-area-inset-bottom/);
 assert.match(css, /\.page-stack\s*>\s*\*\s*\{[^}]*min-width:\s*0/s);
-assert.match(css, /\.bottom-nav\s*\{[^}]*grid-template-columns:\s*repeat\(3,/s);
-assert.match(css, /\.checkin-action-wrap\s*\{[^}]*position:\s*fixed[^}]*bottom:/s);
-assert.match(css, /\.checkin-action\s*\{[^}]*border-radius:\s*999px/s);
-assert.match(css, /\.student-shell\s*\{[^}]*--checkin-clearance:/s);
+assert.match(css, /\.bottom-nav\s*\{[^}]*grid-template-columns:\s*repeat\(5,/s);
+assert.doesNotMatch(css, /\.checkin-action-wrap\s*\{/s);
+assert.match(css, /\.student-shell\s*\{[^}]*--dock-height:/s);
 assert.match(css, /\.record-card-media\s*\{[^}]*grid-template-columns:/s);
 assert.match(app, /item\.id\s*===\s*readNotice\.dataset\.noticeId[\s\S]*isUnread:\s*false/);
 assert.ok(fs.existsSync(pagesWorkflowPath), "GitHub Pages workflow must exist");

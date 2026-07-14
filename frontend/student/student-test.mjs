@@ -13,6 +13,24 @@ import { calculateGrade, renderGrades } from "./views/grades.js";
 import { filterNotifications, renderProfile } from "./views/profile.js";
 import { validateRunTime, validateExemption, renderEndurance, renderExemptions } from "./views/tools.js";
 import { safeProofUrl } from "./core/utils.js";
+import { icon } from "./core/icons.js";
+import { normalizeTheme, resolvedTheme } from "./core/theme.js";
+
+test("theme preference accepts Android modes and rejects unknown values", () => {
+  for (const mode of ["light", "dark", "system"]) assert.equal(normalizeTheme(mode), mode);
+  assert.equal(normalizeTheme("purple"), "light");
+});
+
+test("system theme resolves through the supplied media preference", () => {
+  assert.equal(resolvedTheme("system", true), "dark");
+  assert.equal(resolvedTheme("system", false), "light");
+});
+
+test("navigation icons are accessible inline SVG", () => {
+  assert.match(icon("home"), /<svg/);
+  assert.match(icon("home"), /aria-hidden="true"/);
+  assert.doesNotMatch(icon("missing"), /undefined/);
+});
 
 test("student navigation matches Android tab order", () => {
   assert.deepEqual(NAV_ITEMS.map((item) => item.id), ["home", "courses", "checkin", "grades", "profile"]);
