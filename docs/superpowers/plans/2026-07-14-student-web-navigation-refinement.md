@@ -32,7 +32,7 @@
 
 - [ ] Add assertions for first-proof image thumbnails, `+N` count badges, video play markers, missing-proof fallback, and real media elements in record detail.
 - [ ] Run `node --test frontend/student/student-test.mjs` and confirm the new thumbnail assertions fail against the text-only records.
-- [ ] Add a proof media helper using `safeProofUrl()`, render the first media in list cards, and render all image/video media in detail. Use deterministic SVG data URLs for demo thumbnails while continuing to accept `/uploads/*` production URLs.
+- [ ] Add a proof media helper using `safeProofUrl()`, render the first media in list cards, and render all image/video media in detail. Keep URL acceptance limited to trusted `/uploads/*` paths plus an exact bundled `/student/assets/demo-*.svg` allow-list, with a code-rendered fallback when media is absent.
 - [ ] Run `node --test frontend/student/student-test.mjs` and confirm the thumbnail assertions pass.
 
 ### Task 3: Match the approved responsive layout

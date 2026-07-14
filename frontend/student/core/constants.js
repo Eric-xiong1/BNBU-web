@@ -1,6 +1,4 @@
 export const NAV_ITEMS = [
-  { id: "checkin", label: "打卡", route: "checkin", icon: "＋" },
-  { id: "home", label: "首页", route: "home", icon: "⌂" },
   { id: "courses", label: "课程", route: "courses", icon: "▤" },
   { id: "grades", label: "成绩", route: "grades", icon: "▥" },
   { id: "profile", label: "我的", route: "profile", icon: "●" },

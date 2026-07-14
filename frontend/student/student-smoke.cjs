@@ -12,8 +12,12 @@ assert.match(html, /type="module" src="\.\/app\.js"/);
 assert.match(css, /--primary:\s*#165DFF/i);
 assert.match(css, /--page:\s*#F5F7FA/i);
 assert.match(css, /safe-area-inset-bottom/);
-assert.match(css, /\.week-grid\s*\{[^}]*max-width:\s*100%/s);
 assert.match(css, /\.page-stack\s*>\s*\*\s*\{[^}]*min-width:\s*0/s);
+assert.match(css, /\.bottom-nav\s*\{[^}]*grid-template-columns:\s*repeat\(3,/s);
+assert.match(css, /\.checkin-action-wrap\s*\{[^}]*position:\s*fixed[^}]*bottom:/s);
+assert.match(css, /\.checkin-action\s*\{[^}]*border-radius:\s*999px/s);
+assert.match(css, /\.student-shell\s*\{[^}]*--checkin-clearance:/s);
+assert.match(css, /\.record-card-media\s*\{[^}]*grid-template-columns:/s);
 assert.match(app, /item\.id\s*===\s*readNotice\.dataset\.noticeId[\s\S]*isUnread:\s*false/);
 
 const previewUrl = process.env.STUDENT_WEB_URL;

@@ -4,6 +4,23 @@ import { escapeHtml, formatBytes, formatDate, safeProofUrl } from "../core/utils
 const sportLabel = (value) => SPORT_TYPES.find((item) => item.value === value)?.label || value || "自主运动";
 const badge = (status) => { const meta = STATUS_META[status] || { tone: "", label: status || "未知" }; return `<span class="badge ${meta.tone ? `badge-${meta.tone}` : ""}">${escapeHtml(meta.label)}</span>`; };
 
+function proofItems(proofs = []) {
+  return proofs.map((proof) => ({
+    proof,
+    url: safeProofUrl(proof),
+    isVideo: proof?.mediaType === "video" || String(proof?.mimeType || "").startsWith("video/") || /\.(mp4|mov)$/i.test(String(proof?.url ?? proof ?? "")),
+  })).filter((item) => item.url);
+}
+
+function proofMedia(item, { detail = false, label = "运动凭证" } = {}) {
+  const url = escapeHtml(item.url);
+  if (item.isVideo) {
+    return `<video src="${url}" ${detail ? "controls" : "muted preload=\"metadata\""} aria-label="${escapeHtml(label)}"></video>${detail ? "" : '<span class="record-thumb-play" aria-hidden="true">▶</span>'}`;
+  }
+  const image = `<img src="${url}" alt="${escapeHtml(label)}" loading="${detail ? "lazy" : "eager"}">`;
+  return detail ? `<a class="proof-preview" href="${url}" target="_blank" rel="noopener">${image}</a>` : image;
+}
+
 function renderTasks(tasks) {
   if (!tasks.length) return '<div class="card"><div class="card-body muted">当前没有待完成任务，可直接提交自主运动打卡。</div></div>';
   return `<div class="grid grid-2">${tasks.map((task) => `<article class="card"><div class="card-body page-stack" style="gap:10px">
@@ -48,20 +65,28 @@ function renderSubmit({ draft = {}, uploads = [], selectedTask = null, error = "
 function renderRecords(records) {
   const visible = records.filter((item) => item.status !== "系统抵扣");
   if (!visible.length) return '<div class="card"><div class="card-body muted">还没有学生自主提交记录。</div></div>';
-  return `<div class="record-list">${visible.map((record) => `<button class="record-card" type="button" data-route="record/${escapeHtml(record.id)}">
-    <div><strong>${escapeHtml(sportLabel(record.sportType))}</strong><span>${formatDate(record.submittedAt)}</span></div>
-    <div><strong>${record.hours}h</strong>${badge(record.status)}</div>
-    <p>${escapeHtml(record.description || "")}</p>
-    <span class="page-caption">凭证 ${record.proofFiles?.length || 0} 个${record.reviewComment ? ` · ${escapeHtml(record.reviewComment)}` : ""}</span>
-  </button>`).join("")}</div>`;
+  return `<div class="record-list">${visible.map((record) => {
+    const proofs = proofItems(record.proofFiles);
+    const label = sportLabel(record.sportType);
+    const thumb = proofs.length
+      ? `<div class="record-thumb">${proofMedia(proofs[0], { label: `${label}凭证` })}${proofs.length > 1 ? `<span class="proof-count">+${proofs.length - 1}</span>` : ""}</div>`
+      : `<div class="record-thumb record-thumb-fallback"><strong>${escapeHtml(label.slice(0, 1))}</strong><span>${escapeHtml(label)}</span></div>`;
+    return `<button class="record-card record-card-media" type="button" data-route="record/${escapeHtml(record.id)}">
+      ${thumb}<div class="record-copy"><div class="record-card-head"><strong>${escapeHtml(label)}</strong><span>${formatDate(record.submittedAt)}</span></div>
+      <div class="record-card-head"><strong>${record.hours}h</strong>${badge(record.status)}</div>
+      <p>${escapeHtml(record.description || "")}</p>
+      <span class="page-caption">凭证 ${proofs.length} 个${record.reviewComment ? ` · ${escapeHtml(record.reviewComment)}` : ""}</span></div>
+    </button>`;
+  }).join("")}</div>`;
 }
 
 export function renderRecordDetail(record) {
   if (!record) return '<div class="card"><div class="card-body muted">记录不存在。</div></div>';
+  const proofs = proofItems(record.proofFiles);
   return `<section class="page-stack"><button class="button button-secondary" data-route="checkin" type="button">← 返回打卡记录</button>
     <div class="card"><div class="card-head"><h1 class="card-title">${escapeHtml(sportLabel(record.sportType))} · ${record.hours} 小时</h1></div><div class="card-body page-stack">
       <div>${badge(record.status)} <span class="page-caption">提交于 ${formatDate(record.submittedAt)}</span></div><p>${escapeHtml(record.description || "")}</p>
-      <div class="proof-grid">${(record.proofFiles || []).map((proof) => { const url = safeProofUrl(proof); return url ? `<a class="proof-preview" href="${url}" target="_blank" rel="noopener"><span>查看凭证</span></a>` : ""; }).join("")}</div>
+      <div class="proof-grid">${proofs.map((proof, index) => `<div class="proof-detail">${proofMedia(proof, { detail: true, label: `${sportLabel(record.sportType)}凭证 ${index + 1}` })}</div>`).join("") || '<div class="upload-empty">该记录没有有效凭证</div>'}</div>
       <div class="notice"><strong>教师反馈</strong><br>${escapeHtml(record.reviewComment || "暂无反馈")}</div>
       ${["已驳回","补材料","需补材料"].includes(record.status) ? `<button class="button button-primary" type="button" data-action="supplement-record" data-record-id="${record.id}">补交材料</button>` : ""}
     </div></div></section>`;

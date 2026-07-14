@@ -5,13 +5,12 @@ import { renderLogin } from "./views/login.js";
 import { renderPlaceholder, renderShell } from "./views/shell.js";
 import { renderCheckin, renderRecordDetail } from "./views/checkin.js";
 import { createUploadItems, releaseUpload, validateCheckin, validateProofSelection } from "./core/upload.js";
-import { renderHome } from "./views/home.js";
 import { renderCourseDetail, renderCourses } from "./views/courses.js";
 import { renderGrades } from "./views/grades.js";
 import { renderNotifications, renderProfile, renderSettings } from "./views/profile.js";
 import { renderEndurance, renderExemptionForm, renderExemptions, validateExemption, validateRunTime } from "./views/tools.js";
 
-const ROUTES = new Set(["checkin", "home", "courses", "grades", "profile", "notifications", "endurance", "exemptions", "exemption-new", "settings"]);
+const ROUTES = new Set(["checkin", "courses", "grades", "profile", "notifications", "endurance", "exemptions", "exemption-new", "settings"]);
 
 export function routeFromHash(hash = "") {
   const raw = String(hash).replace(/^#\/?/, "");
@@ -22,7 +21,7 @@ export function routeFromHash(hash = "") {
 }
 
 const titles = {
-  checkin: "运动打卡", home: "首页", courses: "课程", "course-detail": "课程详情", grades: "成绩",
+  checkin: "运动打卡", courses: "课程", "course-detail": "课程详情", grades: "成绩",
   profile: "我的", notifications: "通知", endurance: "耐力跑换算", exemptions: "免测申请",
   "exemption-new": "提交免测申请", settings: "设置", "record-detail": "打卡详情",
 };
@@ -74,8 +73,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       });
     } else if (route.name === "record-detail") {
       content = renderRecordDetail(state.records.find((item) => item.id === route.id));
-    } else if (route.name === "home") content = renderHome(state);
-    else if (route.name === "courses") content = renderCourses(state.courses, state.tasks, state.records);
+    } else if (route.name === "courses") content = renderCourses(state.courses, state.tasks, state.records);
     else if (route.name === "course-detail") {
       const course = state.courses.find((item) => item.id === route.id);
       content = renderCourseDetail(course, state.tasks.filter((item) => item.courseId === route.id), state.records.filter((item) => item.courseId === route.id));

@@ -5,17 +5,17 @@ import { createStore } from "./core/store.js";
 import { demoWorkspace } from "./data/demo-data.js";
 import { createStudentApi } from "./core/api.js";
 import { routeFromHash } from "./app.js";
-import { renderBottomNav } from "./views/shell.js";
+import { renderBottomNav, renderShell } from "./views/shell.js";
 import { validateProofSelection, validateCheckin } from "./core/upload.js";
-import { renderCheckin } from "./views/checkin.js";
-import { renderHome } from "./views/home.js";
+import { renderCheckin, renderRecordDetail } from "./views/checkin.js";
 import { renderCourses } from "./views/courses.js";
 import { calculateGrade, renderGrades } from "./views/grades.js";
 import { filterNotifications, renderProfile } from "./views/profile.js";
 import { validateRunTime, validateExemption, renderEndurance, renderExemptions } from "./views/tools.js";
+import { safeProofUrl } from "./core/utils.js";
 
-test("check-in is the first navigation item", () => {
-  assert.deepEqual(NAV_ITEMS.map((item) => item.id), ["checkin", "home", "courses", "grades", "profile"]);
+test("bottom dock contains only courses grades and profile", () => {
+  assert.deepEqual(NAV_ITEMS.map((item) => item.id), ["courses", "grades", "profile"]);
 });
 
 test("grade weights total 100 percent", () => {
@@ -29,6 +29,12 @@ test("upload limits match product contract", () => {
     imageBytes: 8 * 1024 * 1024,
     videoBytes: 100 * 1024 * 1024,
   });
+});
+
+test("proof URLs accept uploads and bundled demo thumbnails only", () => {
+  assert.equal(safeProofUrl("/uploads/run.jpg"), "/uploads/run.jpg");
+  assert.equal(safeProofUrl("/student/assets/demo-run.svg"), "/student/assets/demo-run.svg");
+  assert.equal(safeProofUrl("/student/assets/untrusted.svg"), "");
 });
 
 test("store restores a saved draft", () => {
@@ -62,12 +68,16 @@ test("upload normalizes urls-only backend responses", async () => {
 
 test("unknown routes fall back to check-in", () => {
   assert.equal(routeFromHash("#unknown").name, "checkin");
+  assert.equal(routeFromHash("#/home").name, "checkin");
 });
 
-test("bottom nav renders check-in first and all five destinations", () => {
-  const html = renderBottomNav("checkin");
-  assert.ok(html.indexOf("打卡") < html.indexOf("首页"));
-  for (const label of ["打卡", "首页", "课程", "成绩", "我的"]) assert.match(html, new RegExp(label));
+test("shell renders a separate check-in action above the three-item dock", () => {
+  const dock = renderBottomNav("courses");
+  for (const label of ["课程", "成绩", "我的"]) assert.match(dock, new RegExp(label));
+  assert.doesNotMatch(dock, /首页|打卡/);
+  const shell = renderShell({ active: "checkin", content: "<p>内容</p>" });
+  assert.match(shell, /class="checkin-action is-active"/);
+  assert.ok(shell.indexOf("checkin-action") < shell.indexOf("bottom-nav"));
 });
 
 test("proof selection rejects a seventh image and second video", () => {
@@ -89,9 +99,27 @@ test("check-in renders tasks submit records tabs with submit active", () => {
   assert.match(html, /aria-selected="true"[^>]*>提交/);
 });
 
-test("home contains all required sections", () => {
-  const html = renderHome(demoWorkspace());
-  for (const text of ["学时进度", "风险提示", "行动入口", "周计划", "近期任务", "通知"]) assert.match(html, new RegExp(text));
+test("record list renders the first valid proof thumbnail and remaining count", () => {
+  const html = renderCheckin({ activeTab: "records", records: [{ id: "r1", sportType: "running", hours: 1, status: "待审核", submittedAt: new Date().toISOString(), proofFiles: ["javascript:bad", "/uploads/run-a.jpg", "/uploads/run-b.jpg"] }] });
+  assert.match(html, /class="record-thumb/);
+  assert.match(html, /<img[^>]+src="\/uploads\/run-a\.jpg"[^>]+loading="eager"/);
+  assert.match(html, /class="proof-count">\+1/);
+  assert.doesNotMatch(html, /javascript:bad/);
+});
+
+test("record list distinguishes video and missing-proof fallbacks", () => {
+  const video = renderCheckin({ activeTab: "records", records: [{ id: "v1", sportType: "fitness", hours: 1, status: "已通过", submittedAt: new Date().toISOString(), proofFiles: ["/uploads/workout.mp4"] }] });
+  assert.match(video, /<video[^>]+src="\/uploads\/workout\.mp4"/);
+  assert.match(video, /class="record-thumb-play"/);
+  const missing = renderCheckin({ activeTab: "records", records: [{ id: "m1", sportType: "badminton", hours: 1, status: "已驳回", submittedAt: new Date().toISOString(), proofFiles: [] }] });
+  assert.match(missing, /class="record-thumb record-thumb-fallback"/);
+  assert.match(missing, /羽毛球/);
+});
+
+test("record detail previews all image and video proofs", () => {
+  const html = renderRecordDetail({ id: "r1", sportType: "running", hours: 1, status: "待审核", submittedAt: new Date().toISOString(), proofFiles: ["/uploads/run.jpg", "/uploads/run.mp4"] });
+  assert.match(html, /<img[^>]+src="\/uploads\/run\.jpg"/);
+  assert.match(html, /<video[^>]+src="\/uploads\/run\.mp4"[^>]+controls/);
 });
 
 test("courses display code section tasks and related records", () => {
