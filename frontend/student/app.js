@@ -11,7 +11,7 @@ import { renderNotifications, renderProfile, renderSettings } from "./views/prof
 import { renderEndurance, renderExemptionForm, renderExemptions, validateExemption, validateRunTime } from "./views/tools.js";
 import { renderDashboard } from "./views/dashboard.js";
 
-const ROUTES = new Set(["home", "checkin", "courses", "grades", "profile", "notifications", "endurance", "exemptions", "exemption-new", "settings"]);
+const ROUTES = new Set(["home", "checkin", "courses", "grades", "profile", "notifications", "endurance", "exemptions", "exemption-new", "settings", "privacy"]);
 
 export function routeFromHash(hash = "") {
   const raw = String(hash).replace(/^#\/?/, "");
@@ -24,12 +24,12 @@ export function routeFromHash(hash = "") {
 const titles = {
   home: "首页", checkin: "运动打卡", courses: "课程", "course-detail": "课程详情", grades: "成绩",
   profile: "我的", notifications: "通知", endurance: "耐力跑换算", exemptions: "免测申请",
-  "exemption-new": "提交免测申请", settings: "设置", "record-detail": "打卡详情",
+  "exemption-new": "提交免测申请", settings: "设置", privacy: "隐私政策", "record-detail": "打卡详情",
 };
 
 function activeForRoute(name) {
   if (["course-detail"].includes(name)) return "courses";
-  if (["notifications", "endurance", "exemptions", "exemption-new", "settings"].includes(name)) return "profile";
+  if (["notifications", "endurance", "exemptions", "exemption-new", "settings", "privacy"].includes(name)) return "profile";
   if (name === "record-detail") return "checkin";
   return name;
 }

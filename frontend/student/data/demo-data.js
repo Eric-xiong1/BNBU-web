@@ -9,14 +9,16 @@ export function demoWorkspace() {
       id: "22301142", name: "何同学", college: "数据科学学院", gradeLevel: "FS", gradeLabel: "大二",
       gender: "male", genderLabel: "男", className: "2024 数据科学 2 班", status: "正常",
     },
+    teacher: { name: "陈老师", title: "大学体育任课教师", email: "pe@bnbu.edu.cn" },
     summary: {
       courseHours: 7.5, generalHours: 6, totalCompleted: 13.5, totalRequired: 20,
       totalRemaining: 6.5, courseRemaining: 2.5, generalRemaining: 4, pendingCount: 2,
       rule: { total: 20, courseRequired: 10, generalRequired: 10, dailyLimit: 2 },
     },
     courses: [
-      { id: "gepe", courseCode: "GEPE101", section: "1004", name: "大学体育 II", teacher: "陈老师", semester: "2025–2026 夏季", requiredHours: 10, completedHours: 7.5 },
-      { id: "basketball", courseCode: "SPT204", section: "2001", name: "篮球专项", teacher: "李老师", semester: "2025–2026 夏季", requiredHours: 5, completedHours: 3 },
+      { id: "gepe", courseCode: "GEPE101", section: "1004", name: "大学体育 II", teacher: "陈老师", semester: "2025–2026 夏季", semesterStatus: "current", enrollmentStatus: "enrolled", deadline: iso(3), requiredHours: 10, completedHours: 7.5 },
+      { id: "basketball", courseCode: "SPT204", section: "2001", name: "篮球专项", teacher: "李老师", semester: "2025–2026 夏季", semesterStatus: "current", enrollmentStatus: "enrolled", deadline: iso(6), requiredHours: 5, completedHours: 3 },
+      { id: "gepe-history", courseCode: "GEPE100", section: "0902", name: "大学体育 I", teacher: "王老师", semester: "2025–2026 春季", semesterStatus: "archived", enrollmentStatus: "completed", deadline: iso(-120), requiredHours: 10, completedHours: 10 },
     ],
     tasks: [
       { id: "task-run", courseId: "gepe", title: "校园耐力跑", description: "完成一次不少于 30 分钟的户外跑步", status: "待完成", deadline: iso(3), hours: 1 },
@@ -57,6 +59,6 @@ export function demoWorkspace() {
     ],
     draft: null,
     uploads: [],
-    settings: { reducedMotion: false },
+    settings: { themeMode: "light", reducedMotion: false },
   };
 }

@@ -164,6 +164,14 @@ test("courses display code section tasks and related records", () => {
   assert.match(html, /相关记录/);
 });
 
+test("courses separate current and historical semesters", () => {
+  const workspace = demoWorkspace();
+  const html = renderCourses(workspace.courses, workspace.tasks, workspace.records);
+  assert.match(html, /当前学期课程/);
+  assert.match(html, /历史课程/);
+  assert.match(html, /任课老师/);
+});
+
 test("grade estimate uses 25 30 20 25 weights", () => {
   assert.equal(calculateGrade({ checkin: 80, exam: 90, performance: 85, physical: 70 }).total, 81.5);
 });
@@ -180,6 +188,16 @@ test("notification unread filter returns only unread items", () => {
 test("profile exposes identity offsets notices tools settings and logout", () => {
   const html = renderProfile(demoWorkspace());
   for (const text of ["学生身份", "校队 / 社团抵扣", "通知", "耐力跑成绩换算", "免测申请", "设置", "退出登录"]) assert.match(html, new RegExp(text));
+});
+
+test("profile exposes teacher identity organization and Android tools", () => {
+  const html = renderProfile(demoWorkspace());
+  for (const text of ["任课老师", "校队 / 社团认证", "耐力跑成绩换算", "免测与免打卡", "隐私政策"]) assert.match(html, new RegExp(text));
+});
+
+test("grade page keeps the four Android weighted components", () => {
+  const html = renderGrades(demoWorkspace().grades);
+  for (const text of ["体育打卡", "专项考试", "平时表现", "体测", "计算公式", "数据来源"]) assert.match(html, new RegExp(text));
 });
 
 test("run time requires seconds between zero and 59", () => {
