@@ -8,7 +8,7 @@ import { createUploadItems, releaseUpload, validateCheckin, validateProofSelecti
 import { renderCourseDetail, renderCourses } from "./views/courses.js";
 import { renderGrades } from "./views/grades.js";
 import { renderNotifications, renderProfile, renderSettings } from "./views/profile.js";
-import { renderEndurance, renderExemptionForm, renderExemptions, validateExemption, validateRunTime } from "./views/tools.js";
+import { renderEndurance, renderExemptionDetail, renderExemptionForm, renderExemptions, validateExemption, validateRunTime } from "./views/tools.js";
 import { renderDashboard } from "./views/dashboard.js";
 import { renderNotificationDrawer } from "./views/notifications.js";
 import { renderPrivacyPolicy } from "./views/privacy.js";
@@ -21,18 +21,19 @@ export function routeFromHash(hash = "") {
   const [name, id] = raw.split("/");
   if (name === "course" && id) return { name: "course-detail", id };
   if (name === "record" && id) return { name: "record-detail", id };
+  if (name === "exemption" && id) return { name: "exemption-detail", id };
   return ROUTES.has(name) ? { name } : { name: "home" };
 }
 
 const titles = {
   home: "首页", checkin: "运动打卡", courses: "课程", "course-detail": "课程详情", grades: "成绩",
   profile: "我的", notifications: "通知", endurance: "耐力跑换算", exemptions: "免测申请",
-  "exemption-new": "提交免测申请", settings: "设置", privacy: "隐私政策", "record-detail": "打卡详情",
+  "exemption-new": "提交免测申请", "exemption-detail": "申请详情", settings: "设置", privacy: "隐私政策", "record-detail": "打卡详情",
 };
 
 function activeForRoute(name) {
   if (["course-detail"].includes(name)) return "courses";
-  if (["notifications", "endurance", "exemptions", "exemption-new", "settings", "privacy"].includes(name)) return "profile";
+  if (["notifications", "endurance", "exemptions", "exemption-new", "exemption-detail", "settings", "privacy"].includes(name)) return "profile";
   if (name === "record-detail") return "checkin";
   return name;
 }
@@ -55,7 +56,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     taskFilter: "all", recordFilter: "all", showAllSports: false,
     noticeFilter: "all", enduranceResult: null, enduranceError: "", enduranceBusy: false,
     notificationOpen: false, selectedNoticeId: null,
-    exemptionUploads: [], exemptionError: "", exemptionBusy: false,
+    exemptionUploads: [], exemptionError: "", exemptionBusy: false, supplementExemptionId: null,
   };
 
   const api = () => store.getState().mode === "demo" ? demoApi : realApi;
@@ -92,7 +93,8 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     else if (route.name === "profile" || route.name === "notifications") content = renderProfile(state);
     else if (route.name === "endurance") content = renderEndurance({ student: state.student, result: ui.enduranceResult, error: ui.enduranceError, busy: ui.enduranceBusy });
     else if (route.name === "exemptions") content = renderExemptions(state.exemptions);
-    else if (route.name === "exemption-new") content = renderExemptionForm({ student: state.student, proofs: ui.exemptionUploads, error: ui.exemptionError, busy: ui.exemptionBusy });
+    else if (route.name === "exemption-detail") content = renderExemptionDetail(state.exemptions.find((item) => item.id === route.id));
+    else if (route.name === "exemption-new") content = renderExemptionForm({ student: state.student, proofs: ui.exemptionUploads, error: ui.exemptionError, busy: ui.exemptionBusy, supplementTarget: state.exemptions.find((item) => item.id === ui.supplementExemptionId) || null });
     else if (route.name === "settings") content = renderSettings(state.settings);
     else if (route.name === "privacy") content = renderPrivacyPolicy();
     else content = renderPlaceholder(titles[route.name] || "学生端", "BNBU 学生体育服务");
@@ -186,23 +188,38 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
   async function submitExemption(form) {
     const data = new FormData(form);
     const payload = { type: String(data.get("type") || ""), reason: String(data.get("reason") || "").trim(), proofs: ui.exemptionUploads };
-    const errors = validateExemption(payload);
-    if (store.getState().exemptions.some((item) => item.type === payload.type && item.status === "待审核")) errors.push(`已有待审核的 ${payload.type} 免测申请`);
+    const supplementTarget = store.getState().exemptions.find((item) => item.id === ui.supplementExemptionId);
+    const errors = supplementTarget ? (ui.exemptionUploads.length ? [] : ["请至少上传 1 个补充证明"]) : validateExemption(payload);
+    if (!supplementTarget && store.getState().exemptions.some((item) => item.type === payload.type && item.status === "待审核")) errors.push(`已有待审核的 ${payload.type} 免测申请`);
     if (errors.length) { ui.exemptionError = errors.join("；"); return render(); }
     if (!(globalThis.confirm?.(`确认提交 ${payload.type} 免测申请？`) ?? true)) return;
     ui.exemptionBusy = true; ui.exemptionError = ""; render();
     try {
       const uploaded = ui.exemptionUploads.length ? await api().uploadProofs(ui.exemptionUploads.map((item) => item.file)) : [];
-      const result = await api().submitExemption({ type: payload.type, reason: payload.reason, proofFiles: uploaded.map((item) => item.url) });
-      if (store.getState().mode === "real") store.patch((state) => ({ exemptions: [{ ...payload, ...result, proofFiles: uploaded.map((item) => item.url) }, ...state.exemptions] }));
-      ui.exemptionUploads.forEach((item) => releaseUpload(item)); ui.exemptionUploads = []; go("exemptions");
+      const proofFiles = uploaded.map((item) => item.url);
+      if (supplementTarget) {
+        await api().supplementExemption(supplementTarget.id, { proofFiles: [...(supplementTarget.proofFiles || []), ...proofFiles] });
+        if (store.getState().mode === "real") store.patch((state) => ({ exemptions: state.exemptions.map((item) => item.id === supplementTarget.id ? { ...item, proofFiles: [...(item.proofFiles || []), ...proofFiles], status: "待审核", reviewComment: "补充材料已提交，等待复审" } : item) }));
+      } else {
+        const result = await api().submitExemption({ type: payload.type, reason: payload.reason, proofFiles });
+        if (store.getState().mode === "real") store.patch((state) => ({ exemptions: [{ ...payload, ...result, proofFiles }, ...state.exemptions] }));
+      }
+      ui.exemptionUploads.forEach((item) => releaseUpload(item)); ui.exemptionUploads = []; ui.supplementExemptionId = null; go("exemptions");
     } catch (error) { ui.exemptionError = error.message; }
     finally { ui.exemptionBusy = false; render(); }
   }
 
   root?.addEventListener("click", async (event) => {
     const routeButton = event.target.closest("[data-route]");
-    if (routeButton) return go(routeButton.dataset.route);
+    if (routeButton) {
+      if (routeButton.dataset.route === "exemption-new") {
+        ui.supplementExemptionId = null;
+        ui.exemptionUploads.forEach((item) => releaseUpload(item));
+        ui.exemptionUploads = [];
+        ui.exemptionError = "";
+      }
+      return go(routeButton.dataset.route);
+    }
     if (event.target.closest('[data-action="demo-login"]')) {
       const demo = demoWorkspace();
       store.patch(demo);
@@ -272,6 +289,13 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       ui.notificationOpen = false; ui.selectedNoticeId = null;
       if (routeFromHash(globalThis.location?.hash).name === "notifications") return go("profile");
       return render();
+    }
+    const supplementExemption = event.target.closest('[data-action="supplement-exemption"]');
+    if (supplementExemption) { ui.supplementExemptionId = supplementExemption.dataset.exemptionId; ui.exemptionError = ""; return go("exemption-new"); }
+    const removeExemptionUpload = event.target.closest('[data-action="remove-exemption-upload"]');
+    if (removeExemptionUpload) {
+      const item = ui.exemptionUploads.find((upload) => upload.id === removeExemptionUpload.dataset.uploadId);
+      releaseUpload(item); ui.exemptionUploads = ui.exemptionUploads.filter((upload) => upload.id !== removeExemptionUpload.dataset.uploadId); return render();
     }
     if (event.target.closest('[data-action="back-notices"]')) { ui.selectedNoticeId = null; return render(); }
     const openNotice = event.target.closest('[data-action="open-notice"]');

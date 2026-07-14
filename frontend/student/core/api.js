@@ -63,6 +63,7 @@ export function createStudentApi({ baseUrl = "/api", fetchImpl = globalThis.fetc
     convertEndurance: (payload) => request("/scoring/convert-endurance", { method: "POST", body: payload }),
     listExemptions: () => request("/student/exemptions"),
     submitExemption: (payload) => request("/student/exemptions", { method: "POST", body: payload }),
+    supplementExemption: (id, payload) => request(`/student/exemptions/${encodeURIComponent(id)}/supplement`, { method: "PUT", body: payload }),
     profile: () => request("/student/profile"),
   };
 }
@@ -119,6 +120,10 @@ export function createDemoApi({ store }) {
       const item = { id: uid("ex"), ...payload, status: "待审核", reviewComment: "", createdAt: new Date().toISOString() };
       store.patch((state) => ({ exemptions: [item, ...state.exemptions] }));
       return item;
+    },
+    async supplementExemption(id, payload) {
+      store.patch((state) => ({ exemptions: state.exemptions.map((item) => item.id === id ? { ...item, ...payload, status: "待审核", reviewComment: "补充材料已提交，等待复审" } : item) }));
+      return { id, status: "待审核" };
     },
     async profile() { return store.getState().student; },
   };

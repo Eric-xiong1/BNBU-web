@@ -11,7 +11,7 @@ import { renderCheckin, renderRecordDetail } from "./views/checkin.js";
 import { renderCourses } from "./views/courses.js";
 import { calculateGrade, renderGrades } from "./views/grades.js";
 import { filterNotifications, renderProfile } from "./views/profile.js";
-import { validateRunTime, validateExemption, renderEndurance, renderExemptions } from "./views/tools.js";
+import { validateRunTime, validateExemption, renderEndurance, renderExemptions, renderExemptionDetail } from "./views/tools.js";
 import { safeProofUrl } from "./core/utils.js";
 import { icon } from "./core/icons.js";
 import { normalizeTheme, resolvedTheme } from "./core/theme.js";
@@ -252,4 +252,18 @@ test("exemption requires type and reason", () => {
 test("tool views include result and application states", () => {
   assert.match(renderEndurance({ student: demoWorkspace().student }), /耐力跑成绩换算/);
   assert.match(renderExemptions(demoWorkspace().exemptions), /我的申请/);
+});
+
+test("exemption list links to detail and supplement actions", () => {
+  const item = { id: "ex-1", type: "800m", reason: "伤病恢复期", status: "需补材料", proofFiles: [], createdAt: new Date().toISOString(), reviewComment: "补交诊断证明" };
+  const html = renderExemptions([item]);
+  assert.match(html, /data-exemption-id="ex-1"/);
+  assert.match(html, /补交证明/);
+  assert.match(renderExemptionDetail(item), /处理意见/);
+});
+
+test("endurance result explains population and rule source", () => {
+  const html = renderEndurance({ student: { gender: "female", genderLabel: "女", gradeLevel: "FS", gradeLabel: "大一" }, result: { score: 88, tier: "good", timeSeconds: 225, source: "local", population: "F/FS" } });
+  assert.match(html, /F\/FS/);
+  assert.match(html, /本地规则换算/);
 });
