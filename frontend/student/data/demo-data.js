@@ -24,11 +24,11 @@ export function demoWorkspace() {
       { id: "task-done", courseId: "gepe", title: "体能恢复训练", description: "拉伸与核心训练", status: "已完成", deadline: iso(-4), hours: 0.5 },
     ],
     records: [
-      { id: "sr-1", courseId: null, taskId: null, creditType: "其他运动", sportType: "running", hours: 1, description: "南区操场完成五公里慢跑", proofFiles: ["/student/assets/demo-run.svg", "/student/assets/demo-track.svg"], status: "待审核", submittedAt: iso(0, -2), reviewComment: "" },
-      { id: "sr-2", courseId: "gepe", taskId: "task-done", creditType: "课程相关", sportType: "fitness", hours: 0.5, description: "完成核心与拉伸训练", proofFiles: ["/student/assets/demo-fitness.svg"], status: "已通过", submittedAt: iso(-2), reviewComment: "材料完整" },
-      { id: "sr-3", courseId: null, taskId: null, creditType: "其他运动", sportType: "cycling", hours: 1, description: "情侣路骑行训练", proofFiles: ["/student/assets/demo-cycling.svg"], status: "补材料", submittedAt: iso(-5), reviewComment: "请补充可识别日期的运动轨迹" },
+      { id: "sr-1", courseId: null, taskId: null, creditType: "其他运动", sportType: "running", hours: 1, description: "南区操场完成五公里慢跑", proofFiles: ["./assets/demo-run.svg", "./assets/demo-track.svg"], status: "待审核", submittedAt: iso(0, -2), reviewComment: "" },
+      { id: "sr-2", courseId: "gepe", taskId: "task-done", creditType: "课程相关", sportType: "fitness", hours: 0.5, description: "完成核心与拉伸训练", proofFiles: ["./assets/demo-fitness.svg"], status: "已通过", submittedAt: iso(-2), reviewComment: "材料完整" },
+      { id: "sr-3", courseId: null, taskId: null, creditType: "其他运动", sportType: "cycling", hours: 1, description: "情侣路骑行训练", proofFiles: ["./assets/demo-cycling.svg"], status: "补材料", submittedAt: iso(-5), reviewComment: "请补充可识别日期的运动轨迹" },
       { id: "sr-4", courseId: "basketball", taskId: "task-basket", creditType: "课程相关", sportType: "basketball", hours: 1, description: "篮球投篮练习", proofFiles: [], status: "已驳回", submittedAt: iso(-8), reviewComment: "缺少现场凭证" },
-      { id: "sr-5", courseId: null, taskId: null, creditType: "其他运动", sportType: "badminton", hours: 1.5, description: "体育馆羽毛球双打", proofFiles: ["/student/assets/demo-badminton.svg"], status: "已通过", submittedAt: iso(-11), reviewComment: "已计入其他运动学时" },
+      { id: "sr-5", courseId: null, taskId: null, creditType: "其他运动", sportType: "badminton", hours: 1.5, description: "体育馆羽毛球双打", proofFiles: ["./assets/demo-badminton.svg"], status: "已通过", submittedAt: iso(-11), reviewComment: "已计入其他运动学时" },
     ],
     grades: {
       components: { checkin: 82, exam: 88, performance: 90, physical: 76 },

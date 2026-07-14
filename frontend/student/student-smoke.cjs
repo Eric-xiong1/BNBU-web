@@ -6,6 +6,7 @@ const root = __dirname;
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 const css = fs.readFileSync(path.join(root, "styles.css"), "utf8");
 const app = fs.readFileSync(path.join(root, "app.js"), "utf8");
+const pagesWorkflowPath = path.resolve(root, "..", "..", ".github", "workflows", "pages.yml");
 
 assert.match(html, /<div id="student-app"><\/div>/);
 assert.match(html, /type="module" src="\.\/app\.js"/);
@@ -19,6 +20,12 @@ assert.match(css, /\.checkin-action\s*\{[^}]*border-radius:\s*999px/s);
 assert.match(css, /\.student-shell\s*\{[^}]*--checkin-clearance:/s);
 assert.match(css, /\.record-card-media\s*\{[^}]*grid-template-columns:/s);
 assert.match(app, /item\.id\s*===\s*readNotice\.dataset\.noticeId[\s\S]*isUnread:\s*false/);
+assert.ok(fs.existsSync(pagesWorkflowPath), "GitHub Pages workflow must exist");
+const pagesWorkflow = fs.readFileSync(pagesWorkflowPath, "utf8");
+assert.match(pagesWorkflow, /actions\/configure-pages@v5/);
+assert.match(pagesWorkflow, /actions\/upload-pages-artifact@v4/);
+assert.match(pagesWorkflow, /path:\s*frontend/);
+assert.match(pagesWorkflow, /actions\/deploy-pages@v4/);
 
 const previewUrl = process.env.STUDENT_WEB_URL;
 if (previewUrl) {

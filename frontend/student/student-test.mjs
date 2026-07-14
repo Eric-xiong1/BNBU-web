@@ -33,7 +33,7 @@ test("upload limits match product contract", () => {
 
 test("proof URLs accept uploads and bundled demo thumbnails only", () => {
   assert.equal(safeProofUrl("/uploads/run.jpg"), "/uploads/run.jpg");
-  assert.equal(safeProofUrl("/student/assets/demo-run.svg"), "/student/assets/demo-run.svg");
+  assert.equal(safeProofUrl("./assets/demo-run.svg"), "./assets/demo-run.svg");
   assert.equal(safeProofUrl("/student/assets/untrusted.svg"), "");
 });
 

@@ -8,7 +8,7 @@ export function safeProofUrl(value) {
   const url = String(value?.url ?? value ?? "");
   if (/^blob:/i.test(url)) return url;
   if (/^\/uploads\/[A-Za-z0-9][A-Za-z0-9._-]*\.(jpe?g|png|webp|heic|heif|mp4|mov)$/i.test(url)) return url;
-  if (/^\/student\/assets\/demo-[a-z0-9-]+\.svg$/i.test(url)) return url;
+  if (/^\.\/assets\/demo-[a-z0-9-]+\.svg$/i.test(url)) return url;
   return "";
 }
 
