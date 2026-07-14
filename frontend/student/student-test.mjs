@@ -37,6 +37,22 @@ test("navigation icons are accessible inline SVG", () => {
   assert.doesNotMatch(icon("missing"), /undefined/);
 });
 
+test("bottom navigation icons use solid SVGs without changing utility icons", () => {
+  for (const name of ["courses", "checkin", "grades", "profile"]) {
+    const svg = icon(name, "nav-icon");
+    assert.match(svg, /data-icon-style="solid"/);
+    assert.match(svg, /fill="currentColor"/);
+    assert.match(svg, /stroke="none"/);
+  }
+
+  for (const name of ["notifications", "back", "close", "refresh", "moon", "shield"]) {
+    const svg = icon(name);
+    assert.match(svg, /data-icon-style="outline"/);
+    assert.match(svg, /fill="none"/);
+    assert.match(svg, /stroke="currentColor"/);
+  }
+});
+
 test("dashboard derives Android progress and actionable risk", () => {
   const workspace = demoWorkspace();
   const html = renderDashboard(workspace);
