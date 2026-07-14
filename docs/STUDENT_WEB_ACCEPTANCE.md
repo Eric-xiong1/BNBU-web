@@ -53,7 +53,7 @@ npm.cmd run test:api
 $env:STUDENT_WEB_URL='http://127.0.0.1:4174/student/index.html'; npm.cmd run smoke:student
 ```
 
-学生端现有 45 项单元/渲染测试，覆盖导航、主题、首页风险判断、登录角色限制、真实接口 DTO 归一化、401 会话失效、课程、成绩、打卡校验与表单保留、草稿、混合媒体凭证、通知、隐私、完整耐力跑本地规则和免测申请等关键行为。`test:student:browser` 使用 Playwright + Chrome 重现三档视口、主/次路由、通知抽屉、主题切换、打卡表单重渲染和横向溢出检查；设置 `UPDATE_ACCEPTANCE=1` 可重新生成验收截图。
+学生端现有 46 项单元/渲染测试，覆盖导航、主题、首页风险判断、登录角色限制、真实接口 DTO 归一化、401 会话失效、退出登录缓存清理、课程、成绩、打卡校验与表单保留、草稿、混合媒体凭证、通知、隐私、完整耐力跑本地规则和免测申请等关键行为。`test:student:browser` 使用 Playwright + Chrome 重现三档视口、主/次路由、通知抽屉、主题切换、打卡表单重渲染和横向溢出检查；设置 `UPDATE_ACCEPTANCE=1` 可重新生成验收截图。
 
 ## 5. 重点验收路径
 

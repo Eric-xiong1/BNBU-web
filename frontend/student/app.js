@@ -348,6 +348,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     if (taskButton) { ui.selectedTaskId = taskButton.dataset.taskId; ui.checkinDraft = null; ui.checkinTab = "submit"; go("checkin"); return render(); }
     const removeButton = event.target.closest('[data-action="remove-upload"]');
     if (removeButton) {
+      captureCheckinForm();
       const item = ui.uploads.find((upload) => upload.id === removeButton.dataset.uploadId);
       releaseUpload(item); ui.uploads = ui.uploads.filter((upload) => upload.id !== removeButton.dataset.uploadId); return render();
     }

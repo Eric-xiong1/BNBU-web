@@ -58,6 +58,9 @@ async function capture(page, name) {
     await mobile.page.locator("#proof-picker").setInputFiles({ name: "proof.png", mimeType: "image/png", buffer: Buffer.from("proof") });
     assert.equal(await description.inputValue(), "保留这段尚未保存的运动说明");
     assert.equal(await mobile.page.locator(".proof-item").count(), 1);
+    await description.fill("选择凭证后继续编辑的说明");
+    await mobile.page.getByRole("button", { name: "删除" }).click();
+    assert.equal(await description.inputValue(), "选择凭证后继续编辑的说明");
     await capture(mobile.page, "mobile-checkin.png");
     await mobile.page.getByRole("tab", { name: "记录" }).click();
     await capture(mobile.page, "mobile-records-refined.png");

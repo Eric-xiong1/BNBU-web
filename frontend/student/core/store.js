@@ -28,7 +28,12 @@ export function createStore({ storage = globalThis.localStorage, initial }) {
     saveDraft(draft) { state = { ...state, draft: { ...state.draft, ...draft, savedAt: new Date().toISOString() } }; persist(); emit(); },
     clearDraft() { state = { ...state, draft: null }; persist(); emit(); },
     persistSession(session, mode = "real") { state = { ...state, session, mode }; persist(); emit(); },
-    clearSession() { state = { ...state, session: null, mode: "real" }; persist(); emit(); },
+    clearSession() {
+      const settings = state.settings;
+      state = { ...clone(initial), settings, session: null, mode: "real" };
+      persist();
+      emit();
+    },
     reset(nextInitial = initial) { state = clone(nextInitial); storage?.removeItem(STORAGE_KEY); emit(); },
   };
 }

@@ -109,6 +109,22 @@ test("empty and unknown routes fall back to dashboard", () => {
   assert.equal(routeFromHash("#/home").name, "home");
 });
 
+test("logout clears account-scoped cached data but preserves settings", () => {
+  const memory = new Map();
+  const storage = { getItem: (key) => memory.get(key) ?? null, setItem: (key, value) => memory.set(key, value), removeItem: (key) => memory.delete(key) };
+  const store = createStore({ storage, initial: createInitialState() });
+  store.patch({ session: { token: "old" }, student: { id: "old-user" }, records: [{ id: "old-record" }], notifications: [{ id: "old-notice" }], exemptions: [{ id: "old-exemption" }], draft: { description: "old-draft" }, settings: { themeMode: "dark", reducedMotion: true } });
+  store.clearSession();
+  const state = store.getState();
+  assert.equal(state.session, null);
+  assert.deepEqual(state.student, {});
+  assert.deepEqual(state.records, []);
+  assert.deepEqual(state.notifications, []);
+  assert.deepEqual(state.exemptions, []);
+  assert.equal(state.draft, null);
+  assert.equal(state.settings.themeMode, "dark");
+});
+
 test("student API preserves HTTP status for expired-session handling", async () => {
   const api = createStudentApi({ fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({ code: "UNAUTHORIZED", message: "登录已过期" }) }) });
   await assert.rejects(api.summary, (error) => error.status === 401 && error.code === "UNAUTHORIZED");
