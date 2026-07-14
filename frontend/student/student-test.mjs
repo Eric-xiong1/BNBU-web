@@ -164,6 +164,23 @@ test("courses display code section tasks and related records", () => {
   assert.match(html, /相关记录/);
 });
 
+test("check-in renders Android task filters and sport selector", () => {
+  const workspace = demoWorkspace();
+  const tasks = renderCheckin({ activeTab: "tasks", tasks: workspace.tasks, records: workspace.records, draft: workspace.draft });
+  assert.match(tasks, /data-task-filter="all"/);
+  const submit = renderCheckin({ activeTab: "submit", tasks: workspace.tasks, records: workspace.records, draft: workspace.draft });
+  assert.match(submit, /data-sport-type="running"/);
+  assert.match(submit, /本次学时/);
+});
+
+test("check-in retains draft supplement and media behavior", () => {
+  const workspace = demoWorkspace();
+  const html = renderCheckin({ activeTab: "records", records: workspace.records, draft: { updatedAt: new Date().toISOString() } });
+  assert.match(html, /本地草稿/);
+  assert.match(html, /需补材料/);
+  assert.match(html, /record-thumb/);
+});
+
 test("courses separate current and historical semesters", () => {
   const workspace = demoWorkspace();
   const html = renderCourses(workspace.courses, workspace.tasks, workspace.records);

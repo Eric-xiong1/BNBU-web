@@ -49,6 +49,7 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
   let loginBusy = false;
   const ui = {
     checkinTab: "submit", uploads: [], selectedTaskId: null, supplementRecordId: null, checkinError: "", checkinBusy: false,
+    taskFilter: "all", recordFilter: "all", showAllSports: false,
     noticeFilter: "all", enduranceResult: null, enduranceError: "", enduranceBusy: false,
     exemptionUploads: [], exemptionError: "", exemptionBusy: false,
   };
@@ -72,7 +73,8 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
       content = renderCheckin({
         activeTab: ui.checkinTab, tasks: state.tasks, records: state.records, draft: state.draft || {},
         uploads: ui.uploads, selectedTask, error: ui.checkinError, busy: ui.checkinBusy,
-        dailyRemaining: state.summary?.rule?.dailyLimit || 2,
+        dailyRemaining: state.summary?.rule?.dailyLimit || 2, taskFilter: ui.taskFilter,
+        recordFilter: ui.recordFilter, showAllSports: ui.showAllSports,
       });
     } else if (route.name === "record-detail") {
       content = renderRecordDetail(state.records.find((item) => item.id === route.id));
@@ -202,6 +204,39 @@ export function createStudentApp({ root, storage = globalThis.localStorage } = {
     }
     const tab = event.target.closest("[data-checkin-tab]");
     if (tab) { ui.checkinTab = tab.dataset.checkinTab; ui.checkinError = ""; return render(); }
+    const taskFilter = event.target.closest("[data-task-filter]");
+    if (taskFilter) { ui.taskFilter = taskFilter.dataset.taskFilter; return render(); }
+    const recordFilter = event.target.closest("[data-record-filter]");
+    if (recordFilter) { ui.recordFilter = recordFilter.dataset.recordFilter; return render(); }
+    if (event.target.closest('[data-action="restore-draft"]')) { ui.checkinTab = "submit"; return render(); }
+    if (event.target.closest('[data-action="toggle-sports"]')) { ui.showAllSports = !ui.showAllSports; return render(); }
+    const sportButton = event.target.closest("[data-sport-type]");
+    if (sportButton) {
+      const form = root.querySelector("#checkin-form");
+      const value = sportButton.dataset.sportType;
+      const input = form?.querySelector('[name="sportType"]');
+      if (input) input.value = value;
+      form?.querySelectorAll("[data-sport-type]").forEach((button) => {
+        const selected = button.dataset.sportType === value;
+        button.classList.toggle("is-selected", selected);
+        button.setAttribute("aria-pressed", String(selected));
+      });
+      const custom = form?.querySelector("[data-custom-sport]");
+      if (custom) custom.hidden = value !== "other";
+      return;
+    }
+    const hourButton = event.target.closest("[data-hour-step]");
+    if (hourButton) {
+      const form = root.querySelector("#checkin-form");
+      const input = form?.querySelector('[name="hours"]');
+      if (!input) return;
+      const max = Number(store.getState().summary?.rule?.dailyLimit || 2);
+      const next = Math.min(max, Math.max(0.5, Number(input.value || 1) + Number(hourButton.dataset.hourStep || 0)));
+      input.value = String(next);
+      const output = form.querySelector("[data-hour-value]");
+      if (output) output.textContent = `${next} 小时`;
+      return;
+    }
     const taskButton = event.target.closest('[data-action="use-task"]');
     if (taskButton) { ui.selectedTaskId = taskButton.dataset.taskId; ui.checkinTab = "submit"; go("checkin"); return render(); }
     const removeButton = event.target.closest('[data-action="remove-upload"]');

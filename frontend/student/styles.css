@@ -110,6 +110,13 @@ button { min-height: 44px; }
 .tabs { display: grid; grid-template-columns: repeat(3,1fr); padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: #fff; }
 .tabs button { border: 0; border-radius: 7px; color: var(--muted); background: transparent; cursor: pointer; }
 .tabs button[aria-selected="true"] { color: var(--primary); background: var(--primary-soft); font-weight: 600; }
+.filter-chips { display: flex; gap: 8px; max-width: 100%; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }.filter-chips::-webkit-scrollbar { display: none; }.filter-chips button { flex: 0 0 auto; min-height: 38px; padding: 7px 14px; border: 1px solid var(--border); border-radius: 999px; color: var(--body); background: var(--surface); cursor: pointer; }.filter-chips button[aria-pressed="true"] { color: var(--on-primary-container); border-color: transparent; background: var(--primary-container); font-weight: 500; }
+.task-card .card-body { gap: 10px !important; }.task-card p { color: var(--body); }.task-card .button { justify-self: start; }
+.draft-resume,.selected-task-panel { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }.draft-resume > div,.selected-task-panel { display: grid; }.draft-resume strong,.selected-task-panel strong { color: var(--text); font-weight: 500; }.draft-resume small,.selected-task-panel small { color: var(--muted); }.selected-task-panel { justify-content: start; background: var(--primary-container); }
+.checkin-form-card { max-width: 680px; margin: 0 auto; }.checkin-form-card > .card-body { padding: 20px; }
+.hour-stepper { display: grid; grid-template-columns: 48px minmax(120px,1fr) 48px; align-items: center; max-width: 320px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-variant); }.hour-stepper button { border: 0; color: var(--primary); background: transparent; font-size: 22px; cursor: pointer; }.hour-stepper output { color: var(--text); text-align: center; font-size: 20px; font-weight: 500; }
+.sport-selector { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }.sport-option { display: flex; align-items: center; gap: 9px; min-height: 52px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--body); background: var(--surface); cursor: pointer; }.sport-option.is-selected { color: var(--on-primary-container); border-color: transparent; background: var(--primary-container); }.sport-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; color: var(--primary); background: var(--surface-variant); font-size: 12px; }.sport-option strong { font-weight: 500; }.text-action { justify-self: start; min-height: 36px; padding: 0; border: 0; color: var(--primary); background: transparent; cursor: pointer; }
+.custom-sport-field[hidden] { display: none; }
 .action-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .action-row .button-primary { flex: 1 1 180px; }
 .upload-picker { display: grid; min-height: 92px; place-items: center; border: 1px dashed #A9C8FF; border-radius: var(--radius-sm); color: var(--primary); background: #F7FAFF; cursor: pointer; }
@@ -233,6 +240,7 @@ button { min-height: 44px; }
   .grid-2 { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .grid-3 { grid-template-columns: repeat(2,minmax(0,1fr)); }
   .progress-split { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .sport-selector { grid-template-columns: repeat(4,minmax(0,1fr)); }
 }
 @media (min-width: 901px) {
   .auth-shell { grid-template-columns: minmax(340px, 42%) minmax(0,1fr); }
