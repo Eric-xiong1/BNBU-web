@@ -16,7 +16,7 @@
 - Modify: `frontend/student/student-test.mjs`
 - Test: `frontend/student/student-test.mjs`
 
-- [ ] **Step 1: Add the failing icon-style test**
+- [x] **Step 1: Add the failing icon-style test**
 
 Add this test after the existing navigation icon accessibility test:
 
@@ -38,7 +38,7 @@ test("bottom navigation icons use solid SVGs without changing utility icons", ()
 });
 ```
 
-- [ ] **Step 2: Run the unit test to verify RED**
+- [x] **Step 2: Run the unit test to verify RED**
 
 Run:
 
@@ -48,7 +48,7 @@ node --test frontend/student/student-test.mjs
 
 Expected: one new test fails because current SVG markup has no `data-icon-style="solid"` marker and all icons use outline attributes.
 
-- [ ] **Step 3: Commit the failing test**
+- [x] **Step 3: Commit the failing test**
 
 ```text
 git add frontend/student/student-test.mjs
@@ -61,7 +61,7 @@ git commit -m "test(student-web): specify solid bottom nav icons"
 - Modify: `frontend/student/core/icons.js`
 - Test: `frontend/student/student-test.mjs`
 
-- [ ] **Step 1: Replace the four navigation path definitions**
+- [x] **Step 1: Replace the four navigation path definitions**
 
 Use these fill-oriented 24px paths while preserving every other path:
 
@@ -72,7 +72,7 @@ grades: '<path d="M4 10h4v10H4V10Zm6-6h4v16h-4V4Zm6 9h4v7h-4v-7Z"/>',
 profile: '<path fill-rule="evenodd" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 4a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm0 13.2a7.16 7.16 0 0 1-5.96-3.18C6.18 14.05 10.02 13 12 13s5.82 1.05 5.96 3.02A7.16 7.16 0 0 1 12 19.2Z"/>',
 ```
 
-- [ ] **Step 2: Add style-aware SVG attributes**
+- [x] **Step 2: Add style-aware SVG attributes**
 
 Add the classification and replace the `icon()` return markup with:
 
@@ -91,7 +91,7 @@ export function icon(name, className = "") {
 }
 ```
 
-- [ ] **Step 3: Run unit and static tests to verify GREEN**
+- [x] **Step 3: Run unit and static tests to verify GREEN**
 
 Run:
 
@@ -101,7 +101,7 @@ npm.cmd run test:student
 
 Expected: all student unit tests and `student static entry smoke` pass.
 
-- [ ] **Step 4: Commit the implementation**
+- [x] **Step 4: Commit the implementation**
 
 ```text
 git add frontend/student/core/icons.js
@@ -117,7 +117,7 @@ git commit -m "feat(student-web): refine bottom nav icons"
 - Modify: `docs/acceptance/student-web/mobile-profile-dark.png`
 - Modify: `docs/acceptance/student-web/tablet-courses.png`
 
-- [ ] **Step 1: Add a browser assertion for each non-Home destination**
+- [x] **Step 1: Add a browser assertion for each non-Home destination**
 
 Add this helper below `assertHomeEmblems()`:
 
@@ -142,7 +142,7 @@ async function assertSolidNavIcon(page, route) {
 
 Call it after visiting `checkin`, `grades`, `courses`, and `profile`. Keep the existing Home emblem assertion unchanged.
 
-- [ ] **Step 2: Run Playwright acceptance and refresh screenshots**
+- [x] **Step 2: Run Playwright acceptance and refresh screenshots**
 
 Start `node frontend/preview-server.cjs`, then run:
 
@@ -152,7 +152,7 @@ $env:UPDATE_ACCEPTANCE='1'; npm.cmd run test:student:browser
 
 Expected: `student browser acceptance passed: 390x844, 768x1024, 1440x900`.
 
-- [ ] **Step 3: Inspect the relevant screenshots**
+- [x] **Step 3: Inspect the relevant screenshots**
 
 Inspect the four listed screenshots and verify:
 
@@ -163,7 +163,7 @@ Inspect the four listed screenshots and verify:
 
 Revert any unrelated screenshot updates caused only by dynamic demo dates.
 
-- [ ] **Step 4: Commit browser coverage and acceptance artifacts**
+- [x] **Step 4: Commit browser coverage and acceptance artifacts**
 
 ```text
 git add frontend/student/student-browser.cjs docs/acceptance/student-web/mobile-home.png docs/acceptance/student-web/mobile-checkin.png docs/acceptance/student-web/mobile-profile-dark.png docs/acceptance/student-web/tablet-courses.png
@@ -178,7 +178,7 @@ git commit -m "test(student-web): verify solid nav icon states"
 - Review: `frontend/student/student-browser.cjs`
 - Review: `frontend/student/styles.css`
 
-- [ ] **Step 1: Run the full verification suite**
+- [x] **Step 1: Run the full verification suite**
 
 Run:
 
@@ -191,11 +191,11 @@ git diff --check main...HEAD
 
 Expected: every command exits 0; student tests report zero failures; browser acceptance passes all three viewports; Web self-test reports healthy route and endpoint counts; diff check prints no errors.
 
-- [ ] **Step 2: Request an independent code review**
+- [x] **Step 2: Request an independent code review**
 
 Ask the reviewer to verify that Home remains unchanged, only the four non-Home icons use solid paint, utility icons remain outline, navigation target geometry is unchanged, and no external assets or dependencies were introduced. Fix every Critical or Important finding and rerun Step 1.
 
-- [ ] **Step 3: Confirm the branch is clean**
+- [x] **Step 3: Confirm the branch is clean**
 
 ```text
 git status --short
