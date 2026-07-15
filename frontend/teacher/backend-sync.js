@@ -13,6 +13,39 @@
     return "pending";
   }
 
+  /** 将后端 proofFiles（字符串 URL 或对象数组）规范为教师端附件结构 */
+  function normalizeProofFiles(raw) {
+    if (!raw) return [];
+    const list = Array.isArray(raw) ? raw : [raw];
+    return list
+      .map((item, i) => {
+        if (typeof item === "string") {
+          return {
+            id: `pf-${i}`,
+            kind: "image",
+            thumbUrl: item,
+            originalUrl: item,
+            name: `证明${i + 1}`,
+          };
+        }
+        if (!item || typeof item !== "object") return null;
+        const kind =
+          item.kind ||
+          (item.type === "video" || String(item.mime || "").startsWith("video/") ? "video" : "image");
+        const thumbUrl = item.thumbUrl || item.thumb_url || item.thumbnail || item.url || "";
+        const originalUrl = item.originalUrl || item.original_url || item.url || thumbUrl;
+        return {
+          id: item.id || `pf-${i}`,
+          kind,
+          thumbUrl,
+          originalUrl,
+          name: item.name || item.filename || item.desc || `证明${i + 1}`,
+          mime: item.mime,
+        };
+      })
+      .filter(Boolean);
+  }
+
   function exemptionStatus(raw) {
     if (raw === "已通过" || raw === "approved") return "approved";
     if (raw === "已驳回" || raw === "rejected") return "rejected";
@@ -109,8 +142,13 @@
               reviewStatus: reviewStatusToEvidence(r.status),
               isSpecialty: String(r.type || "").includes("课程"),
               type: "image",
+              kind: "image",
               thumb: "📷",
               desc: r.task || r.reason || "打卡凭证",
+              attachments: normalizeProofFiles(r.proofFiles || r.proof_files || r.attachments),
+              evidenceCount: Array.isArray(r.proofFiles || r.proof_files)
+                ? (r.proofFiles || r.proof_files).length
+                : undefined,
             });
           }
         }

@@ -36,16 +36,71 @@
     return { ...cls, name: formatClassLabel(cls), isSpecialty: !!course?.isSpecialty };
   }
 
+  function normalizeAttachment(raw, fallbackId) {
+    if (!raw) return null;
+    if (typeof raw === "string") {
+      return {
+        id: fallbackId,
+        kind: "image",
+        thumbUrl: raw,
+        originalUrl: raw,
+        name: "",
+      };
+    }
+    const kind =
+      raw.kind ||
+      (raw.type === "video" || raw.mediaType === "video" ? "video" : "image");
+    const thumbUrl = raw.thumbUrl || raw.thumb || raw.url || "";
+    const originalUrl = raw.originalUrl || raw.url || thumbUrl;
+    return {
+      id: raw.id || fallbackId,
+      kind,
+      thumbUrl,
+      originalUrl,
+      name: raw.name || raw.desc || "",
+      mime: raw.mime,
+      forbidden: raw.forbidden,
+    };
+  }
+
   function normalizeEvidence(raw, studentId, classId) {
     const course = getCourseForClass(classId);
     const defaultSpecialty = !!course?.isSpecialty;
-    return (raw || []).map((e, i) => ({
-      ...e,
-      id: e.id || `${studentId}-e${i}`,
-      durationHours: e.durationHours ?? 1,
-      reviewStatus: e.reviewStatus ?? "approved",
-      isSpecialty: e.isSpecialty ?? defaultSpecialty,
-    }));
+    return (raw || []).map((e, i) => {
+      const id = e.id || `${studentId}-e${i}`;
+      let attachments = Array.isArray(e.attachments)
+        ? e.attachments.map((a, j) => normalizeAttachment(a, `${id}-a${j}`)).filter(Boolean)
+        : [];
+      if (!attachments.length && (e.thumbUrl || e.thumb || e.originalUrl)) {
+        attachments = [
+          normalizeAttachment(
+            {
+              kind: e.kind || e.type,
+              thumbUrl: e.thumbUrl || e.thumb,
+              originalUrl: e.originalUrl || e.url,
+              name: e.desc,
+              type: e.type,
+            },
+            `${id}-a0`
+          ),
+        ].filter(Boolean);
+      }
+      const kind = e.kind || (e.type === "video" ? "video" : "image");
+      return {
+        ...e,
+        id,
+        kind,
+        type: e.type || (kind === "video" ? "video" : "photo"),
+        durationHours: e.durationHours ?? 1,
+        reviewStatus: e.reviewStatus ?? "approved",
+        isSpecialty: e.isSpecialty ?? defaultSpecialty,
+        attachments,
+        evidenceCount: e.evidenceCount ?? attachments.length,
+        thumbUrl: e.thumbUrl || attachments[0]?.thumbUrl || e.thumb || "",
+        originalUrl: e.originalUrl || attachments[0]?.originalUrl || "",
+        thumb: e.thumbUrl || attachments[0]?.thumbUrl || e.thumb || "",
+      };
+    });
   }
 
   function getStudentEvidenceList(studentId, classId) {
@@ -93,9 +148,54 @@
       todaySubmitted: !!todayItem,
       todayEvidenceId: todayItem?.id || null,
       time: todayItem?.time || "-",
+      importIndex: s.importIndex,
       photo: todayItem
-        ? { thumb: todayItem.thumb, desc: todayItem.desc, url: null, type: todayItem.type }
+        ? {
+            thumb: todayItem.thumbUrl || todayItem.thumb,
+            thumbUrl: todayItem.thumbUrl || todayItem.thumb,
+            originalUrl: todayItem.originalUrl,
+            desc: todayItem.desc,
+            url: null,
+            type: todayItem.type,
+            attachments: todayItem.attachments,
+            evidenceCount: todayItem.evidenceCount,
+          }
         : null,
+    };
+  }
+
+  function formatMinSec(totalSeconds) {
+    if (totalSeconds == null || totalSeconds === "") return "";
+    const sec = Number(totalSeconds);
+    if (!Number.isFinite(sec) || sec < 0) return "";
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    return `${m}′${String(s).padStart(2, "0")}″`;
+  }
+
+  /** MOCK 模拟服务端换算：非正式规则，仅演示 convertedScore 回包 */
+  function mockConvertEndurance(rawSeconds) {
+    const sec = Number(rawSeconds);
+    if (!Number.isFinite(sec) || sec <= 0) return null;
+    const score = Math.max(0, Math.min(100, Math.round(100 - (sec - 180) * 0.2)));
+    return score;
+  }
+
+  function enduranceFieldsFromPhysical(record) {
+    if (!record?.scores) {
+      return { enduranceRawDisplay: null, endurancePercent: null, enduranceRawSeconds: null };
+    }
+    const key = record.scores.run1000m != null ? "run1000m" : record.scores.run800m != null ? "run800m" : null;
+    if (!key) return { enduranceRawDisplay: null, endurancePercent: null, enduranceRawSeconds: null };
+    const raw = record.scores[key];
+    const converted =
+      record.convertedScores?.[key] ??
+      record.convertedScore ??
+      null;
+    return {
+      enduranceRawSeconds: raw,
+      enduranceRawDisplay: formatMinSec(raw),
+      endurancePercent: converted,
     };
   }
 
@@ -321,6 +421,8 @@
       itemsEntered: enteredCount,
       exemptTestStatus: exemptTest?.status || null,
       exemptExamStatus: exemptExam?.status || null,
+      convertedScores: record.convertedScores || {},
+      ...enduranceFieldsFromPhysical(record),
     };
   }
 
@@ -382,16 +484,24 @@
       const exemptExamPending = isApplicationPending(r.exemptExamStatus);
 
       if (exemptTestPending || exemptExamPending) {
+        const importIndex = (MOCK.students[r.classId] || []).find((s) => s.id === r.studentId)?.importIndex;
         return {
           studentId: r.studentId,
           no: r.no,
           name: r.name,
+          importIndex,
+          classId: r.classId,
           classLabel: r.classLabel,
           courseId: courseIdForStudent,
           courseName: r.courseName,
           gradePending: true,
           pendingReason: exemptTestPending ? "免测审核中" : "免考审核中",
+          checkinHoursApproved: null,
+          checkinHoursRequired: null,
+          checkinPercent: null,
           regularScore: null,
+          enduranceRawDisplay: null,
+          endurancePercent: null,
           physicalScore: null,
           finalScore: null,
           totalScore: null,
@@ -401,7 +511,16 @@
         };
       }
 
-      const regular = computeRegularScore(r.studentId, r.classId);
+      const enriched = enrichStudent(
+        { id: r.studentId, no: r.no, name: r.name, importIndex: (MOCK.students[r.classId] || []).find((s) => s.id === r.studentId)?.importIndex },
+        r.classId,
+        ""
+      );
+      const regular =
+        r.checkinScore ??
+        r.regularScore ??
+        r.checkinPercent ??
+        computeRegularScore(r.studentId, r.classId);
       const physical = r.totalScore;
       const finalRecord = getFinalExamRecord(r.studentId);
       const final =
@@ -412,15 +531,23 @@
             : finalRecord?.totalScore ?? null;
       const total = computeTotalGrade(regular, physical, final, r.exemptTestStatus, r.exemptExamStatus, courseIdForStudent);
       const formula = formatGradeFormula(weights, r.exemptTestStatus, r.exemptExamStatus);
+      const endurance = enduranceFieldsFromPhysical(r);
       return {
         studentId: r.studentId,
         no: r.no,
         name: r.name,
+        importIndex: enriched.importIndex,
+        classId: r.classId,
         classLabel: r.classLabel,
         courseId: courseIdForStudent,
         courseName: r.courseName,
         gradePending: false,
+        checkinHoursApproved: enriched.approvedHours,
+        checkinHoursRequired: enriched.semesterRequired,
+        checkinPercent: regular,
         regularScore: regular,
+        enduranceRawDisplay: endurance.enduranceRawDisplay,
+        endurancePercent: endurance.endurancePercent,
         physicalScore: r.exemptTestStatus === "approved" ? "免测" : physical,
         finalScore: r.exemptExamStatus === "approved" ? "免考" : final,
         totalScore: total,
@@ -542,23 +669,61 @@
     /** GET /checkin/settings?courseId=&classId= */
     getCheckinSettings(courseId, classId) {
       const course = getCourse(courseId);
+      const s = MOCK.checkinSettings;
+      const startsAt = s.startsAt;
+      const endsAt = s.endsAt;
+      const lifecycleStatus =
+        s.lifecycleStatus ||
+        (global.TimeWindow ? TimeWindow.deriveLifecycle(startsAt, endsAt) : "进行中");
       return delay({
-        ...MOCK.checkinSettings,
+        ...s,
+        windowStart: s.dailyWindowStart || s.windowStart,
+        windowEnd: s.dailyWindowEnd || s.windowEnd,
+        dailyWindowStart: s.dailyWindowStart || s.windowStart,
+        dailyWindowEnd: s.dailyWindowEnd || s.windowEnd,
+        lifecycleStatus,
         courseId,
         classId,
         isSpecialtyCourse: !!course?.isSpecialty,
       });
     },
 
-    /** PUT /checkin/settings */
+    /** PUT /checkin/settings — 成功后应用端应再 GET 回读 */
     updateCheckinSettings(payload) {
-      Object.assign(MOCK.checkinSettings, payload);
+      if (payload.startsAt && payload.endsAt) {
+        const s = new Date(payload.startsAt);
+        const e = new Date(payload.endsAt);
+        if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) {
+          return delay({
+            success: false,
+            code: "WINDOW_INVALID_RANGE",
+            message: "结束时间必须晚于或等于开始时间",
+          });
+        }
+      }
+      const next = { ...payload };
+      if (next.dailyWindowStart) next.windowStart = next.dailyWindowStart;
+      if (next.dailyWindowEnd) next.windowEnd = next.dailyWindowEnd;
+      if (next.windowStart && !next.dailyWindowStart) next.dailyWindowStart = next.windowStart;
+      if (next.windowEnd && !next.dailyWindowEnd) next.dailyWindowEnd = next.windowEnd;
+      if (next.startsAt && next.endsAt && global.TimeWindow) {
+        next.lifecycleStatus = TimeWindow.deriveLifecycle(next.startsAt, next.endsAt);
+      }
+      Object.assign(MOCK.checkinSettings, next);
       MOCK.settingsHistory.unshift({
         at: new Date().toISOString().slice(0, 16).replace("T", " "),
         by: MOCK.currentUser.name,
-        change: "更新打卡设置",
+        change: next.startsAt
+          ? `更新活动窗 ${String(next.startsAt).slice(0, 16)} → ${String(next.endsAt).slice(0, 16)}`
+          : "更新打卡设置",
       });
-      return delay({ success: true });
+      return delay({
+        success: true,
+        settings: {
+          ...MOCK.checkinSettings,
+          lifecycleStatus: MOCK.checkinSettings.lifecycleStatus,
+        },
+      });
     },
 
     /** GET /checkin/settings/history */
@@ -613,14 +778,20 @@
       const students = MOCK.students[classId] || [];
       const student = students.find((s) => s.id === studentId);
       const classLabel = classId ? formatClassLabel(getClass(classId)) : "";
-      const attachments = [
-        {
-          type: item.type,
-          name: item.desc,
-          thumb: item.thumb,
-          mediaType: item.type,
-        },
-      ];
+      const attachments = (item.attachments && item.attachments.length
+        ? item.attachments
+        : [
+            {
+              type: item.type,
+              kind: item.kind || item.type,
+              name: item.desc,
+              thumb: item.thumb,
+              thumbUrl: item.thumbUrl || item.thumb,
+              originalUrl: item.originalUrl,
+              mediaType: item.type,
+            },
+          ]
+      ).map((a, j) => normalizeAttachment(a, `${evidenceId}-a${j}`));
       return delay({
         id: evidenceId,
         kind: "checkin_review",
@@ -632,6 +803,7 @@
         date: item.date,
         time: item.time,
         status: item.reviewStatus,
+        evidenceCount: attachments.length,
         attachments,
       });
     },
@@ -706,13 +878,23 @@
       Object.assign(record, payload);
       if (payload.scores) {
         record.scores = { ...record.scores, ...payload.scores };
+        record.convertedScores = { ...(record.convertedScores || {}), ...(payload.convertedScores || {}) };
+        for (const key of ["run800m", "run1000m"]) {
+          if (record.scores[key] != null && record.convertedScores[key] == null) {
+            // MOCK 模拟服务端回包 convertedScore（非正式评分表）
+            record.convertedScores[key] = mockConvertEndurance(record.scores[key]);
+          }
+        }
         const filled = Object.values(record.scores).filter((v) => v != null).length;
-        record.entryStatus = filled >= 4 ? "submitted" : "draft";
+        record.entryStatus = payload.entryStatus || (filled >= 4 ? "submitted" : "draft");
         record.totalScore = payload.totalScore ?? record.totalScore ?? Math.min(100, 60 + filled * 3);
         record.matched = record.matched !== false;
       }
       return delay({ success: true, record: enrichPhysicalRecord(record) });
     },
+
+    formatMinSec,
+    mockConvertEndurance,
 
     /** GET /grades/summary?classId=&courseId= */
     getGradeSummary(params = {}) {

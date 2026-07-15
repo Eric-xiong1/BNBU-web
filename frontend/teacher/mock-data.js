@@ -208,10 +208,63 @@ window.MOCK = {
     semesterHoursRequired: 20,
     specialtyHoursRequired: 5,
     requireTeacherReview: true,
+    startsAt: "2026-03-01T00:00:00+08:00",
+    endsAt: "2026-06-30T23:59:00+08:00",
     windowStart: "06:00",
     windowEnd: "22:00",
+    dailyWindowStart: "06:00",
+    dailyWindowEnd: "22:00",
+    recordCount: 48,
     gpsEnabled: false,
     gpsRadius: 500,
+  },
+
+  /** 课程任务 MOCK（含统一时间窗；status 为发布态） */
+  courseTasks: {
+    c1: [
+      {
+        id: "demo-t1",
+        title: "课外跑步训练 Week 08",
+        hours: 2,
+        requiredHours: 2,
+        startsAt: "2026-03-01T00:00:00+08:00",
+        endsAt: "2026-04-20T23:59:00+08:00",
+        deadline: "第 8 周周日 23:59",
+        proof: "运动 App 截图",
+        status: "进行中",
+        updatedAt: "2026-03-01",
+        description: "完成指定跑步训练并上传证明。",
+        recordCount: 12,
+      },
+      {
+        id: "demo-t2",
+        title: "篮球专项体能",
+        hours: 1.5,
+        requiredHours: 1.5,
+        startsAt: "2026-04-21T00:00:00+08:00",
+        endsAt: "2026-05-15T23:59:00+08:00",
+        deadline: "第 9 周周五",
+        proof: "场地照片",
+        status: "草稿",
+        updatedAt: "2026-02-28",
+        description: "",
+        recordCount: 0,
+      },
+      {
+        id: "demo-t3",
+        title: "学期总结跑",
+        hours: 3,
+        requiredHours: 3,
+        startsAt: "2026-01-01T00:00:00+08:00",
+        endsAt: "2026-02-28T23:59:00+08:00",
+        deadline: "第 16 周",
+        proof: "轨迹截图",
+        status: "已关闭",
+        updatedAt: "2026-01-15",
+        description: "",
+        recordCount: 30,
+      },
+    ],
   },
 
   settingsHistory: [
@@ -260,8 +313,8 @@ window.MOCK = {
       { key: "longJump", label: "立定跳远", unit: "cm", type: "score" },
       { key: "pullUps", label: "引体向上", unit: "次", type: "score", gender: "男" },
       { key: "sitUps", label: "仰卧起坐", unit: "次/分钟", type: "score", gender: "女" },
-      { key: "run1000m", label: "1000米跑", unit: "秒", type: "score", gender: "男", lowerBetter: true },
-      { key: "run800m", label: "800米跑", unit: "秒", type: "score", gender: "女", lowerBetter: true },
+      { key: "run1000m", label: "1000米跑", unit: "分:秒", type: "score", gender: "男", lowerBetter: true, entryMode: "minsec" },
+      { key: "run800m", label: "800米跑", unit: "分:秒", type: "score", gender: "女", lowerBetter: true, entryMode: "minsec" },
     ],
   },
 
@@ -402,20 +455,131 @@ window.MOCK = {
   ],
 
   physicalTests: [
-    { studentId: "s1", no: "20240001", name: "张三", classId: "cl1", age: 20, gender: "男", height: 175, weight: 68, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 4200, run50m: 7.2, sitReach: 18, longJump: 250, pullUps: 12, run1000m: 245 }, totalScore: 78 },
-    { studentId: "s2", no: "20240002", name: "李四", classId: "cl1", age: 19, gender: "女", height: 162, weight: 52, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 2800, run50m: 8.5, sitReach: 22, longJump: 185, sitUps: 42, run800m: 215 }, totalScore: 76 },
+    { studentId: "s1", no: "20240001", name: "张三", classId: "cl1", age: 20, gender: "男", height: 175, weight: 68, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 4200, run50m: 7.2, sitReach: 18, longJump: 250, pullUps: 12, run1000m: 245 }, convertedScores: { run1000m: 78 }, totalScore: 78 },
+    { studentId: "s2", no: "20240002", name: "李四", classId: "cl1", age: 19, gender: "女", height: 162, weight: 52, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 2800, run50m: 8.5, sitReach: 22, longJump: 185, sitUps: 42, run800m: 215 }, convertedScores: { run800m: 76 }, totalScore: 76 },
     { studentId: "s3", no: "20240003", name: "王五", classId: "cl1", age: 20, gender: "男", height: 178, weight: 72, matched: false, note: "年龄字段待核对", entryStatus: "exempt", exemptReason: "伤病免测（审核中）" },
-    { studentId: "s5", no: "20240005", name: "钱七", classId: "cl1", age: 21, gender: "男", height: 180, weight: 75, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 4500, run50m: 6.9, sitReach: 20, longJump: 265, pullUps: 15, run1000m: 230 }, totalScore: 82 },
+    { studentId: "s5", no: "20240005", name: "钱七", classId: "cl1", age: 21, gender: "男", height: 180, weight: 75, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 4500, run50m: 6.9, sitReach: 20, longJump: 265, pullUps: 15, run1000m: 230 }, convertedScores: { run1000m: 85 }, totalScore: 82 },
     { studentId: "s10", no: "20240008", name: "孙八", classId: "cl1", age: 20, gender: "男", height: 172, weight: 65, matched: true, entryStatus: "exempt", exemptReason: "校队免测（审核中）" },
-    { studentId: "s6", no: "20240020", name: "陈明", classId: "cl2", age: 20, gender: "男", height: 176, weight: 70, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 4100, run50m: 7.0, sitReach: 19, longJump: 255, pullUps: 14, run1000m: 238 }, totalScore: 85 },
+    { studentId: "s6", no: "20240020", name: "陈明", classId: "cl2", age: 20, gender: "男", height: 176, weight: 70, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 4100, run50m: 7.0, sitReach: 19, longJump: 255, pullUps: 14, run1000m: 238 }, convertedScores: { run1000m: 82 }, totalScore: 85 },
     { studentId: "s15", no: "20240022", name: "黄蓉", classId: "cl2", age: 19, gender: "女", height: 165, weight: 54, matched: true, entryStatus: "draft", scores: { vitalCapacity: 2900, run50m: 8.8, sitReach: 24, longJump: 190 }, totalScore: null },
     { studentId: "s17", no: "20240024", name: "何静", classId: "cl2", age: 18, gender: "女", height: 160, weight: 50, matched: false, note: "性别与标准表不一致", entryStatus: "pending", scores: null, totalScore: null },
-    { studentId: "s21", no: "20240030", name: "宋佳", classId: "cl3", age: 20, gender: "女", height: 168, weight: 55, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 3100, run50m: 8.2, sitReach: 26, longJump: 200, sitUps: 48, run800m: 205 }, totalScore: 88 },
-    { studentId: "s8", no: "20240040", name: "周杰", classId: "cl4", age: 21, gender: "男", height: 177, weight: 71, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 4000, run50m: 7.1, sitReach: 17, longJump: 248, pullUps: 11, run1000m: 250 }, totalScore: 80 },
+    { studentId: "s21", no: "20240030", name: "宋佳", classId: "cl3", age: 20, gender: "女", height: 168, weight: 55, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 3100, run50m: 8.2, sitReach: 26, longJump: 200, sitUps: 48, run800m: 205 }, convertedScores: { run800m: 88 }, totalScore: 88 },
+    { studentId: "s8", no: "20240040", name: "周杰", classId: "cl4", age: 21, gender: "男", height: 177, weight: 71, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 4000, run50m: 7.1, sitReach: 17, longJump: 248, pullUps: 11, run1000m: 250 }, convertedScores: { run1000m: 75 }, totalScore: 80 },
     { studentId: "s30", no: "20240044", name: "胡军", classId: "cl4", age: 20, gender: "男", height: 174, weight: 69, matched: true, entryStatus: "exempt", exemptReason: "伤病免测（已通过）" },
-    { studentId: "s32", no: "20240050", name: "梁博", classId: "cl5", age: 20, gender: "男", height: 174, weight: 67, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 3900, run50m: 7.3, sitReach: 16, longJump: 240, pullUps: 10, run1000m: 255 }, totalScore: 77 },
+    { studentId: "s32", no: "20240050", name: "梁博", classId: "cl5", age: 20, gender: "男", height: 174, weight: 67, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 3900, run50m: 7.3, sitReach: 16, longJump: 240, pullUps: 10, run1000m: 255 }, convertedScores: { run1000m: 72 }, totalScore: 77 },
     { studentId: "s9", no: "20240060", name: "吴磊", classId: "cl6", age: 22, gender: "男", height: 185, weight: 82, matched: true, entryStatus: "exempt", exemptReason: "校队免测（已通过）" },
-    { studentId: "s43", no: "20240080", name: "刘雯", classId: "cl8", age: 19, gender: "女", height: 170, weight: 56, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 3200, run50m: 8.0, sitReach: 28, longJump: 210, sitUps: 50, run800m: 198 }, totalScore: 88 },
+    { studentId: "s43", no: "20240080", name: "刘雯", classId: "cl8", age: 19, gender: "女", height: 170, weight: 56, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 3200, run50m: 8.0, sitReach: 28, longJump: 210, sitUps: 50, run800m: 198 }, convertedScores: { run800m: 90 }, totalScore: 88 },
     { studentId: "s47", no: "20240084", name: "陈雪", classId: "cl8", age: 20, gender: "女", height: 163, weight: 53, matched: true, entryStatus: "pending", scores: null, totalScore: null },
   ],
 };
+
+(function enrichMockMedia(MOCK) {
+  function svgDataUri(label, bg) {
+    const text = String(label || "证").slice(0, 4);
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120">` +
+      `<rect width="160" height="120" fill="${bg}"/>` +
+      `<text x="80" y="66" text-anchor="middle" fill="#fff" font-size="18" font-family="sans-serif">${text}</text>` +
+      `</svg>`;
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  }
+
+  const palette = {
+    跑步: "#165DFF",
+    健身: "#0FC6C2",
+    跳绳: "#F77234",
+    游泳: "#3491FA",
+    篮球: "#F5319D",
+    羽毛球: "#00B42A",
+    骑行: "#722ED1",
+    瑜伽: "#F7BA1E",
+    排球: "#D91AD9",
+    健美操: "#F53F3F",
+    诊断书: "#86909C",
+    病历: "#86909C",
+    校队证: "#165DFF",
+    赛程: "#0FC6C2",
+    名单: "#165DFF",
+    材料: "#86909C",
+    医嘱: "#F77234",
+    MRI: "#3491FA",
+    邀请函: "#00B42A",
+    门诊: "#F77234",
+    成绩单: "#165DFF",
+    证明: "#00B42A",
+    通知: "#3491FA",
+  };
+
+  function attachForEvidence(ev, i) {
+    const label = ev.thumb || ev.desc || "证据";
+    const bg = palette[ev.thumb] || "#4E5969";
+    const thumbUrl = svgDataUri(label, bg);
+    const originalUrl =
+      ev.id === "e2-1"
+        ? "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"/>') + "#forbidden=1"
+        : svgDataUri(label + "·原图", bg);
+    const kind = ev.type === "video" ? "video" : "image";
+    const attachments = [
+      {
+        id: `${ev.id}-a0`,
+        kind,
+        thumbUrl,
+        originalUrl,
+        name: ev.desc || label,
+        mime: kind === "video" ? "video/mp4" : "image/svg+xml",
+        ...(ev.id === "e2-1" ? { forbidden: true } : {}),
+      },
+    ];
+    if (i === 0 && kind === "image") {
+      attachments.push({
+        id: `${ev.id}-a1`,
+        kind: "image",
+        thumbUrl: svgDataUri("附2", "#1D2129"),
+        originalUrl: svgDataUri("附2·原图", "#1D2129"),
+        name: (ev.desc || label) + "（附）",
+        mime: "image/svg+xml",
+      });
+    }
+    return {
+      ...ev,
+      kind,
+      thumbUrl,
+      originalUrl,
+      evidenceCount: attachments.length,
+      attachments,
+      thumb: thumbUrl,
+    };
+  }
+
+  for (const sid of Object.keys(MOCK.evidence || {})) {
+    MOCK.evidence[sid] = (MOCK.evidence[sid] || []).map(attachForEvidence);
+  }
+
+  function enrichAtt(att) {
+    const label = att.thumb || att.name || "材料";
+    const bg = palette[att.thumb] || "#86909C";
+    const thumbUrl = svgDataUri(label, bg);
+    return {
+      ...att,
+      kind: att.type === "video" ? "video" : "image",
+      thumbUrl,
+      originalUrl: svgDataUri(label + "·原图", bg),
+      thumb: thumbUrl,
+      mediaType: att.type,
+    };
+  }
+
+  for (const key of ["exempt_test", "exempt_exam"]) {
+    (MOCK.applications[key] || []).forEach((app) => {
+      if (app.attachments) app.attachments = app.attachments.map(enrichAtt);
+    });
+  }
+
+  let importCounter = 0;
+  for (const classId of Object.keys(MOCK.students || {})) {
+    MOCK.students[classId] = (MOCK.students[classId] || []).map((s) => ({
+      ...s,
+      importIndex: s.importIndex != null ? s.importIndex : importCounter++,
+    }));
+  }
+})(window.MOCK);

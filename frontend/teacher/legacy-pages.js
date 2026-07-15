@@ -102,11 +102,64 @@
   // ── Demo data ───────────────────────────────────────────────────
 
   function demoTasks() {
+    const cid = state.courseId || "c1";
+    const fromMock = global.MOCK?.courseTasks?.[cid] || global.MOCK?.courseTasks?.c1;
+    if (fromMock?.length) {
+      return fromMock.map((t) => ({ ...t }));
+    }
     return [
-      { id: "demo-t1", title: "课外跑步训练 Week 08", hours: 2, deadline: "第 8 周周日 23:59", proof: "运动 App 截图", status: "进行中", updatedAt: "2026-03-01" },
-      { id: "demo-t2", title: "篮球专项体能", hours: 1.5, deadline: "第 9 周周五", proof: "场地照片", status: "草稿", updatedAt: "2026-02-28" },
-      { id: "demo-t3", title: "学期总结跑", hours: 3, deadline: "第 16 周", proof: "轨迹截图", status: "已关闭", updatedAt: "2026-01-15" },
+      {
+        id: "demo-t1",
+        title: "课外跑步训练 Week 08",
+        hours: 2,
+        startsAt: "2026-03-01T00:00:00+08:00",
+        endsAt: "2026-04-20T23:59:00+08:00",
+        deadline: "第 8 周周日 23:59",
+        proof: "运动 App 截图",
+        status: "进行中",
+        updatedAt: "2026-03-01",
+        recordCount: 12,
+      },
+      {
+        id: "demo-t2",
+        title: "篮球专项体能",
+        hours: 1.5,
+        startsAt: "2026-04-21T00:00:00+08:00",
+        endsAt: "2026-05-15T23:59:00+08:00",
+        deadline: "第 9 周周五",
+        proof: "场地照片",
+        status: "草稿",
+        updatedAt: "2026-02-28",
+        recordCount: 0,
+      },
+      {
+        id: "demo-t3",
+        title: "学期总结跑",
+        hours: 3,
+        startsAt: "2026-01-01T00:00:00+08:00",
+        endsAt: "2026-02-28T23:59:00+08:00",
+        deadline: "第 16 周",
+        proof: "轨迹截图",
+        status: "已关闭",
+        updatedAt: "2026-01-15",
+        recordCount: 30,
+      },
     ];
+  }
+
+  function taskLifecycle(t) {
+    if (t.lifecycleStatus) return t.lifecycleStatus;
+    if (global.TimeWindow && (t.startsAt || t.endsAt)) {
+      return TimeWindow.deriveLifecycle(t.startsAt, t.endsAt);
+    }
+    return "进行中";
+  }
+
+  function taskWindowLabel(t) {
+    if (global.TimeWindow && (t.startsAt || t.endsAt)) {
+      return TimeWindow.formatWindowRange(t.startsAt, t.endsAt);
+    }
+    return t.deadline || "—";
   }
 
   function demoImportRows() {
@@ -184,6 +237,15 @@
     const active = state.tasks.filter((t) => t.status === "进行中").length;
     const draft = state.tasks.filter((t) => t.status === "草稿").length;
     const closed = state.tasks.filter((t) => t.status === "已关闭").length;
+    const defaultStarts = "2026-03-01T00:00:00+08:00";
+    const defaultEnds = "2026-06-30T23:59:00+08:00";
+    const twEditor =
+      global.TimeWindow?.renderTimeWindowEditor?.({
+        idPrefix: "task-tw",
+        value: { startsAt: defaultStarts, endsAt: defaultEnds },
+        showDailyWindow: false,
+        includeHint: true,
+      }) || "";
 
     root.innerHTML = `
       ${renderNotice()}
@@ -191,7 +253,7 @@
         <select class="field-input" id="legacy-tasks-course">${courses.map((c) => `<option value="${esc(c.id)}"${c.id === state.courseId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
         <select class="field-input" id="legacy-tasks-status">
           <option value="all"${state.taskStatusFilter === "all" ? " selected" : ""}>全部任务</option>
-          <option value="进行中"${state.taskStatusFilter === "进行中" ? " selected" : ""}>进行中</option>
+          <option value="进行中"${state.taskStatusFilter === "进行中" ? " selected" : ""}>进行中（发布）</option>
           <option value="草稿"${state.taskStatusFilter === "草稿" ? " selected" : ""}>草稿</option>
           <option value="已关闭"${state.taskStatusFilter === "已关闭" ? " selected" : ""}>已关闭</option>
         </select>
@@ -206,15 +268,23 @@
           <div class="box-header"><h2 class="h2">课程任务列表</h2></div>
           <div class="table-wrap">
             <table class="data-table">
-              <thead><tr><th>任务</th><th>小时</th><th>截止</th><th>证明</th><th>状态</th><th>操作</th></tr></thead>
+              <thead><tr><th>任务</th><th>小时</th><th>活动时间</th><th>证明</th><th>发布</th><th>操作</th></tr></thead>
               <tbody>
                 ${state.tasks.length
                   ? state.tasks
-                      .map(
-                        (t) => `<tr>
+                      .map((t) => {
+                        const life = taskLifecycle(t);
+                        const lifeBadge = global.TimeWindow
+                          ? TimeWindow.lifecycleBadgeHtml(life)
+                          : `<span class="badge">${esc(life)}</span>`;
+                        return `<tr>
                       <td><strong>${esc(t.title)}</strong><br><small class="box-hint">${esc(t.updatedAt || "—")}</small></td>
                       <td>${esc(t.hours ?? t.requiredHours)}h</td>
-                      <td>${esc(t.deadline || "—")}</td>
+                      <td>
+                        <div>${esc(taskWindowLabel(t))}</div>
+                        ${lifeBadge}
+                        ${t.notes || t.deadline ? `<small class="box-hint">备注：${esc(t.notes || t.deadline)}</small>` : ""}
+                      </td>
                       <td>${esc(t.proof || "—")}</td>
                       <td><span class="status ${statusCls(t.status)}">${esc(t.status)}</span></td>
                       <td>
@@ -222,8 +292,8 @@
                         <button class="btn btn-text" type="button" data-legacy-action="task-close" data-task-id="${esc(t.id)}">关闭</button>
                         <button class="btn btn-text btn-danger-outline" type="button" data-legacy-action="task-delete" data-task-id="${esc(t.id)}">删除</button>
                       </td>
-                    </tr>`
-                      )
+                    </tr>`;
+                      })
                       .join("")
                   : `<tr><td colspan="6" class="empty-cell">当前筛选下没有课程任务</td></tr>`}
               </tbody>
@@ -235,12 +305,14 @@
           <form id="legacy-create-task-form" class="form-grid">
             <label class="field"><span class="field-label">任务标题</span><input class="field-input" name="title" value="课外跑步训练 Week 08" required /></label>
             <label class="field"><span class="field-label">可获得小时</span><input class="field-input" name="hours" type="number" min="0.5" step="0.5" value="2" required /></label>
-            <label class="field"><span class="field-label">截止时间</span><input class="field-input" name="deadline" value="第 8 周周日 23:59" /></label>
+            <div class="field" style="grid-column:1/-1">${twEditor}</div>
+            <label class="field"><span class="field-label">备注（原截止说明）</span><input class="field-input" name="deadline" value="第 8 周周日 23:59" /></label>
             <label class="field"><span class="field-label">证明要求</span><input class="field-input" name="proof" value="运动 App 截图 + 场地照片" /></label>
-            <label class="field"><span class="field-label">初始状态</span>
+            <label class="field"><span class="field-label">初始发布状态</span>
               <select class="field-input" name="status"><option>草稿</option><option>进行中</option></select>
             </label>
             <label class="field" style="grid-column:1/-1"><span class="field-label">任务说明</span><textarea class="field-input" name="description" rows="3">完成指定跑步训练并上传证明。</textarea></label>
+            <p class="auth-error" id="task-save-error" hidden></p>
             <div class="form-actions"><button class="btn btn-primary" type="submit">保存任务</button></div>
           </form>
         </div>
@@ -535,12 +607,16 @@
 
   async function downloadGradeCsv() {
     const cid = await ensureCourseId();
+    const sort = global.SortStudents?.getRosterSort?.() || "import";
     if (hasApi()) {
       const auth = Auth.readAuth();
       const base = (auth?.apiBaseUrl || global.location.origin).replace(/\/$/, "");
-      const resp = await fetch(`${base}/api/teacher/courses/${encodeURIComponent(cid)}/export`, {
-        headers: auth?.token ? { Authorization: `Bearer ${auth.token}` } : {},
-      });
+      const resp = await fetch(
+        `${base}/api/teacher/courses/${encodeURIComponent(cid)}/export?sort=${encodeURIComponent(sort)}`,
+        {
+          headers: auth?.token ? { Authorization: `Bearer ${auth.token}` } : {},
+        }
+      );
       if (!resp.ok) throw new Error(await resp.text());
       const blob = await resp.blob();
       const a = document.createElement("a");
@@ -551,14 +627,28 @@
       setNotice("成绩 CSV 已下载");
       return;
     }
-    const csv = "studentId,studentName,course,general,exam,attendance,physical\n20240001,张三,12,10,85,90,88\n";
+    const summary = await API.getGradeSummary({ courseId: cid });
+    let rows = summary.records || [];
+    if (global.SortStudents) rows = SortStudents.sortStudents(rows, sort);
+    const header = "studentId,studentName,checkinPercent,endurancePercent,physical,final,total\n";
+    const body = rows
+      .map((r) => {
+        const checkin = r.checkinPercent ?? r.regularScore ?? "";
+        const endurance = r.endurancePercent ?? "";
+        const physical = r.physicalScore ?? "";
+        const fin = r.finalScore ?? "";
+        const total = r.totalScore ?? "";
+        return `${r.no || r.studentId},${r.name},${checkin},${endurance},${physical},${fin},${total}`;
+      })
+      .join("\n");
+    const csv = header + body + "\n";
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "demo-grades.csv";
     a.click();
     URL.revokeObjectURL(a.href);
-    setNotice("演示模式：已下载示例 CSV");
+    setNotice(`演示模式：已按「${global.SortStudents?.sortLabel?.(sort) || sort}」下载 CSV`);
   }
 
   async function submitDelivery() {
@@ -810,8 +900,8 @@
           </form>
           ${result
             ? `<div class="rules-banner" style="margin-top:16px">
-              <strong>换算结果：${esc(result.score)} 分（${esc(result.tier || "—")}）</strong>
-              <span>用时 ${Math.floor(result.timeSeconds / 60)}′${String(result.timeSeconds % 60).padStart(2, "0")}″</span>
+              <strong>试算结果：${esc(result.score)} 分（${esc(result.tier || "—")}）</strong>
+              <span>用时 ${Math.floor(result.timeSeconds / 60)}′${String(result.timeSeconds % 60).padStart(2, "0")}″ · <em>试算，非正式成绩</em></span>
             </div>`
             : ""}
         </div>
@@ -835,6 +925,9 @@
   async function runScoring(form) {
     const minutes = Number(form.minutes.value || 0);
     const seconds = Number(form.seconds.value || 0);
+    if (!Number.isInteger(seconds) || seconds < 0 || seconds > 59) {
+      throw new Error("秒须为 0–59 的整数");
+    }
     const timeSeconds = minutes * 60 + seconds;
     const body = { timeSeconds, gender: form.gender.value, gradeLevel: form.gradeLevel.value };
     if (hasApi()) {
@@ -849,36 +942,54 @@
 
   // ── Task actions ────────────────────────────────────────────────
 
-  async function patchTask(taskId, fields) {
-    const cid = await ensureCourseId();
-    if (hasApi()) {
-      await apiFetch(`/api/teacher/courses/${encodeURIComponent(cid)}/tasks/${encodeURIComponent(taskId)}`, {
-        method: "PATCH",
-        body: JSON.stringify(fields),
-      });
-    } else {
-      state.tasks = state.tasks.map((t) => (t.id === taskId ? { ...t, ...fields } : t));
-    }
-  }
-
-  async function deleteTask(taskId) {
-    const cid = await ensureCourseId();
-    if (hasApi()) {
-      await apiFetch(`/api/teacher/courses/${encodeURIComponent(cid)}/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
-    } else {
-      state.tasks = state.tasks.filter((t) => t.id !== taskId);
-    }
-  }
-
   async function createTask(formData) {
     const cid = await ensureCourseId();
+    const errEl = document.getElementById("task-save-error");
+    if (errEl) {
+      errEl.hidden = true;
+      errEl.textContent = "";
+    }
+    let startsAt = null;
+    let endsAt = null;
+    let lifecycleStatus = null;
+    if (global.TimeWindow) {
+      const tw = TimeWindow.readTimeWindowEditor("task-tw", false);
+      const check = TimeWindow.validateTimeWindow(tw.startsAt, tw.endsAt);
+      if (!check.ok) {
+        TimeWindow.showEditorError("task-tw", check.message);
+        if (errEl) {
+          errEl.hidden = false;
+          errEl.textContent = check.message;
+        }
+        throw new Error(check.message);
+      }
+      TimeWindow.showEditorError("task-tw", "");
+      startsAt = tw.startsAt;
+      endsAt = tw.endsAt;
+      lifecycleStatus = tw.lifecycleStatus;
+      if (
+        !TimeWindow.confirmWindowChange({
+          recordCount: 0,
+          prevStartsAt: "",
+          prevEndsAt: "",
+          nextStartsAt: startsAt,
+          nextEndsAt: endsAt,
+        })
+      ) {
+        throw new Error("已取消保存");
+      }
+    }
     const payload = {
       title: formData.get("title"),
       hours: Number(formData.get("hours")),
       deadline: formData.get("deadline"),
+      notes: formData.get("deadline"),
       proof: formData.get("proof"),
       status: formData.get("status"),
       description: formData.get("description"),
+      startsAt,
+      endsAt,
+      lifecycleStatus,
     };
     if (hasApi()) {
       await apiFetch(`/api/teacher/courses/${encodeURIComponent(cid)}/tasks`, {
@@ -886,17 +997,56 @@
         body: JSON.stringify(payload),
       });
     } else {
-      state.tasks.unshift({
+      if (!global.MOCK.courseTasks) global.MOCK.courseTasks = {};
+      if (!global.MOCK.courseTasks[cid]) global.MOCK.courseTasks[cid] = demoTasks();
+      const task = {
         id: "demo-t" + Date.now(),
         title: payload.title,
         hours: payload.hours,
+        requiredHours: payload.hours,
         deadline: payload.deadline,
+        notes: payload.notes,
         proof: payload.proof,
         status: payload.status,
+        description: payload.description,
+        startsAt,
+        endsAt,
+        lifecycleStatus,
+        recordCount: 0,
         updatedAt: new Date().toISOString().slice(0, 10),
-      });
+      };
+      global.MOCK.courseTasks[cid].unshift(task);
     }
     setNotice("任务已创建");
+  }
+
+  async function patchTask(taskId, fields) {
+    const cid = await ensureCourseId();
+    if (hasApi()) {
+      await apiFetch(`/api/teacher/courses/${encodeURIComponent(cid)}/tasks/${encodeURIComponent(taskId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(fields),
+      });
+      return;
+    }
+    if (!global.MOCK.courseTasks) global.MOCK.courseTasks = {};
+    if (!global.MOCK.courseTasks[cid]) global.MOCK.courseTasks[cid] = demoTasks();
+    global.MOCK.courseTasks[cid] = global.MOCK.courseTasks[cid].map((t) =>
+      t.id === taskId ? { ...t, ...fields } : t
+    );
+  }
+
+  async function deleteTask(taskId) {
+    const cid = await ensureCourseId();
+    if (hasApi()) {
+      await apiFetch(`/api/teacher/courses/${encodeURIComponent(cid)}/tasks/${encodeURIComponent(taskId)}`, {
+        method: "DELETE",
+      });
+      return;
+    }
+    if (global.MOCK.courseTasks?.[cid]) {
+      global.MOCK.courseTasks[cid] = global.MOCK.courseTasks[cid].filter((t) => t.id !== taskId);
+    }
   }
 
   // ── Router ──────────────────────────────────────────────────────

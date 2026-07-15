@@ -59,6 +59,9 @@
   let finalEntryId = null;
   let finalCourseId = "";
   let finalItemsCourseId = "c1";
+  let lastSettingsSnapshot = null;
+  let lastGradeRecords = [];
+  let settingsTimeWindowMounted = false;
 
   const pages = document.querySelectorAll(".page");
   const navItems = document.querySelectorAll(".nav-item[data-page]");
@@ -411,9 +414,14 @@
       return `<td><span class="checkin-photo-empty">${emptyLabel}</span></td>`;
     }
     const p = student.photo;
+    const count = p.evidenceCount || p.attachments?.length || 1;
+    const thumbHtml =
+      window.MediaViewer?.thumbImgHtml?.(p, "checkin-photo-img") ||
+      `<span class="checkin-photo-inner">${p.thumb || "📷"}</span>`;
     return `<td>
       <button type="button" class="checkin-photo-thumb" data-action="preview-photo" data-student-id="${student.id}" title="${p.desc || "预览打卡照片"}">
-        <span class="checkin-photo-inner">${p.thumb || "📷"}</span>
+        ${thumbHtml}
+        ${count > 1 ? `<span class="evidence-count-badge">${count}</span>` : ""}
       </button>
     </td>`;
   }
@@ -463,7 +471,10 @@
           const list = await API.getClassStudents(checkinState.classId, selectedDate);
           const student = list.find((s) => s.id === sid);
           if (student?.photo) {
-            openMediaDialog({ type: "photo", thumb: student.photo.thumb, desc: student.photo.desc, date: selectedDate, time: student.time });
+            const atts = student.photo.attachments?.length
+              ? student.photo.attachments
+              : [student.photo];
+            openMediaDialog(atts, 0);
           }
         } else {
           drillToEvidence(sid, el.dataset.studentName);
@@ -515,10 +526,15 @@
 
   function showEvidencePreview(ev) {
     const preview = document.getElementById("media-preview");
-    const isVideo = ev.type === "video";
+    const isVideo = ev.type === "video" || ev.kind === "video";
+    const first = ev.attachments?.[0] || ev;
+    const thumbHtml =
+      window.MediaViewer?.thumbImgHtml?.(first, "evidence-preview-img") ||
+      `<span>${ev.thumb || "📷"}</span>`;
     preview.innerHTML = `
       <div class="media-thumb ${isVideo ? "is-video" : ""}" role="button" tabindex="0">
-        ${isVideo ? "▶" : "🖼"} ${ev.thumb}
+        ${thumbHtml}
+        ${ev.evidenceCount > 1 ? `<span class="evidence-count-badge">${ev.evidenceCount}</span>` : ""}
       </div>`;
     document.getElementById("evidence-desc").textContent =
       `${ev.date} ${ev.time} · ${ev.durationHours}h — ${ev.desc} · ${AUDIT_STATUS[ev.reviewStatus] || ev.reviewStatus}`;
@@ -536,19 +552,44 @@
       }
     }
     const thumb = preview.querySelector(".media-thumb");
-    thumb.addEventListener("click", () => openMediaDialog(ev));
+    thumb.addEventListener("click", () => openMediaDialog(ev.attachments?.length ? ev.attachments : [ev], 0));
     thumb.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") openMediaDialog(ev);
+      if (e.key === "Enter" || e.key === " ") openMediaDialog(ev.attachments?.length ? ev.attachments : [ev], 0);
     });
   }
 
-  function openMediaDialog(ev) {
+  function mediaRestoreContext() {
+    return window.MediaViewer?.captureRestoreContext?.({
+      checkinLevel: checkinState.level,
+      classId: checkinState.classId,
+      className: checkinState.className,
+      studentId: checkinState.studentId,
+      studentName: checkinState.studentName,
+      onRestore: (ctx) => {
+        if (ctx.statusFilter) studentFilter = ctx.statusFilter;
+        if (ctx.studentSearch != null) studentSearch = ctx.studentSearch;
+        if (ctx.checkinLevel === 2 && checkinState.classId) {
+          renderStudentTable();
+        } else if (ctx.checkinLevel === 3 && checkinState.studentId) {
+          drillToEvidence(checkinState.studentId, checkinState.studentName, { restore: true });
+        }
+      },
+    });
+  }
+
+  function openMediaDialog(attachments, index = 0) {
+    if (window.MediaViewer) {
+      MediaViewer.open(attachments, index, mediaRestoreContext());
+      return;
+    }
     const dlg = document.getElementById("media-dialog");
     const content = document.getElementById("dialog-media");
+    const list = Array.isArray(attachments) ? attachments : [attachments];
+    const att = list[index] || list[0];
     content.innerHTML =
-      ev.type === "video"
-        ? `<div class="fake-video">▶ 视频播放<br><small>GET /api/v1/checkin/evidence/stream</small></div>`
-        : `<div class="fake-photo">📷 ${ev.thumb}<br><small>${ev.desc || ""}</small><br><small>大图预览 · 支持缩放</small></div>`;
+      att?.type === "video" || att?.kind === "video"
+        ? `<div class="fake-video">▶ 视频播放</div>`
+        : `<div class="fake-photo">📷 ${att?.thumb || att?.thumbUrl || ""}</div>`;
     dlg.showModal();
   }
 
@@ -592,14 +633,28 @@
     if (prevClass && classes.some((c) => c.id === prevClass)) classSel.value = prevClass;
 
     const settings = await API.getCheckinSettings(courseSel.value, classSel.value);
-    document.getElementById("settings-start").value = settings.windowStart;
-    document.getElementById("settings-end").value = settings.windowEnd;
+    lastSettingsSnapshot = { ...settings };
+    const twHost = document.getElementById("settings-time-window");
+    if (twHost && window.TimeWindow) {
+      twHost.innerHTML = TimeWindow.renderTimeWindowEditor({
+        idPrefix: "settings-tw",
+        value: settings,
+        showDailyWindow: true,
+        includeHint: true,
+      });
+      settingsTimeWindowMounted = true;
+    }
     document.getElementById("settings-semester-hours").value = settings.semesterHoursRequired;
     document.getElementById("settings-specialty-hours").value = settings.specialtyHoursRequired;
     document.getElementById("settings-specialty-wrap").hidden = !settings.isSpecialtyCourse;
     document.getElementById("settings-gps").checked = settings.gpsEnabled;
     document.getElementById("settings-radius").value = settings.gpsRadius;
     document.getElementById("settings-radius").disabled = !settings.gpsEnabled;
+    const errEl = document.getElementById("settings-save-error");
+    if (errEl) {
+      errEl.hidden = true;
+      errEl.textContent = "";
+    }
 
     const history = await API.getSettingsHistory();
     document.getElementById("settings-history").innerHTML = history.length
@@ -694,26 +749,22 @@
       return;
     }
     grid.innerHTML = attachments
-      .map(
-        (att, i) => `
+      .map((att, i) => {
+        const thumbHtml =
+          window.MediaViewer?.thumbImgHtml?.(att, "evidence-card-img") ||
+          `<span class="evidence-card-thumb">${att.type === "video" || att.kind === "video" ? "🎬" : "📷"} ${att.thumb || att.name}</span>`;
+        return `
         <button type="button" class="evidence-card" data-evidence-idx="${i}">
-          <span class="evidence-card-thumb">${att.type === "video" ? "🎬" : "📷"} ${att.thumb || att.name}</span>
-          <span class="evidence-card-name">${att.name}</span>
-        </button>`
-      )
+          <span class="evidence-card-thumb-wrap">${thumbHtml}</span>
+          <span class="evidence-card-name">${att.name || "材料"}</span>
+        </button>`;
+      })
       .join("");
 
     grid.querySelectorAll(".evidence-card").forEach((btn) => {
       btn.addEventListener("click", () => {
-        const att = attachments[Number(btn.dataset.evidenceIdx)];
         markAuditEvidenceViewed();
-        openMediaDialog({
-          type: att.mediaType || att.type,
-          thumb: att.thumb || att.name,
-          desc: att.name,
-          date: auditDetail?.date || "",
-          time: auditDetail?.time || "",
-        });
+        openMediaDialog(attachments, Number(btn.dataset.evidenceIdx));
       });
     });
   }
@@ -997,20 +1048,75 @@
     );
     document.getElementById("physical-scores-form").innerHTML = scoreItems
       .map((item) => {
-        const val = detail.scores?.[item.key] ?? "";
+        const val = detail.scores?.[item.key];
+        if (item.entryMode === "minsec" || item.key === "run800m" || item.key === "run1000m") {
+          const total = val != null && val !== "" ? Number(val) : null;
+          const mins = total != null && Number.isFinite(total) ? Math.floor(total / 60) : "";
+          const secs = total != null && Number.isFinite(total) ? Math.round(total % 60) : "";
+          const converted = detail.convertedScores?.[item.key];
+          const rawDisplay =
+            total != null && Number.isFinite(total)
+              ? API.formatMinSec
+                ? API.formatMinSec(total)
+                : `${mins}′${String(secs).padStart(2, "0")}″`
+              : "";
+          return `<div class="field pe-minsec-field" data-key="${item.key}">
+            <span class="field-label">${item.label}（分:秒）</span>
+            <div class="pe-minsec-row">
+              <input type="number" class="field-input pe-min" data-key="${item.key}" min="0" step="1" value="${mins}" placeholder="分" />
+              <span class="pe-minsec-sep">:</span>
+              <input type="number" class="field-input pe-sec" data-key="${item.key}" min="0" max="59" step="1" value="${secs}" placeholder="秒" />
+            </div>
+            <p class="field-error pe-sec-error" data-key="${item.key}" hidden>秒须为 0–59</p>
+            <p class="box-hint pe-converted-hint">原始 ${rawDisplay || "—"} · 百分制 ${converted != null ? converted : "—（待服务端回包）"}</p>
+          </div>`;
+        }
         return `<label class="field"><span class="field-label">${item.label} (${item.unit})</span>
-          <input type="number" class="field-input pe-score" data-key="${item.key}" value="${val}" step="0.1" /></label>`;
+          <input type="number" class="field-input pe-score" data-key="${item.key}" value="${val ?? ""}" step="0.1" /></label>`;
       })
       .join("");
 
     document.getElementById("physical-entry-dialog").showModal();
+    document.querySelectorAll(".pe-sec").forEach((input) => {
+      input.addEventListener("input", () => validatePhysicalSecInput(input));
+    });
+  }
+
+  function validatePhysicalSecInput(input) {
+    const key = input.dataset.key;
+    const err = document.querySelector(`.pe-sec-error[data-key="${key}"]`);
+    const n = input.value === "" ? null : Number(input.value);
+    const bad = n != null && (!Number.isFinite(n) || n < 0 || n > 59 || !Number.isInteger(n));
+    if (err) {
+      err.hidden = !bad;
+    }
+    input.classList.toggle("input-invalid", !!bad);
+    return !bad;
   }
 
   function collectPhysicalForm() {
     const scores = {};
+    let valid = true;
     document.querySelectorAll(".pe-score").forEach((input) => {
       if (input.value !== "") scores[input.dataset.key] = Number(input.value);
     });
+    document.querySelectorAll(".pe-minsec-field").forEach((wrap) => {
+      const key = wrap.dataset.key;
+      const minInput = wrap.querySelector(".pe-min");
+      const secInput = wrap.querySelector(".pe-sec");
+      if (!validatePhysicalSecInput(secInput)) valid = false;
+      const minV = minInput.value;
+      const secV = secInput.value;
+      if (minV === "" && secV === "") return;
+      const minutes = Number(minV || 0);
+      const seconds = Number(secV || 0);
+      if (!Number.isFinite(minutes) || minutes < 0 || !Number.isFinite(seconds) || seconds < 0 || seconds > 59) {
+        valid = false;
+        return;
+      }
+      scores[key] = minutes * 60 + seconds;
+    });
+    if (!valid) return null;
     return {
       height: Number(document.getElementById("pe-height").value) || null,
       weight: Number(document.getElementById("pe-weight").value) || null,
@@ -1023,6 +1129,10 @@
   async function savePhysicalEntry(submit) {
     if (!physicalEntryId) return;
     const payload = collectPhysicalForm();
+    if (!payload) {
+      alert("请修正耐力跑秒数（须为 0–59）");
+      return;
+    }
     if (submit) payload.entryStatus = "submitted";
     await API.savePhysicalTest(physicalEntryId, payload);
     document.getElementById("physical-entry-dialog").close();
@@ -1091,6 +1201,15 @@
     return value;
   }
 
+  function formatRegularCell(r) {
+    if (r.gradePending) return "—";
+    if (r.checkinHoursApproved != null && r.checkinHoursRequired != null) {
+      const pctLabel = r.checkinPercent != null || r.regularScore != null ? `${r.checkinPercent ?? r.regularScore}` : "—";
+      return `<span title="有效时长 / 要求">${r.checkinHoursApproved}/${r.checkinHoursRequired}h</span><br><small class="box-hint">${pctLabel} 分</small>`;
+    }
+    return formatGradeCell(r.regularScore ?? r.checkinPercent);
+  }
+
   function renderGradeTableRow(r) {
     if (r.gradePending) {
       return `<tr class="row-muted">
@@ -1101,11 +1220,78 @@
     }
     return `<tr>
       <td>${r.no}</td><td>${r.name}</td><td>${r.courseName || "—"}</td><td>${r.classLabel}</td>
-      <td>${formatGradeCell(r.regularScore)}</td>
-      <td>${formatGradeCell(r.physicalScore, "physical")}</td>
+      <td>${formatRegularCell(r)}</td>
+      <td>${formatGradeCell(r.physicalScore, "physical")}${
+        r.enduranceRawDisplay
+          ? `<br><small class="box-hint">耐力 ${r.enduranceRawDisplay}${r.endurancePercent != null ? ` · ${r.endurancePercent}` : ""}</small>`
+          : ""
+      }</td>
       <td>${formatGradeCell(r.finalScore, "final")}</td>
       <td title="${r.formula || ""}"><strong>${r.totalScore}</strong></td>
     </tr>`;
+  }
+
+  function updateGradeCopyStats(records) {
+    const sorted = window.SortStudents ? SortStudents.sortStudents(records) : records;
+    const missingCheckin = sorted.filter((r) => !r.gradePending && (r.checkinPercent == null && r.regularScore == null)).length;
+    const missingEndurance = sorted.filter((r) => !r.gradePending && r.endurancePercent == null).length;
+    const sortLabel = window.SortStudents ? SortStudents.sortLabel() : "导入顺序";
+    const el = document.getElementById("grade-copy-stats");
+    if (el) {
+      el.textContent = `共 ${sorted.length} 人 · 排序：${sortLabel} · 缺失打卡分 ${missingCheckin} · 缺失耐力跑分 ${missingEndurance}`;
+    }
+    return sorted;
+  }
+
+  function buildGradeTsv(records, mode) {
+    const rows = window.SortStudents ? SortStudents.sortStudents(records) : records;
+    return rows
+      .map((r) => {
+        const id = r.no || r.studentId || "";
+        const name = r.name || "";
+        const checkin = r.gradePending ? "" : r.checkinPercent ?? r.regularScore ?? "";
+        const endurance = r.gradePending ? "" : r.endurancePercent ?? "";
+        if (mode === "checkin") return `${id}\t${name}\t${checkin}`;
+        if (mode === "endurance") return `${id}\t${name}\t${endurance}`;
+        return `${id}\t${name}\t${checkin}\t${endurance}`;
+      })
+      .join("\n");
+  }
+
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {
+      /* fallback */
+    }
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch {
+      ok = false;
+    }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  async function copyGradeTsv(mode) {
+    const tsv = buildGradeTsv(lastGradeRecords, mode);
+    const ok = await copyText(tsv);
+    const fb = document.getElementById("grade-copy-feedback");
+    if (fb) {
+      fb.hidden = false;
+      fb.textContent = ok ? "已复制到剪贴板" : "复制失败，请手动选择文本";
+    }
   }
 
   function renderGradeRulesBanner(data) {
@@ -1305,6 +1491,11 @@
     await populateCourseSelect("grade-course-filter", gradeCourseId, true);
     await populateClassSelect("grade-class-filter", gradeCourseId, gradeClassId);
 
+    const sortSel = document.getElementById("grade-roster-sort");
+    if (sortSel && window.SortStudents) {
+      sortSel.value = SortStudents.getRosterSort();
+    }
+
     const data = await API.getGradeSummary({
       courseId: gradeCourseId || undefined,
       classId: gradeClassId || undefined,
@@ -1318,8 +1509,10 @@
       <div class="kpi-card"><span class="kpi-label">审核暂不出分</span><span class="kpi-value kpi-warn">${st.pendingExempt}</span></div>
       <div class="kpi-card"><span class="kpi-label">体测待录入</span><span class="kpi-value kpi-warn">${st.pendingPhysical}</span></div>`;
 
-    document.querySelector("#grade-table tbody").innerHTML = data.records.length
-      ? data.records.map(renderGradeTableRow).join("")
+    lastGradeRecords = data.records || [];
+    const sorted = updateGradeCopyStats(lastGradeRecords);
+    document.querySelector("#grade-table tbody").innerHTML = sorted.length
+      ? sorted.map(renderGradeTableRow).join("")
       : `<tr><td colspan="8" class="empty-cell">暂无数据</td></tr>`;
   }
 
@@ -1473,15 +1666,55 @@
     document.getElementById("audit-btn-reject").addEventListener("click", () => submitAuditReview("reject"));
 
     document.getElementById("btn-save-settings").addEventListener("click", async () => {
-      await API.updateCheckinSettings({
-        windowStart: document.getElementById("settings-start").value,
-        windowEnd: document.getElementById("settings-end").value,
+      const errEl = document.getElementById("settings-save-error");
+      if (errEl) {
+        errEl.hidden = true;
+        errEl.textContent = "";
+      }
+      let tw = {};
+      if (window.TimeWindow && settingsTimeWindowMounted) {
+        tw = TimeWindow.readTimeWindowEditor("settings-tw", true);
+        const check = TimeWindow.validateTimeWindow(tw.startsAt, tw.endsAt);
+        if (!check.ok) {
+          TimeWindow.showEditorError("settings-tw", check.message);
+          if (errEl) {
+            errEl.hidden = false;
+            errEl.textContent = check.message;
+          }
+          return;
+        }
+        TimeWindow.showEditorError("settings-tw", "");
+        if (
+          !TimeWindow.confirmWindowChange({
+            recordCount: lastSettingsSnapshot?.recordCount,
+            prevStartsAt: lastSettingsSnapshot?.startsAt,
+            prevEndsAt: lastSettingsSnapshot?.endsAt,
+            nextStartsAt: tw.startsAt,
+            nextEndsAt: tw.endsAt,
+          })
+        ) {
+          return;
+        }
+      }
+      const res = await API.updateCheckinSettings({
+        ...tw,
+        windowStart: tw.dailyWindowStart || tw.windowStart,
+        windowEnd: tw.dailyWindowEnd || tw.windowEnd,
         semesterHoursRequired: Number(document.getElementById("settings-semester-hours").value),
         specialtyHoursRequired: Number(document.getElementById("settings-specialty-hours").value),
         gpsEnabled: document.getElementById("settings-gps").checked,
         gpsRadius: Number(document.getElementById("settings-radius").value),
       });
-      renderSettings();
+      if (res && res.success === false) {
+        const msg = res.message || "保存失败";
+        if (errEl) {
+          errEl.hidden = false;
+          errEl.textContent = msg;
+        }
+        if (window.TimeWindow) TimeWindow.showEditorError("settings-tw", msg);
+        return;
+      }
+      await renderSettings();
     });
 
     document.getElementById("btn-reset-settings").addEventListener("click", () => renderSettings());
@@ -1550,6 +1783,14 @@
       renderGradeSummary();
     });
     document.getElementById("btn-export-grade").addEventListener("click", () => alert("导出功能演示：对接后端后支持导出成绩汇总表"));
+
+    document.getElementById("grade-roster-sort")?.addEventListener("change", (e) => {
+      if (window.SortStudents) SortStudents.setRosterSort(e.target.value);
+      renderGradeSummary();
+    });
+    document.getElementById("btn-copy-checkin")?.addEventListener("click", () => copyGradeTsv("checkin"));
+    document.getElementById("btn-copy-endurance")?.addEventListener("click", () => copyGradeTsv("endurance"));
+    document.getElementById("btn-copy-both")?.addEventListener("click", () => copyGradeTsv("both"));
 
     document.getElementById("grade-weights-course").addEventListener("change", async (e) => {
       gradeWeightsCourseId = e.target.value;
@@ -1639,16 +1880,6 @@
     document.getElementById("basic-student-search").addEventListener("input", (e) => {
       basicStudentSearch = e.target.value.trim();
       renderBasicStudents();
-    });
-
-    document.getElementById("dialog-close").addEventListener("click", () => {
-      document.getElementById("media-dialog").close();
-    });
-
-    document.getElementById("media-dialog").addEventListener("click", (e) => {
-      if (e.target === document.getElementById("media-dialog")) {
-        document.getElementById("media-dialog").close();
-      }
     });
   }
 

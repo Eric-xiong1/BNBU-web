@@ -250,14 +250,7 @@
                 <span class="field-label">生效班级</span>
                 <select class="field-input" id="settings-class"></select>
               </label>
-              <label class="field">
-                <span class="field-label">打卡开始时间</span>
-                <input type="time" class="field-input" id="settings-start" value="06:00" />
-              </label>
-              <label class="field">
-                <span class="field-label">打卡截止时间</span>
-                <input type="time" class="field-input" id="settings-end" value="22:00" />
-              </label>
+              <div id="settings-time-window" class="settings-time-window"></div>
               <label class="field">
                 <span class="field-label">学期打卡要求（小时）</span>
                 <input type="number" class="field-input" id="settings-semester-hours" value="20" min="1" step="0.5" />
@@ -284,6 +277,7 @@
               <button class="btn btn-primary" type="button" id="btn-save-settings">保存设置</button>
               <button class="btn btn-secondary" type="button" id="btn-reset-settings">重置</button>
             </div>
+            <p class="auth-error" id="settings-save-error" hidden></p>
           </div>
           <div class="box">
             <h2 class="h2">变更历史</h2>
@@ -556,6 +550,30 @@
 
         <div class="kpi-row" id="grade-kpi"></div>
 
+        <div class="box grade-copy-box">
+          <div class="box-header">
+            <div>
+              <h2 class="h2">成绩复制区</h2>
+              <p class="box-hint">按当前排序导出学号 · 姓名 · 百分制；缺失为空单元格</p>
+            </div>
+            <label class="field field-inline">
+              <span class="field-label">排序</span>
+              <select class="field-input" id="grade-roster-sort">
+                <option value="import">导入顺序</option>
+                <option value="studentId">学号</option>
+                <option value="name">姓名</option>
+              </select>
+            </label>
+          </div>
+          <p class="box-hint" id="grade-copy-stats">—</p>
+          <div class="form-actions grade-copy-actions">
+            <button class="btn btn-secondary" type="button" id="btn-copy-checkin">复制打卡分</button>
+            <button class="btn btn-secondary" type="button" id="btn-copy-endurance">复制耐力跑分</button>
+            <button class="btn btn-primary" type="button" id="btn-copy-both">复制两列成绩</button>
+          </div>
+          <p class="box-hint" id="grade-copy-feedback" hidden></p>
+        </div>
+
         <div class="box">
           <div class="table-wrap">
             <table class="data-table" id="grade-table">
@@ -666,7 +684,7 @@
 
       <section class="page" id="page-endurance-scoring">
         <header class="page-header">
-          <div><h1 class="h1">耐力跑换算</h1><p class="box-hint">按国标将跑步用时换算为体测分数</p></div>
+          <div><h1 class="h1">耐力跑换算</h1><p class="box-hint">辅助试算工具 · 结果非正式成绩；正式百分制以服务端体测回包为准</p></div>
         </header>
         <div id="legacy-endurance-scoring-root"></div>
       </section>
@@ -823,18 +841,21 @@
     </div>
   </dialog>
 
-  <!-- 证据大图预览 -->
+  <!-- 证据全屏预览器 -->
   <dialog id="media-dialog" class="media-dialog">
-    <div class="media-dialog-inner">
-      <button type="button" class="dialog-close" id="dialog-close">&times;</button>
+    <div class="media-dialog-inner mv-dialog-inner">
+      <button type="button" class="dialog-close" id="dialog-close" aria-label="关闭">&times;</button>
       <div class="media-dialog-content" id="dialog-media"></div>
     </div>
   </dialog>
 
   <script src="auth-bridge.js"></script>
   <script src="mock-data.js"></script>
+  <script src="core/time-window.js"></script>
+  <script src="core/sort-students.js"></script>
   <script src="api.js"></script>
   <script src="backend-sync.js"></script>
+  <script src="media-viewer.js"></script>
   <script src="legacy-pages.js"></script>
   <script src="app.js"></script>
 </body>

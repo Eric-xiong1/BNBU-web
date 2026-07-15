@@ -13,10 +13,10 @@ docs/         交付与部署文档
 
 ## 交付范围
 
-- `frontend/`：Web 前端（管理员 SPA + 老师 Material UI）、预览服务、自测与烟测脚本
+- `frontend/`：统一登录、管理员/负责人 SPA、老师 Material UI、学生端 Web、预览服务与自测脚本
 - `backend/`：API 服务、OpenAPI 草案、数据字典、联调清单、Mock API
 - `database/`：`schema.sql` 建表与种子数据
-- `docs/`：产品文档、部署说明、验证记录
+- `docs/`：产品文档、部署说明、验收与教师端 P0 设计说明
 
 ## 快速启动
 
@@ -29,7 +29,9 @@ npm run preview
 打开：
 
 ```text
-http://127.0.0.1:4174/index.html
+http://127.0.0.1:4174/index.html          # 统一登录
+http://127.0.0.1:4174/teacher/?demo=1     # 教师端演示
+http://127.0.0.1:4174/student/            # 学生端
 ```
 
 如需 mock API：
@@ -38,6 +40,7 @@ http://127.0.0.1:4174/index.html
 npm run mock-api
 ```
 
+教师端 P0（时间窗、证据预览、成绩复制与排序）说明见 `docs/plans/2026-07-15-teacher-p0-frontend.md`。
 健康检查地址：
 
 ```text
