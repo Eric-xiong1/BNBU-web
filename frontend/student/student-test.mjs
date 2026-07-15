@@ -53,6 +53,13 @@ test("bottom navigation icons use solid SVGs without changing utility icons", ()
   }
 });
 
+test("courses navigation uses the Android MenuBook artwork", () => {
+  const svg = icon("courses", "nav-icon");
+  assert.match(svg, /M21,5c-1\.11,-0\.35/);
+  assert.match(svg, /M17\.5,10\.5c0\.88,0/);
+  assert.match(svg, /M17\.5,14\.33c-1\.7,0/);
+});
+
 test("dashboard derives Android progress and actionable risk", () => {
   const workspace = demoWorkspace();
   const html = renderDashboard(workspace);
