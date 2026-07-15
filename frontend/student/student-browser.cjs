@@ -55,19 +55,23 @@ async function assertHomeEmblems(page, viewportName) {
 
 async function assertSolidNavIcon(page, route) {
   const result = await page.locator(`[data-route="${route}"] .nav-icon`).evaluate((svg) => {
-    const rect = svg.getBoundingClientRect();
+    const iconRect = svg.getBoundingClientRect();
+    const targetRect = svg.closest(".nav-button").getBoundingClientRect();
     return {
       style: svg.getAttribute("data-icon-style"),
       fill: svg.getAttribute("fill"),
       stroke: svg.getAttribute("stroke"),
-      width: rect.width,
-      height: rect.height,
+      iconWidth: iconRect.width,
+      iconHeight: iconRect.height,
+      targetWidth: targetRect.width,
+      targetHeight: targetRect.height,
     };
   });
   assert.equal(result.style, "solid", `${route} must use the solid icon family`);
   assert.equal(result.fill, "currentColor", `${route} must inherit the navigation color`);
   assert.equal(result.stroke, "none", `${route} must not mix outline strokes into the solid icon`);
-  assert.ok(result.width >= 44 && result.height >= 28, `${route} must retain its navigation target`);
+  assert.ok(result.iconWidth >= 44 && result.iconHeight >= 28, `${route} must retain its icon geometry`);
+  assert.ok(result.targetWidth >= 44 && result.targetHeight >= 44, `${route} must retain its navigation target`);
 }
 
 (async () => {
