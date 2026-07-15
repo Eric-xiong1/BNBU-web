@@ -36,6 +36,10 @@ async function capture(page, name) {
 }
 
 async function assertHomeEmblems(page, viewportName) {
+  await page.waitForFunction(() => {
+    const images = [...document.querySelectorAll(".brand-mark-image")];
+    return images.length >= 2 && images.every((image) => image.complete && image.naturalWidth > 0);
+  });
   const result = await page.evaluate(() => {
     const dashboard = document.querySelector(".dashboard-emblem");
     const nav = document.querySelector('.nav-button[aria-current="page"] .nav-brand-mark');
