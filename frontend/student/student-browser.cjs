@@ -53,6 +53,23 @@ async function assertHomeEmblems(page, viewportName) {
   assert.equal(result.loaded, true, `${viewportName} BNBU emblem asset must load`);
 }
 
+async function assertSolidNavIcon(page, route) {
+  const result = await page.locator(`[data-route="${route}"] .nav-icon`).evaluate((svg) => {
+    const rect = svg.getBoundingClientRect();
+    return {
+      style: svg.getAttribute("data-icon-style"),
+      fill: svg.getAttribute("fill"),
+      stroke: svg.getAttribute("stroke"),
+      width: rect.width,
+      height: rect.height,
+    };
+  });
+  assert.equal(result.style, "solid", `${route} must use the solid icon family`);
+  assert.equal(result.fill, "currentColor", `${route} must inherit the navigation color`);
+  assert.equal(result.stroke, "none", `${route} must not mix outline strokes into the solid icon`);
+  assert.ok(result.width >= 44 && result.height >= 28, `${route} must retain its navigation target`);
+}
+
 (async () => {
   const browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || "chrome" });
   try {
@@ -68,6 +85,7 @@ async function assertHomeEmblems(page, viewportName) {
     await assertHomeEmblems(mobile.page, "mobile");
     await capture(mobile.page, "mobile-home.png");
     await visit(mobile.page, "checkin", "运动打卡");
+    await assertSolidNavIcon(mobile.page, "checkin");
     const description = mobile.page.locator('[name="description"]');
     await description.fill("保留这段尚未保存的运动说明");
     await mobile.page.locator('[data-sport-type="running"]').click();
@@ -83,7 +101,10 @@ async function assertHomeEmblems(page, viewportName) {
     await capture(mobile.page, "mobile-checkin.png");
     await mobile.page.getByRole("tab", { name: "记录" }).click();
     await capture(mobile.page, "mobile-records-refined.png");
-    for (const [route, text] of [["grades","成绩"],["course/gepe","大学体育 II"],["endurance","耐力跑成绩换算"],["exemptions","体育免测与免打卡申请"],["privacy","隐私政策"],["profile","我的"]]) await visit(mobile.page, route, text);
+    for (const [route, text] of [["grades","成绩"],["course/gepe","大学体育 II"],["endurance","耐力跑成绩换算"],["exemptions","体育免测与免打卡申请"],["privacy","隐私政策"],["profile","我的"]]) {
+      await visit(mobile.page, route, text);
+      if (["grades", "profile"].includes(route)) await assertSolidNavIcon(mobile.page, route);
+    }
     await mobile.page.getByRole("button", { name: /通知/ }).last().click();
     await mobile.page.getByRole("dialog").waitFor();
     await mobile.page.getByRole("dialog").getByRole("button", { name: "关闭通知" }).click();
@@ -94,6 +115,7 @@ async function assertHomeEmblems(page, viewportName) {
 
     const tablet = await openDemo(browser, { width: 768, height: 1024 });
     await visit(tablet.page, "courses", "课程");
+    await assertSolidNavIcon(tablet.page, "courses");
     await capture(tablet.page, "tablet-courses.png");
     await tablet.context.close();
 
