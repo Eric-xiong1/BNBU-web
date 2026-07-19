@@ -11,10 +11,34 @@ const schemaSource = fs.readFileSync(path.join(__dirname, '..', '..', 'database'
 test('student web backend contracts are present', () => {
   assert.match(serverSource, /app\.get\('\/api\/student\/courses\/:id'/);
   assert.match(serverSource, /app\.get\('\/api\/student\/grades'/);
-  assert.match(serverSource, /video\/mp4/);
-  assert.match(serverSource, /video\/quicktime/);
-  assert.match(serverSource, /files:\s*7/);
+  assert.match(serverSource, /image\/heif/);
+  assert.match(serverSource, /MAX_PROOF_IMAGES\s*=\s*6/);
+  assert.doesNotMatch(serverSource, /video\/mp4/);
   assert.match(schemaSource, /sport_type/i);
+});
+
+test('new backend rule helpers enforce the documented boundaries', () => {
+  const { pool } = createFakeDb();
+  const { collectTaskWindow, taskWindowError, buildGradeRows, normalizeEnduranceSeconds } = loadServer(pool);
+
+  const window = collectTaskWindow({ startAt: '2026-07-20T00:00:00Z', endAt: '2026-07-21T00:00:00Z' });
+  assert.equal(window.error, undefined);
+  assert.equal(window.timezone, 'Asia/Shanghai');
+  assert.match(window.startAt, /^2026-07-20T00:00:00\.000Z$/);
+  assert.match(collectTaskWindow({ startAt: '2026-07-21T00:00:00Z', endAt: '2026-07-20T00:00:00Z' }).error, /结束时间/);
+  assert.equal(taskWindowError({ start_at: '2026-07-20T00:00:00Z', end_at: '2026-07-21T00:00:00Z' }, new Date('2026-07-19T23:59:00Z')).code, 'TASK_NOT_STARTED');
+  assert.equal(taskWindowError({ start_at: '2026-07-20T00:00:00Z', end_at: '2026-07-21T00:00:00Z' }, new Date('2026-07-21T00:01:00Z')).code, 'TASK_ENDED');
+
+  const grades = buildGradeRows([{ studentId: 's1', valid_hours: 24, exam: 80, attendance: 90, physical: 70 }], [
+    { key: 'checkin', weight: 25 }, { key: 'exam', weight: 30 }, { key: 'attendance', weight: 20 }, { key: 'physical', weight: 25 },
+  ]);
+  assert.equal(grades[0].validHours, 24);
+  assert.equal(grades[0].checkinPercent, 100);
+  assert.equal(grades[0].checkinScore, 25);
+  assert.equal(grades[0].ruleVersion, 'BNBU-CHECKIN-2026-v1');
+
+  assert.deepEqual(normalizeEnduranceSeconds({ minutes: 3, seconds: 58 }), { seconds: 238, raw: { minutes: 3, seconds: 58 } });
+  assert.match(normalizeEnduranceSeconds({ minutes: 3, seconds: 60 }).error, /0 到 59/);
 });
 
 function createFakeDb() {
@@ -86,6 +110,9 @@ function createFakeDb() {
       }
       if (normalized.startsWith('select * from courses where id = ?')) {
         return [db.courses.filter((item) => item.id === params[0]), []];
+      }
+      if (normalized.startsWith('select * from tasks where id = ? and course_id = ?')) {
+        return [db.tasks.filter((item) => item.id === params[0] && item.course_id === params[1]), []];
       }
       if (normalized.includes('from tasks t join courses c') && normalized.includes('where t.course_id = ?')) {
         return [db.tasks.filter((item) => item.course_id === params[0]).map(rowToTask), []];
@@ -176,9 +203,10 @@ function createFakeDb() {
         return [{ affectedRows: 1 }, []];
       }
       if (normalized.startsWith('insert into student_progress')) {
-        const [studentId, courseId] = params;
-        if (!db.progress.some((item) => item.student_id === studentId && item.course_id === courseId)) {
-          db.progress.push({
+        const [studentId, courseId, importBatch, importOrder] = params;
+        let progress = db.progress.find((item) => item.student_id === studentId && item.course_id === courseId);
+        if (!progress) {
+          progress = {
             student_id: studentId,
             course_id: courseId,
             course_hours: 0,
@@ -187,8 +215,11 @@ function createFakeDb() {
             attendance_score: 0,
             physical_score: 0,
             status: 'incomplete',
-          });
+          };
+          db.progress.push(progress);
         }
+        progress.import_batch = importBatch || null;
+        progress.import_order = importOrder || null;
         return [{ affectedRows: 1 }, []];
       }
 
@@ -559,7 +590,11 @@ test('roster import preview validates rows and confirm enrolls valid students', 
   assert.equal(confirm.status, 200);
   assert.equal(confirm.body.importedCount, 1);
   assert.equal(confirm.body.rejectedCount, 2);
-  assert.ok(db.progress.some((item) => item.student_id === '22309999' && item.course_id === 'gepe'));
+  assert.match(confirm.body.importBatch, /^import-/);
+  const imported = db.progress.find((item) => item.student_id === '22309999' && item.course_id === 'gepe');
+  assert.ok(imported);
+  assert.equal(imported.import_batch, confirm.body.importBatch);
+  assert.equal(imported.import_order, 1);
 });
 
 test('course grade export returns csv using grade rules and template fields', async () => {

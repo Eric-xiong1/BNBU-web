@@ -25,16 +25,15 @@ const storage = multer.diskStorage({
 });
 
 const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
-const VIDEO_MIME = new Set(['video/mp4', 'video/quicktime']);
 const MAX_IMAGE_SIZE = 8 * 1024 * 1024;
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+const MAX_PROOF_IMAGES = 6;
 
 const upload = multer({
   storage,
-  limits: { fileSize: MAX_VIDEO_SIZE, files: 7 },
+  limits: { fileSize: MAX_IMAGE_SIZE, files: MAX_PROOF_IMAGES },
   fileFilter: (_req, file, cb) => {
-    if (IMAGE_MIME.has(file.mimetype) || VIDEO_MIME.has(file.mimetype)) return cb(null, true);
-    cb(new Error(`不支持的文件类型: ${file.mimetype}。仅支持 JPG、PNG、WebP、HEIC、HEIF、MP4、MOV`));
+    if (IMAGE_MIME.has(file.mimetype)) return cb(null, true);
+    cb(new Error(`不支持的文件类型: ${file.mimetype}。仅支持 JPG、PNG、WebP、HEIC、HEIF`));
   },
 });
 
@@ -44,7 +43,7 @@ const rosterImportUpload = multer({
 });
 
 function isAllowedProofFile(value) {
-  return typeof value === 'string' && /^\/uploads\/[A-Za-z0-9][A-Za-z0-9._-]*\.(jpe?g|png|webp|heic|heif|mp4|mov)$/i.test(value);
+  return typeof value === 'string' && /^\/uploads\/[A-Za-z0-9][A-Za-z0-9._-]*\.(jpe?g|png|webp|heic|heif)$/i.test(value);
 }
 
 function normalizeProofFiles(value) {
@@ -55,7 +54,13 @@ function normalizeProofFiles(value) {
   }
   if (!Array.isArray(list)) return [];
   const urls = list.map((item) => typeof item === 'string' ? item : item?.url);
-  return [...new Set(urls.filter(isAllowedProofFile))].slice(0, 7);
+  return [...new Set(urls.filter(isAllowedProofFile))].slice(0, MAX_PROOF_IMAGES);
+}
+
+function removeUploadedFiles(files = []) {
+  for (const file of files) {
+    if (file?.path) fs.unlink(file.path, () => {});
+  }
 }
 
 // Serve uploaded files statically (also served by nginx in production)
@@ -198,6 +203,45 @@ const DEFAULT_EXPORT_TEMPLATE = {
   status: '已匹配',
 };
 
+// Task windows are stored in UTC and exposed as RFC 3339 timestamps. The
+// timezone is retained as display metadata for clients (BNBU defaults to UTC+8).
+const DEFAULT_TASK_TIMEZONE = 'Asia/Shanghai';
+
+function toUtcTimestamp(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  const text = String(value).trim();
+  // MySQL DATETIME values are written as UTC by this service but have no zone
+  // suffix when read back through mysql2.
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(text)
+    ? `${text.replace(' ', 'T')}Z`
+    : text;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function collectTaskWindow(input = {}, existing = {}) {
+  const startProvided = input.startAt != null || input.start_at != null;
+  const endProvided = input.endAt != null || input.end_at != null;
+  const startAt = startProvided ? toUtcTimestamp(input.startAt ?? input.start_at) : toUtcTimestamp(existing.start_at ?? existing.startAt);
+  const endAt = endProvided ? toUtcTimestamp(input.endAt ?? input.end_at) : toUtcTimestamp(existing.end_at ?? existing.endAt);
+  const timezone = String(input.timezone ?? existing.timezone ?? DEFAULT_TASK_TIMEZONE).trim() || DEFAULT_TASK_TIMEZONE;
+  if ((startProvided && !startAt) || (endProvided && !endAt)) return { error: '开始和结束时间必须使用 RFC 3339 格式' };
+  if ((startAt && !endAt) || (!startAt && endAt)) return { error: '开始时间和结束时间必须同时提供' };
+  if (startAt && endAt && new Date(endAt) < new Date(startAt)) return { error: '结束时间不得早于开始时间' };
+  return { startAt, endAt, timezone, changed: startProvided || endProvided || input.timezone != null };
+}
+
+function taskWindowError(task, now = new Date()) {
+  const startAt = toUtcTimestamp(task.start_at ?? task.startAt);
+  const endAt = toUtcTimestamp(task.end_at ?? task.endAt);
+  if (!startAt || !endAt) return null; // Legacy tasks stay available until migrated.
+  const current = now.getTime();
+  if (current < new Date(startAt).getTime()) return { code: 'TASK_NOT_STARTED', message: '任务尚未开始，暂不能提交打卡' };
+  if (current > new Date(endAt).getTime()) return { code: 'TASK_ENDED', message: '任务已结束，不能提交打卡' };
+  return null;
+}
+
 function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -296,15 +340,34 @@ function weightFor(gradeRules, key) {
   return toFiniteNumber((gradeRules.find((rule) => rule.key === key) || {}).weight, 0);
 }
 
+const CHECKIN_PERCENT_RULE_VERSION = 'BNBU-CHECKIN-2026-v1';
+const ENDURANCE_RULE_VERSION = 'BNBU-ENDURANCE-2026-v1';
+
+function normalizeEnduranceSeconds(input = {}) {
+  if (input.timeSeconds != null && input.timeSeconds !== '') {
+    const seconds = Number(input.timeSeconds);
+    return Number.isFinite(seconds) && seconds >= 0 ? { seconds } : { error: 'timeSeconds 必须是非负数' };
+  }
+  if (input.minutes == null || input.seconds == null) return { error: '必须提供 timeSeconds 或 minutes + seconds' };
+  const minutes = Number(input.minutes);
+  const secondsPart = Number(input.seconds);
+  if (!Number.isInteger(minutes) || minutes < 0 || !Number.isInteger(secondsPart) || secondsPart < 0 || secondsPart >= 60) {
+    return { error: '分钟必须为非负整数，秒数必须在 0 到 59 之间' };
+  }
+  return { seconds: minutes * 60 + secondsPart, raw: { minutes, seconds: secondsPart } };
+}
+
 function buildGradeRows(rows, gradeRules) {
   const checkinWeight = weightFor(gradeRules, 'checkin');
   const examWeight = weightFor(gradeRules, 'exam');
   const attendanceWeight = weightFor(gradeRules, 'attendance');
   const physicalWeight = weightFor(gradeRules, 'physical');
+  const calculatedAt = new Date().toISOString();
   return rows.map((r) => {
-    const courseHours = toFiniteNumber(r.course_hours);
-    const generalHours = toFiniteNumber(r.general_hours);
-    const checkinScore = Math.min(checkinWeight, Math.round(((courseHours + generalHours) / 20) * checkinWeight));
+    const legacyHours = toFiniteNumber(r.course_hours) + toFiniteNumber(r.general_hours);
+    const validHours = toFiniteNumber(r.valid_hours, legacyHours);
+    const checkinPercent = Math.min(Math.round((validHours / 20) * 10000) / 100, 100);
+    const checkinScore = Math.round(checkinPercent * (checkinWeight / 100));
     const exam = toFiniteNumber(r.exam);
     const attendance = toFiniteNumber(r.attendance);
     const physical = toFiniteNumber(r.physical);
@@ -316,8 +379,42 @@ function buildGradeRows(rows, gradeRules) {
     );
     const missingItems = [];
     if (!physical) missingItems.push('physical');
-    return { ...r, checkinScore, exam, attendance, physical, total, missingItems };
+    return {
+      ...r,
+      validHours,
+      checkinPercent,
+      checkinScore,
+      exam,
+      attendance,
+      physical,
+      total,
+      missingItems,
+      ruleVersion: CHECKIN_PERCENT_RULE_VERSION,
+      calculatedAt,
+    };
   });
+}
+
+function sortGradeRows(rows, sort = 'import') {
+  const compareText = (left, right) => String(left || '').localeCompare(String(right || ''), 'zh-Hans-CN');
+  return [...rows].sort((left, right) => {
+    if (sort === 'studentId') return compareText(left.studentId, right.studentId);
+    if (sort === 'name') return compareText(left.studentName, right.studentName) || compareText(left.studentId, right.studentId);
+    return compareText(left.studentId, right.studentId);
+  });
+}
+
+function gradeRowsForMode(rows, mode = 'percent') {
+  if (!['raw', 'converted', 'percent'].includes(mode)) return null;
+  return rows.map((row) => ({
+    ...row,
+    outputMode: mode,
+    output: mode === 'raw'
+      ? { checkin: row.validHours, exam: row.exam, attendance: row.attendance, physical: row.physical, unit: 'hours-or-score' }
+      : mode === 'converted'
+        ? { checkin: row.checkinScore, exam: row.exam, attendance: row.attendance, physical: row.physical, total: row.total, unit: 'weighted-score' }
+        : { checkin: row.checkinPercent, exam: row.exam, attendance: row.attendance, physical: row.physical, total: row.total, unit: 'percent' },
+  }));
 }
 
 function mapTaskRow(r, overrides = {}) {
@@ -327,6 +424,9 @@ function mapTaskRow(r, overrides = {}) {
     title: r.title,
     hours: toFiniteNumber(r.required_hours ?? r.hours),
     deadline: r.deadline || '',
+    startAt: toUtcTimestamp(r.start_at),
+    endAt: toUtcTimestamp(r.end_at),
+    timezone: r.timezone || DEFAULT_TASK_TIMEZONE,
     proof: r.proof_requirement || overrides.proof || '',
     status: r.status || '草稿',
     description: r.description || '',
@@ -486,33 +586,37 @@ app.get('/api/health', async (_req, res) => {
   }
 });
 
+app.get('/api/server-time', (_req, res) => {
+  const now = new Date();
+  res.json({ time: now.toISOString(), timezone: DEFAULT_TASK_TIMEZONE, unixMs: now.getTime() });
+});
+
 // ── Upload proof media ──────────────────────────────────────────────
 app.post('/api/upload/proof', requireRole('student'), (req, res) => {
-  upload.array('files', 7)(req, res, (err) => {
+  upload.array('files', MAX_PROOF_IMAGES)(req, res, (err) => {
     if (err) {
+      removeUploadedFiles(req.files);
       if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(413).json({ code: 'FILE_TOO_LARGE', message: '文件过大，图片不超过 8MB，视频不超过 100MB' });
+        return res.status(413).json({ code: 'IMAGE_TOO_LARGE', message: '单张图片不超过 8MB' });
       }
       if (err.code === 'LIMIT_FILE_COUNT') {
-        return res.status(413).json({ code: 'TOO_MANY_FILES', message: '一次最多上传 6 张图片和 1 个视频' });
+        return res.status(413).json({ code: 'TOO_MANY_FILES', message: '一次最多上传 6 张图片' });
       }
       return res.status(400).json({ code: 'UPLOAD_FAILED', message: err.message });
     }
     if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ code: 'NO_FILE', message: '请选择要上传的图片或视频' });
+      return res.status(400).json({ code: 'NO_FILE', message: '请选择要上传的图片' });
     }
-    const imageFiles = req.files.filter((file) => IMAGE_MIME.has(file.mimetype));
-    const videoFiles = req.files.filter((file) => VIDEO_MIME.has(file.mimetype));
-    const invalidImage = imageFiles.find((file) => file.size > MAX_IMAGE_SIZE);
-    if (imageFiles.length > 6 || videoFiles.length > 1 || invalidImage) {
-      for (const file of req.files) fs.unlink(file.path, () => {});
-      if (invalidImage) return res.status(413).json({ code: 'IMAGE_TOO_LARGE', message: '单张图片不超过 8MB' });
-      return res.status(413).json({ code: 'MEDIA_LIMIT', message: '每条打卡最多 6 张图片和 1 个视频' });
+    const invalidImage = req.files.find((file) => !IMAGE_MIME.has(file.mimetype) || file.size > MAX_IMAGE_SIZE);
+    if (req.files.length > MAX_PROOF_IMAGES || invalidImage) {
+      removeUploadedFiles(req.files);
+      if (invalidImage?.size > MAX_IMAGE_SIZE) return res.status(413).json({ code: 'IMAGE_TOO_LARGE', message: '单张图片不超过 8MB' });
+      return res.status(400).json({ code: 'UNSUPPORTED_IMAGE_TYPE', message: '仅支持 JPG、PNG、WebP、HEIC、HEIF 图片' });
     }
     const urls = req.files.map((f) => '/uploads/' + f.filename);
     const files = req.files.map((file) => ({
       url: '/uploads/' + file.filename,
-      mediaType: IMAGE_MIME.has(file.mimetype) ? 'image' : 'video',
+      mediaType: 'image',
       mimeType: file.mimetype,
       size: file.size,
     }));
@@ -677,16 +781,30 @@ app.get('/api/teacher/courses/:courseId/dashboard', requireRole('teacher', 'admi
 // ── Teacher: students ───────────────────────────────────────────
 app.get('/api/teacher/courses/:courseId/students', requireRole('teacher', 'admin'), requireCourseAccess(), async (req, res) => {
   try {
-    const { keyword, status } = req.query;
-    let sql = `SELECT u.id, u.name, u.college, sp.course_hours AS course, sp.general_hours AS general, sp.exam_score AS exam, sp.attendance_score AS attendance, sp.physical_score AS physical, sp.status FROM student_progress sp JOIN users u ON sp.student_id = u.id WHERE sp.course_id = ?`;
+    const { keyword, status, sort = 'import' } = req.query;
+    let sql = `SELECT u.id, u.name, u.college, sp.course_hours AS course, sp.general_hours AS general, sp.exam_score AS exam, sp.attendance_score AS attendance, sp.physical_score AS physical, sp.status, sp.import_batch, sp.import_order FROM student_progress sp JOIN users u ON sp.student_id = u.id WHERE sp.course_id = ?`;
     const params = [req.params.courseId];
     if (keyword) { sql += ' AND (u.name LIKE ? OR u.id LIKE ?)'; params.push(`%${keyword}%`, `%${keyword}%`); }
     if (status && status !== 'all') {
       const map = { complete: '已完成', incomplete: '未完成', risk: '风险较高' };
       if (map[status]) { sql += ' AND sp.status = ?'; params.push(map[status]); }
     }
+    const orderBy = sort === 'studentId'
+      ? 'sp.student_id ASC'
+      : sort === 'name'
+        ? 'u.name ASC, sp.student_id ASC'
+        : 'COALESCE(sp.import_order, 2147483647) ASC, sp.student_id ASC';
+    sql += ` ORDER BY ${orderBy}`;
     const [rows] = await pool.query(sql, params);
-    res.json(rows.map((r) => ({ ...r, rawGeneral: r.general, className: '', organizationCredit: null, source: 'seed' })));
+    res.json(rows.map((r) => ({
+      ...r,
+      rawGeneral: r.general,
+      className: '',
+      organizationCredit: null,
+      source: r.import_batch ? 'import' : 'seed',
+      importBatch: r.import_batch || null,
+      importOrder: r.import_order == null ? null : Number(r.import_order),
+    })));
   } catch (e) { res.status(500).json({ code: 'DB_ERROR', message: e.message }); }
 });
 
@@ -717,7 +835,8 @@ app.post('/api/teacher/courses/:courseId/students/import/confirm', requireRole('
     const normalizedRows = rows.map((row, index) => normalizeRosterRow(row, courses[0], index));
     const validRows = normalizedRows.filter((row) => row.valid);
     const rejectedRows = normalizedRows.filter((row) => !row.valid);
-    for (const row of validRows) {
+    const importBatch = 'import-' + crypto.randomUUID();
+    for (const [importIndex, row] of validRows.entries()) {
       await pool.query(
         `INSERT INTO users (id, name, email, role, college, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
@@ -725,13 +844,13 @@ app.post('/api/teacher/courses/:courseId/students/import/confirm', requireRole('
         [row.id, row.name, `${row.id}@bnbu.edu.cn`, 'student', row.college || '', '正常']
       );
       await pool.query(
-        `INSERT INTO student_progress (student_id, course_id, course_hours, general_hours, exam_score, attendance_score, physical_score, status)
-         VALUES (?, ?, 0, 0, 0, 0, 0, '未完成')
-         ON DUPLICATE KEY UPDATE status = VALUES(status)`,
-        [row.id, req.params.courseId]
+        `INSERT INTO student_progress (student_id, course_id, course_hours, general_hours, exam_score, attendance_score, physical_score, status, import_batch, import_order)
+         VALUES (?, ?, 0, 0, 0, 0, 0, '未完成', ?, ?)
+         ON DUPLICATE KEY UPDATE status = VALUES(status), import_batch = VALUES(import_batch), import_order = VALUES(import_order)`,
+        [row.id, req.params.courseId, importBatch, importIndex + 1]
       );
     }
-    res.json({ importedCount: validRows.length, rejectedCount: rejectedRows.length, rejectedRows });
+    res.json({ importBatch, importedCount: validRows.length, rejectedCount: rejectedRows.length, rejectedRows });
   } catch (e) {
     res.status(500).json({ code: 'DB_ERROR', message: e.message });
   }
@@ -760,10 +879,16 @@ app.post('/api/teacher/courses/:courseId/tasks', requireRole('teacher', 'admin')
     const taskId = 'task-' + crypto.randomUUID();
     const taskStatus = String(status || '草稿').trim();
     const taskCreditType = String(creditType || '课程相关').trim();
+    const window = collectTaskWindow(req.body || {});
+    if (window.error) return res.status(400).json({ code: 'VALIDATION', message: window.error });
     await pool.query(
-      `INSERT INTO tasks (id, course_id, title, description, credit_type, required_hours, deadline, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [taskId, req.params.courseId, taskTitle, description || '', taskCreditType, taskHours, deadline || '', taskStatus]
+      `INSERT INTO tasks (id, course_id, title, description, credit_type, required_hours, deadline, start_at, end_at, timezone, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      [taskId, req.params.courseId, taskTitle, description || '', taskCreditType, taskHours, deadline || '', window.startAt, window.endAt, window.timezone, taskStatus]
+    );
+    await pool.query(
+      'INSERT INTO audit_logs (id, actor, action, target, time) VALUES (?, ?, ?, ?, NOW())',
+      ['log-' + taskId, req.userId, '创建课程任务', `${req.params.courseId} / ${taskTitle}`]
     );
     const [rows] = await pool.query(
       'SELECT t.*, c.code AS course_code, c.section AS course_section, c.name AS course_name FROM tasks t JOIN courses c ON t.course_id = c.id WHERE t.id = ?',
@@ -777,6 +902,9 @@ app.post('/api/teacher/courses/:courseId/tasks', requireRole('teacher', 'admin')
       credit_type: taskCreditType,
       required_hours: taskHours,
       deadline: deadline || '',
+      start_at: window.startAt,
+      end_at: window.endAt,
+      timezone: window.timezone,
       status: taskStatus,
     }, { proof, creditType: taskCreditType }));
   } catch (e) {
@@ -786,12 +914,21 @@ app.post('/api/teacher/courses/:courseId/tasks', requireRole('teacher', 'admin')
 
 app.patch('/api/teacher/courses/:courseId/tasks/:taskId', requireRole('teacher', 'admin'), requireCourseAccess(), async (req, res) => {
   try {
+    const [existingRows] = await pool.query('SELECT * FROM tasks WHERE id = ? AND course_id = ?', [req.params.taskId, req.params.courseId]);
+    if (!existingRows.length) return res.status(404).json({ code: 'NOT_FOUND', message: 'Task not found' });
     const { fields, params, error } = collectTaskUpdate(req.body || {});
     if (error) return res.status(400).json({ code: 'VALIDATION', message: error });
+    const window = collectTaskWindow(req.body || {}, existingRows[0]);
+    if (window.error) return res.status(400).json({ code: 'VALIDATION', message: window.error });
+    if (window.changed) { fields.push('start_at = ?', 'end_at = ?', 'timezone = ?'); params.push(window.startAt, window.endAt, window.timezone); }
     if (!fields.length) return res.status(400).json({ code: 'VALIDATION', message: 'No task fields to update' });
     params.push(req.params.taskId, req.params.courseId);
     const [result] = await pool.query(`UPDATE tasks SET ${fields.join(', ')}, updated_at = NOW() WHERE id = ? AND course_id = ?`, params);
     if (result.affectedRows === 0) return res.status(404).json({ code: 'NOT_FOUND', message: 'Task not found' });
+    await pool.query(
+      'INSERT INTO audit_logs (id, actor, action, target, time) VALUES (?, ?, ?, ?, NOW())',
+      ['log-task-' + Date.now(), req.userId, '更新课程任务', `${req.params.courseId} / ${req.params.taskId}`]
+    );
     const [rows] = await pool.query(
       'SELECT t.*, c.code AS course_code, c.section AS course_section, c.name AS course_name FROM tasks t JOIN courses c ON t.course_id = c.id WHERE t.id = ?',
       [req.params.taskId]
@@ -822,10 +959,17 @@ app.patch('/api/teacher/tasks/:taskId', requireRole('teacher', 'admin'), async (
     if (!canAccessTask(req, existingRows[0])) return res.status(403).json({ code: 'FORBIDDEN', message: 'Task access denied' });
     const { fields, params, error } = collectTaskUpdate(req.body || {});
     if (error) return res.status(400).json({ code: 'VALIDATION', message: error });
+    const window = collectTaskWindow(req.body || {}, existingRows[0]);
+    if (window.error) return res.status(400).json({ code: 'VALIDATION', message: window.error });
+    if (window.changed) { fields.push('start_at = ?', 'end_at = ?', 'timezone = ?'); params.push(window.startAt, window.endAt, window.timezone); }
     if (!fields.length) return res.status(400).json({ code: 'VALIDATION', message: 'No task fields to update' });
     params.push(req.params.taskId);
     const [result] = await pool.query(`UPDATE tasks SET ${fields.join(', ')}, updated_at = NOW() WHERE id = ?`, params);
     if (result.affectedRows === 0) return res.status(404).json({ code: 'NOT_FOUND', message: 'Task not found' });
+    await pool.query(
+      'INSERT INTO audit_logs (id, actor, action, target, time) VALUES (?, ?, ?, ?, NOW())',
+      ['log-task-' + Date.now(), req.userId, '更新课程任务', req.params.taskId]
+    );
     const [rows] = await pool.query(
       'SELECT t.*, c.code AS course_code, c.section AS course_section, c.name AS course_name, c.teacher_id FROM tasks t JOIN courses c ON t.course_id = c.id WHERE t.id = ?',
       [req.params.taskId]
@@ -983,11 +1127,28 @@ app.put('/api/teacher/courses/:courseId/scores/physical', requireRole('teacher',
 app.get('/api/teacher/courses/:courseId/grades', requireRole('teacher', 'admin'), requireCourseAccess(), async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT sp.student_id AS studentId, u.name AS studentName, sp.course_hours, sp.general_hours, sp.exam_score AS exam, sp.attendance_score AS attendance, sp.physical_score AS physical
-       FROM student_progress sp JOIN users u ON sp.student_id = u.id WHERE sp.course_id = ?`, [req.params.courseId]
+      `SELECT sp.student_id AS studentId, u.name AS studentName, sp.course_hours, sp.general_hours,
+              COALESCE(valid_records.valid_hours, 0) AS valid_hours,
+              sp.exam_score AS exam, sp.attendance_score AS attendance, sp.physical_score AS physical
+       FROM student_progress sp
+       JOIN users u ON sp.student_id = u.id
+       LEFT JOIN (
+         SELECT student_id, COALESCE(SUM(approved_hours), 0) AS valid_hours
+         FROM sport_records
+         WHERE status = '已通过' AND (course_id = ? OR course_id IS NULL)
+         GROUP BY student_id
+       ) valid_records ON valid_records.student_id = sp.student_id
+       WHERE sp.course_id = ?`, [req.params.courseId, req.params.courseId]
     );
     const gradeRules = await readSetting('grade-rules', DEFAULT_GRADE_RULES);
-    res.json(buildGradeRows(rows, gradeRules));
+    const mode = String(req.query.mode || 'percent');
+    const sort = String(req.query.sort || 'import');
+    const gradeRows = gradeRowsForMode(sortGradeRows(buildGradeRows(rows, gradeRules), sort), mode);
+    if (!gradeRows) return res.status(400).json({ code: 'VALIDATION', message: 'mode must be raw, converted, or percent' });
+    if (req.query.envelope === '1') {
+      return res.json({ mode, sort, generatedAt: new Date().toISOString(), items: gradeRows });
+    }
+    res.json(gradeRows);
   } catch (e) {
     res.status(500).json({ code: 'DB_ERROR', message: e.message });
   }
@@ -1007,13 +1168,29 @@ app.get('/api/teacher/courses/:courseId/export', requireRole('teacher', 'admin')
     if (!courses.length) return res.status(404).json({ code: 'NOT_FOUND', message: 'Course not found' });
     const course = courses[0];
     const [rows] = await pool.query(
-      `SELECT sp.student_id AS studentId, u.name AS studentName, sp.course_hours, sp.general_hours, sp.exam_score AS exam, sp.attendance_score AS attendance, sp.physical_score AS physical
-       FROM student_progress sp JOIN users u ON sp.student_id = u.id WHERE sp.course_id = ?`,
-      [req.params.courseId]
+      `SELECT sp.student_id AS studentId, u.name AS studentName, sp.course_hours, sp.general_hours,
+              COALESCE(valid_records.valid_hours, 0) AS valid_hours,
+              sp.exam_score AS exam, sp.attendance_score AS attendance, sp.physical_score AS physical
+       FROM student_progress sp
+       JOIN users u ON sp.student_id = u.id
+       LEFT JOIN (
+         SELECT student_id, COALESCE(SUM(approved_hours), 0) AS valid_hours
+         FROM sport_records
+         WHERE status = '已通过' AND (course_id = ? OR course_id IS NULL)
+         GROUP BY student_id
+       ) valid_records ON valid_records.student_id = sp.student_id
+       WHERE sp.course_id = ?`,
+      [req.params.courseId, req.params.courseId]
     );
     const gradeRules = await readSetting('grade-rules', DEFAULT_GRADE_RULES);
     const template = await readSetting('export-template', DEFAULT_EXPORT_TEMPLATE);
-    const gradeRows = buildGradeRows(rows, gradeRules);
+    const mode = String(req.query.mode || 'percent');
+    const sort = String(req.query.sort || 'import');
+    const gradeRows = gradeRowsForMode(sortGradeRows(buildGradeRows(rows, gradeRules), sort), mode);
+    if (!gradeRows) return res.status(400).json({ code: 'VALIDATION', message: 'mode must be raw, converted, or percent' });
+    if (String(req.query.format || '').toLowerCase() === 'json') {
+      return res.json({ mode, sort, generatedAt: new Date().toISOString(), ruleVersion: CHECKIN_PERCENT_RULE_VERSION, items: gradeRows });
+    }
     const fields = template.fields && template.fields.length ? template.fields : DEFAULT_EXPORT_TEMPLATE.fields;
     const lines = [
       fields.map(csvEscape).join(','),
@@ -1636,6 +1813,15 @@ app.post('/api/sport/records', requireAuth, async (req, res) => {
       return res.status(400).json({ code: 'VALIDATION', message: '小时数须在 0.5–2 之间' });
     }
 
+    if (taskId) {
+      const [taskRows] = await pool.query('SELECT id, course_id, start_at, end_at, timezone FROM tasks WHERE id = ?', [taskId]);
+      if (!taskRows.length) return res.status(404).json({ code: 'TASK_NOT_FOUND', message: '任务不存在' });
+      const task = taskRows[0];
+      if (courseId && task.course_id !== courseId) return res.status(400).json({ code: 'TASK_COURSE_MISMATCH', message: '任务不属于所选课程' });
+      const availability = taskWindowError(task);
+      if (availability) return res.status(409).json(availability);
+    }
+
     // Daily limit check (use local date: UTC+8 for BNBU campus)
     const now = new Date();
     const localDate = new Date(now.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -1902,10 +2088,12 @@ app.put('/api/teacher/team-offset/:id/confirm', requireRole('teacher','admin'), 
 // ── Scoring: endurance run time-to-score conversion ───────────────
 app.post('/api/scoring/convert-endurance', requireAuth, async (req, res) => {
   try {
-    const { timeSeconds, gender, gradeLevel } = req.body || {};
-    if (timeSeconds == null || !gender || !gradeLevel) {
+    const { gender, gradeLevel } = req.body || {};
+    const normalizedTime = normalizeEnduranceSeconds(req.body || {});
+    if (normalizedTime.error || !gender || !gradeLevel) {
       return res.status(400).json({ code: 'VALIDATION', message: '缺少 timeSeconds, gender, gradeLevel' });
     }
+    const timeSeconds = normalizedTime.seconds;
 
     const gradeGroup = ['freshman','sophomore'].includes(gradeLevel)
       ? 'freshman_sophomore' : 'junior_senior';
@@ -1926,7 +2114,7 @@ app.post('/api/scoring/convert-endurance', requireAuth, async (req, res) => {
         [gender, gradeGroup]
       );
       if (best.length > 0) {
-        return res.json({ score: best[0].score, tier: best[0].tier, timeSeconds, gender, gradeLevel, gradeGroup, note: '成绩优于满分标准' });
+        return res.json({ score: best[0].score, tier: best[0].tier, timeSeconds, rawTime: normalizedTime.raw || null, gender, gradeLevel, gradeGroup, ruleVersion: ENDURANCE_RULE_VERSION, note: '成绩优于满分标准' });
       }
       return res.status(404).json({ code: 'NOT_FOUND', message: '未找到匹配的评分规则' });
     }
@@ -1936,9 +2124,11 @@ app.post('/api/scoring/convert-endurance', requireAuth, async (req, res) => {
       score: rule.score,
       tier: rule.tier,
       timeSeconds,
+      rawTime: normalizedTime.raw || null,
       gender,
       gradeLevel,
       gradeGroup,
+      ruleVersion: ENDURANCE_RULE_VERSION,
       range: { min: rule.time_seconds_min, max: rule.time_seconds_max }
     });
   } catch (e) { res.status(500).json({ code: 'DB_ERROR', message: e.message }); }
@@ -3197,4 +3387,11 @@ if (process.env.NODE_ENV !== 'test') {
   });
 }
 
-module.exports = { app, pool };
+module.exports = {
+  app,
+  pool,
+  buildGradeRows,
+  collectTaskWindow,
+  normalizeEnduranceSeconds,
+  taskWindowError,
+};

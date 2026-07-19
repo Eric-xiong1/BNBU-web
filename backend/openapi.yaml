@@ -10,6 +10,7 @@ servers:
     description: Local development placeholder
 tags:
   - name: Auth
+  - name: Student
   - name: Teacher
   - name: Reviews
   - name: Scores
@@ -21,6 +22,84 @@ tags:
 security:
   - bearerAuth: []
 paths:
+  /server-time:
+    get:
+      tags: [System]
+      summary: Get the authoritative server clock for task-window decisions
+      security: []
+      responses:
+        '200':
+          description: Server time in UTC
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [time, timezone, unixMs]
+                properties:
+                  time:
+                    type: string
+                    format: date-time
+                  timezone:
+                    type: string
+                    example: Asia/Shanghai
+                  unixMs:
+                    type: integer
+                    format: int64
+  /upload/proof:
+    post:
+      tags: [Student]
+      summary: Upload up to six proof images
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  maxItems: 6
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          description: Uploaded image metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [files, urls, count]
+                properties:
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      required: [url, mediaType, mimeType, size]
+                      properties:
+                        url:
+                          type: string
+                          pattern: '^/uploads/'
+                        mediaType:
+                          type: string
+                          enum: [image]
+                        mimeType:
+                          type: string
+                          enum: [image/jpeg, image/png, image/webp, image/heic, image/heif]
+                        size:
+                          type: integer
+                          maximum: 8388608
+                  urls:
+                    type: array
+                    items:
+                      type: string
+                  count:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
   /auth/login:
     post:
       tags: [Auth]
@@ -374,6 +453,18 @@ paths:
       summary: Get final grade table for a course
       parameters:
         - $ref: '#/components/parameters/CourseId'
+        - name: mode
+          in: query
+          schema:
+            type: string
+            enum: [raw, converted, percent]
+            default: percent
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [import, studentId, name]
+            default: import
       responses:
         '200':
           description: Grade rows
@@ -407,8 +498,20 @@ paths:
           in: query
           schema:
             type: string
-            enum: [csv, xlsx]
+            enum: [csv, json]
             default: csv
+        - name: mode
+          in: query
+          schema:
+            type: string
+            enum: [raw, converted, percent]
+            default: percent
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [import, studentId, name]
+            default: import
       responses:
         '200':
           description: Export file
@@ -1158,6 +1261,17 @@ components:
           type: number
         deadline:
           type: string
+        startAt:
+          type: string
+          format: date-time
+          nullable: true
+        endAt:
+          type: string
+          format: date-time
+          nullable: true
+        timezone:
+          type: string
+          example: Asia/Shanghai
         proof:
           type: string
         status:
@@ -1174,6 +1288,15 @@ components:
           type: number
         deadline:
           type: string
+        startAt:
+          type: string
+          format: date-time
+        endAt:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+          default: Asia/Shanghai
         proof:
           type: string
         status:
@@ -1283,6 +1406,13 @@ components:
           type: string
         studentName:
           type: string
+        validHours:
+          type: number
+          description: Sum of approved check-in hours only.
+        checkinPercent:
+          type: number
+          minimum: 0
+          maximum: 100
         checkinScore:
           type: integer
         exam:
@@ -1299,6 +1429,11 @@ components:
           type: array
           items:
             type: string
+        ruleVersion:
+          type: string
+        calculatedAt:
+          type: string
+          format: date-time
     ExportIssues:
       type: object
       required: [missingPhysical, checkinNotEnough, unresolvedReviews, templateMatched]
