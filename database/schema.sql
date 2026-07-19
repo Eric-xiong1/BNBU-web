@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS student_progress (
   attendance_score INT DEFAULT 0,
   physical_score   INT DEFAULT 0,
   status           VARCHAR(32),
+  import_batch     VARCHAR(36) DEFAULT NULL,
+  import_order     INT DEFAULT NULL,
   PRIMARY KEY (student_id, course_id),
   FOREIGN KEY (student_id) REFERENCES users(id),
   FOREIGN KEY (course_id)  REFERENCES courses(id)
@@ -382,6 +384,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   credit_type VARCHAR(32) NOT NULL,
   required_hours DECIMAL(4,1) DEFAULT 1.0,
   deadline VARCHAR(128),
+  start_at DATETIME NULL COMMENT 'UTC task availability start',
+  end_at DATETIME NULL COMMENT 'UTC task availability end',
+  timezone VARCHAR(64) NOT NULL DEFAULT 'Asia/Shanghai',
   status VARCHAR(32) DEFAULT '进行中',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

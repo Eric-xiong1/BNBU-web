@@ -5,7 +5,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test \"test/**/*.test.cjs\""
+    "start:local": "node --env-file=.env server.js",
+    "test": "node --test \"test/**/*.test.cjs\"",
+    "cleanup:uploads": "node scripts/cleanup-orphan-uploads.cjs",
+    "migrate:dev": "node ../database/run-migrations.cjs"
   },
   "dependencies": {
     "express": "^4.21.0",
