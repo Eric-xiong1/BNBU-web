@@ -1,2 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" role="img" aria-label="运动轨迹凭证示意">
-  <rect width="320" height="240" fill="#e9f3eb"/><path d="M-20 75C70 34 92 113 164 88s101-10 176 41M-15 168c87-53 133-6 190-38s95-21 164 17" fill="none" stroke="#bdd7c2" stroke-width="20"/><path d="M44 198c31-80 75-24 91-78s76-41 113-82" fill="none" stroke="#165dff" stroke-width="9" stroke-linecap="round" stroke-dasharray="1 18"/><circle cx="44" cy="198" r="13" fill="#165dff"/><circle cx="248" cy="38" r="13" fill="#f53f3f"/><path d="m44 198 8-24 17 17z" fill="#fff"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" role="img" aria-label="操场跑道">
+  <rect width="320" height="240" rx="20" fill="#0E9F8E"/>
+  <ellipse cx="160" cy="120" rx="94" ry="58" fill="none" stroke="#fff" stroke-width="14"/>
+  <ellipse cx="160" cy="120" rx="58" ry="30" fill="none" stroke="#fff" stroke-width="6" opacity=".65"/>
+</svg>

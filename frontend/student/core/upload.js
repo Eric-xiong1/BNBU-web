@@ -1,4 +1,4 @@
-import { uploadLimits } from "./constants.js";
+import { uploadLimits, DESC_MAX } from "./constants.js";
 import { uid } from "./utils.js";
 
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
@@ -19,16 +19,24 @@ export function validateProofSelection(files) {
   return { valid: errors.length === 0, errors, images: images.length, videos: videos.length };
 }
 
-export function validateCheckin({ hours, sportType, customSport, description, files, dailyRemaining = 2 }) {
+// Validated when the student starts an exercise session (before the timer).
+export function validateSessionStart({ creditType, courseId, sportType, customSport }) {
   const errors = [];
-  const numericHours = Number(hours);
-  if (!Number.isFinite(numericHours) || numericHours < 0.5 || numericHours > 2) errors.push("本次学时须在 0.5–2 小时之间");
-  if (numericHours > Number(dailyRemaining)) errors.push(`今日最多还可申报 ${dailyRemaining} 小时`);
+  if (!creditType) errors.push("请选择服务类别");
+  if (creditType === "课程相关" && !courseId) errors.push("请选择本学期在读的体育课程");
+  if (!sportType) errors.push("请选择运动项目");
   if (sportType === "other" && !String(customSport || "").trim()) errors.push("请填写自定义运动名称");
   if (String(customSport || "").length > 32) errors.push("自定义运动名称最多 32 个字符");
-  const length = String(description || "").trim().length;
-  if (length < 5 || length > 300) errors.push("补充说明须为 5–300 个字符");
-  if (!files?.length) errors.push("请至少上传 1 个有效凭证");
+  return [...new Set(errors)];
+}
+
+// Validated when submitting after the session ends: description is optional but
+// capped, at least one proof captured. Earned hours come from the session, not
+// a manual field.
+export function validateSubmission({ description, files }) {
+  const errors = [];
+  if (String(description || "").trim().length > DESC_MAX) errors.push(`运动说明最多 ${DESC_MAX} 个字符`);
+  if (!files?.length) errors.push("请至少提交 1 个运动凭证");
   errors.push(...validateProofSelection((files || []).map((item) => item.file || item)).errors);
   return [...new Set(errors)];
 }

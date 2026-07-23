@@ -1,7 +1,7 @@
 import { STORAGE_KEY } from "./constants.js";
 import { clone } from "./utils.js";
 
-const persistedKeys = ["session", "mode", "draft", "records", "notifications", "exemptions", "settings"];
+const persistedKeys = ["session", "mode", "draft", "activeSession", "records", "notifications", "exemptions", "settings"];
 
 export function createStore({ storage = globalThis.localStorage, initial }) {
   let state = clone(initial);

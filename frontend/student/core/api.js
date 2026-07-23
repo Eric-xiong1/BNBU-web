@@ -44,7 +44,6 @@ export function createStudentApi({ baseUrl = "/api", fetchImpl = globalThis.fetc
     me: () => request("/auth/me"),
     logout: () => request("/auth/logout", { method: "POST" }),
     summary: () => request("/sport/summary"),
-    tasks: () => request("/student/tasks"),
     courseDetail: (id) => request(`/student/courses/${encodeURIComponent(id)}`),
     grades: () => request("/student/grades"),
     identity: () => request("/sport/identity"),
@@ -83,15 +82,11 @@ export function createDemoApi({ store }) {
     async me() { return { user: store.getState().student }; },
     async logout() { return { ok: true }; },
     async summary() { return store.getState().summary; },
-    async tasks() {
-      const tasks = store.getState().tasks;
-      return { pending: tasks.filter((item) => item.status !== "已完成"), completed: tasks.filter((item) => item.status === "已完成") };
-    },
     async courseDetail(id) {
       const state = store.getState();
       const course = state.courses.find((item) => item.id === id);
       if (!course) throw new Error("课程不存在");
-      return { ...course, tasks: state.tasks.filter((item) => item.courseId === id), records: state.records.filter((item) => item.courseId === id) };
+      return { ...course, records: state.records.filter((item) => item.courseId === id) };
     },
     async grades() { return store.getState().grades; },
     async identity() { return { memberships: store.getState().memberships }; },
@@ -106,7 +101,7 @@ export function createDemoApi({ store }) {
     },
     async submitRecord(payload) {
       await wait(250);
-      const record = { id: uid("sr"), ...payload, status: "待审核", reviewComment: "", submittedAt: new Date().toISOString() };
+      const record = { id: uid("sr"), ...payload, status: "有效", submittedAt: new Date().toISOString() };
       store.patch((state) => ({ records: [record, ...state.records] }));
       return record;
     },

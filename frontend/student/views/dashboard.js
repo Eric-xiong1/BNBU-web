@@ -1,4 +1,4 @@
-import { escapeHtml, formatDate } from "../core/utils.js";
+import { escapeHtml } from "../core/utils.js";
 import { icon } from "../core/icons.js";
 import { brandMark } from "../core/brand.js";
 
@@ -6,16 +6,14 @@ const number = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
 const hours = (value) => `${number(value).toFixed(number(value) % 1 ? 1 : 0)}h`;
 
 export function dashboardRisk(state = {}) {
-  const records = state.records || [];
   const summary = state.summary || {};
   const rules = summary.rule || {};
-  const supplement = records.find((record) => ["补材料", "需补材料"].includes(record.status));
-  if (supplement) {
+  if (state.activeSession) {
     return {
-      tone: "danger",
-      title: "有记录需要处理",
-      message: `“${supplement.description || supplement.taskTitle || "运动打卡"}”需要补交可核验的证明材料。`,
-      action: "立即补交",
+      tone: "warning",
+      title: "运动进行中",
+      message: "你有一次尚未结束的运动，点此继续计时或结束记录。",
+      action: "继续运动",
       route: "checkin",
     };
   }
@@ -43,7 +41,7 @@ function focusItems(state) {
   return [
     { label: "课程相关", value: courseGap ? `还差 ${hours(courseGap)}` : "已完成", route: "courses" },
     { label: "其他运动", value: generalGap ? `还差 ${hours(generalGap)}` : "已完成", route: "checkin" },
-    { label: "待审核记录", value: `${number(summary.pendingCount)} 条`, route: "checkin" },
+    { label: "运动记录", value: `${number((state.records || []).length)} 条`, route: "checkin" },
   ];
 }
 
@@ -52,7 +50,7 @@ export function renderDashboard(state = {}) {
   const summary = state.summary || {};
   const rule = summary.rule || {};
   const risk = dashboardRisk(state);
-  const tasks = (state.tasks || []).filter((task) => task.status !== "已完成").slice(0, 3);
+  const activeSession = state.activeSession;
   const unread = (state.notifications || []).filter((notice) => notice.isUnread).length;
   const total = number(rule.total || summary.totalRequired || 20);
   const completed = number(summary.totalCompleted || number(summary.courseHours) + number(summary.generalHours));
@@ -86,8 +84,9 @@ export function renderDashboard(state = {}) {
       <section class="card focus-panel"><div class="card-head"><div><span class="section-kicker">FOCUS</span><h2 class="card-title">重点计划</h2></div></div><div class="card-body focus-list">
         ${focusItems(state).map((item) => `<button data-route="${item.route}"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.value)}</strong><b aria-hidden="true">›</b></button>`).join("")}
       </div></section>
-      <section class="card tasks-panel"><div class="card-head"><div><span class="section-kicker">NEXT</span><h2 class="card-title">近期任务</h2></div></div><div class="card-body task-preview-list">
-        ${tasks.map((task) => `<button data-action="use-task" data-task-id="${escapeHtml(task.id)}"><span><strong>${escapeHtml(task.title)}</strong><small>${escapeHtml(task.description || "")}</small></span><span class="task-meta"><b>${hours(task.hours)}</b><small>${formatDate(task.deadline)}</small></span></button>`).join("") || '<div class="empty-inline">暂无待完成任务</div>'}
+      <section class="card start-panel"><div class="card-head"><div><span class="section-kicker">EXERCISE</span><h2 class="card-title">运动服务</h2></div></div><div class="card-body page-stack">
+        <p class="page-caption">${activeSession ? "你有一次进行中的运动，点此回到计时。" : "开始运动 → 计时 → 结束记录，满 1 小时计 1 学时。"}</p>
+        <button class="button button-primary button-block" data-route="checkin">${activeSession ? "继续运动" : "开始运动"}</button>
       </div></section>
     </div>
   </section>`;

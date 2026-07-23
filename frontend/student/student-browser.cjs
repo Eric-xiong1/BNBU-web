@@ -12,6 +12,7 @@ async function openDemo(browser, viewport) {
   const page = await context.newPage();
   page.on("pageerror", (error) => browserErrors.push(error.message));
   page.on("console", (message) => { if (message.type() === "error") browserErrors.push(message.text()); });
+  page.on("dialog", (dialog) => dialog.accept()); // confirm end-session / <1h alert
   await page.goto(url, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "进入演示学生端" }).click();
   await page.waitForURL(/#\/home$/);
@@ -92,22 +93,31 @@ async function assertSolidNavIcon(page, route) {
     await visit(mobile.page, "home", "学时进度");
     await assertHomeEmblems(mobile.page, "mobile");
     await capture(mobile.page, "mobile-home.png");
-    await visit(mobile.page, "checkin", "运动打卡");
+    await visit(mobile.page, "checkin", "运动服务");
     await assertSolidNavIcon(mobile.page, "checkin");
-    const description = mobile.page.locator('[name="description"]');
-    await description.fill("保留这段尚未保存的运动说明");
-    await mobile.page.locator('[data-sport-type="running"]').click();
-    await mobile.page.getByRole("button", { name: "查看更多运动项目" }).click();
-    assert.equal(await description.inputValue(), "保留这段尚未保存的运动说明");
+    // Acknowledge the first-visit health-safety prompt.
+    const ack = mobile.page.getByRole("button", { name: "我知道了" });
+    if (await ack.count()) await ack.click();
+    // Setup → start the exercise session.
+    await mobile.page.locator('[data-setup-sport="running"]').click();
     assert.equal(await mobile.page.locator('[name="sportType"]').inputValue(), "running");
-    await mobile.page.locator("#proof-picker").setInputFiles({ name: "proof.png", mimeType: "image/png", buffer: Buffer.from("proof") });
-    assert.equal(await description.inputValue(), "保留这段尚未保存的运动说明");
+    await mobile.page.getByRole("button", { name: "开始运动" }).click();
+    await mobile.page.getByText("运动进行中", { exact: true }).waitFor();
+    assert.ok(await mobile.page.locator('[data-action="end-session"]').count() >= 1, "running session must show an end control");
+    // Capture a proof draft while the timer runs.
+    await mobile.page.locator("#session-proof-picker").setInputFiles({ name: "proof.png", mimeType: "image/png", buffer: Buffer.from("proof") });
     assert.equal(await mobile.page.locator(".proof-item").count(), 1);
-    await description.fill("选择凭证后继续编辑的说明");
-    await mobile.page.getByRole("button", { name: "删除" }).click();
-    assert.equal(await description.inputValue(), "选择凭证后继续编辑的说明");
+    // Pause / resume.
+    await mobile.page.locator('[data-action="pause-session"]').click();
+    await mobile.page.getByText("已暂停", { exact: true }).waitFor();
+    await mobile.page.locator('[data-action="resume-session"]').click();
+    await mobile.page.getByText("运动进行中", { exact: true }).waitFor();
     await capture(mobile.page, "mobile-checkin.png");
+    // End early (<1h → not counted, dialog auto-dismissed, returns to setup).
+    await mobile.page.locator('[data-action="end-session"]').click();
+    await mobile.page.getByRole("button", { name: "开始运动" }).waitFor();
     await mobile.page.getByRole("tab", { name: "记录" }).click();
+    await mobile.page.locator('[data-record-filter="all"]').first().waitFor();
     await capture(mobile.page, "mobile-records-refined.png");
     for (const [route, text] of [["grades","成绩"],["course/gepe","大学体育 II"],["endurance","耐力跑成绩换算"],["exemptions","体育免测与免打卡申请"],["privacy","隐私政策"],["profile","我的"]]) {
       await visit(mobile.page, route, text);
@@ -131,7 +141,7 @@ async function assertSolidNavIcon(page, route) {
     await visit(desktop.page, "home", "学时进度");
     await assertHomeEmblems(desktop.page, "desktop");
     await capture(desktop.page, "desktop-home.png");
-    await visit(desktop.page, "checkin", "运动打卡");
+    await visit(desktop.page, "checkin", "运动服务");
     await capture(desktop.page, "desktop-checkin.png");
     await desktop.context.close();
   } finally { await browser.close(); }

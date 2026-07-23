@@ -6,8 +6,9 @@ import { demoWorkspace } from "./data/demo-data.js";
 import { createStudentApi } from "./core/api.js";
 import { createInitialState, mergeCheckinDraft, normalizeHydration, routeFromHash } from "./app.js";
 import { renderBottomNav, renderShell } from "./views/shell.js";
-import { validateProofSelection, validateCheckin } from "./core/upload.js";
+import { validateProofSelection, validateSessionStart, validateSubmission } from "./core/upload.js";
 import { renderCheckin, renderRecordDetail } from "./views/checkin.js";
+import { earnedHoursFromActiveMs, sessionElapsedMs, shouldAutoEnd, pauseSession, resumeSession, hasServedToday, formatTimer, startSession } from "./core/session.js";
 import { renderCourses } from "./views/courses.js";
 import { calculateGrade, renderGrades } from "./views/grades.js";
 import { filterNotifications, renderProfile } from "./views/profile.js";
@@ -63,7 +64,7 @@ test("courses navigation uses the Android MenuBook artwork", () => {
 test("dashboard derives Android progress and actionable risk", () => {
   const workspace = demoWorkspace();
   const html = renderDashboard(workspace);
-  for (const text of ["学时进度", "课程相关", "其他运动", "重点计划", "近期任务"]) assert.match(html, new RegExp(text));
+  for (const text of ["学时进度", "课程相关", "其他运动", "重点计划", "运动服务"]) assert.match(html, new RegExp(text));
   assert.match(html, /data-action="open-notifications"/);
   assert.match(html, /class="dashboard-identity"/);
   assert.match(html, /class="brand-mark dashboard-emblem"/);
@@ -71,10 +72,10 @@ test("dashboard derives Android progress and actionable risk", () => {
   assert.match(html, /alt="BNBU 校徽"/);
 });
 
-test("dashboard prioritizes supplement records over generic hour gaps", () => {
-  const risk = dashboardRisk({ records: [{ status: "需补材料" }], summary: { courseHours: 9, generalHours: 9, rule: { courseRequired: 10, generalRequired: 10 } } });
+test("dashboard prioritizes an in-progress session over generic hour gaps", () => {
+  const risk = dashboardRisk({ activeSession: { id: "s", status: "running" }, summary: { courseHours: 9, generalHours: 9, rule: { courseRequired: 10, generalRequired: 10 } } });
   assert.equal(risk.route, "checkin");
-  assert.match(risk.message, /补交/);
+  assert.equal(risk.action, "继续运动");
 });
 
 test("student navigation matches Android tab order", () => {
@@ -173,12 +174,11 @@ test("real-session initial state never exposes demo student data", () => {
 test("hydration normalizes backend student DTOs for the views", () => {
   const data = normalizeHydration({
     summary: { courses: [{ courseId: "c1", courseCode: "GEPE101", courseSection: "1004", courseName: "大学体育", teacherName: "陈老师", courseHours: 5 }], teachers: [{ teacherId: "t1", teacherName: "陈老师" }] },
-    taskGroups: { pending: [{ id: "p", status: "发布" }], completed: [{ id: "d", status: "发布" }] },
     grades: { components: {} }, identity: [{ id: "m", validUntil: "2026-12-31", offset: "可抵扣" }],
     notifications: [{ id: "n", time: "2026-07-01T00:00:00Z", isUnread: true }],
     profile: { id: "s1", name: "学生", gradeLevel: "sophomore" }, records: [], exemptions: [],
   });
-  assert.equal(data.tasks[1].status, "已完成");
+  assert.equal(data.courses[0].name, "大学体育");
   assert.equal(data.notifications[0].createdAt, "2026-07-01T00:00:00Z");
   assert.equal(data.memberships[0].expiresAt, "2026-12-31");
   assert.equal(data.memberships[0].offsetStatus, "可抵扣");
@@ -223,72 +223,116 @@ test("proof selection rejects a seventh image and second video", () => {
   assert.match(validateProofSelection([video, video]).errors.join(" "), /最多 1 个视频/);
 });
 
-test("check-in requires proof and custom other name", () => {
-  const errors = validateCheckin({ hours: 1, sportType: "other", customSport: "", description: "南区操场慢跑", files: [] });
-  assert.match(errors.join(" "), /自定义运动名称/);
-  assert.match(errors.join(" "), /至少上传/);
+test("session start requires a custom name for other, submission requires proof", () => {
+  const startErrors = validateSessionStart({ creditType: "其他运动", sportType: "other", customSport: "" });
+  assert.match(startErrors.join(" "), /自定义运动名称/);
+  const submitErrors = validateSubmission({ description: "南区操场慢跑", files: [] });
+  assert.match(submitErrors.join(" "), /至少提交/);
 });
 
-test("check-in renders tasks submit records tabs with submit active", () => {
-  const html = renderCheckin({ activeTab: "submit", tasks: [], records: [], draft: {}, uploads: [] });
-  for (const label of ["任务", "提交", "记录"]) assert.match(html, new RegExp(label));
-  assert.match(html, /aria-selected="true"[^>]*>提交/);
+test("session submission caps the description length", () => {
+  const errors = validateSubmission({ description: "运".repeat(201), files: [{ type: "image/jpeg", size: 1000 }] });
+  assert.match(errors.join(" "), /最多 200/);
+});
+
+test("check-in renders exercise and records tabs with exercise active", () => {
+  const html = renderCheckin({ activeTab: "session", records: [], phase: "idle", courses: [] });
+  for (const label of ["运动", "记录"]) assert.match(html, new RegExp(label));
+  assert.match(html, /aria-selected="true"[^>]*>运动/);
 });
 
 test("record list renders the first valid proof thumbnail and remaining count", () => {
-  const html = renderCheckin({ activeTab: "records", records: [{ id: "r1", sportType: "running", hours: 1, status: "待审核", submittedAt: new Date().toISOString(), proofFiles: ["javascript:bad", "/uploads/run-a.jpg", "/uploads/run-b.jpg"] }] });
+  const html = renderCheckin({ activeTab: "records", records: [{ id: "r1", sportType: "running", hours: 1, status: "有效", submittedAt: new Date().toISOString(), proofFiles: ["javascript:bad", "/uploads/run-a.jpg", "/uploads/run-b.jpg"] }] });
   assert.match(html, /class="record-thumb/);
   assert.match(html, /<img[^>]+src="\/uploads\/run-a\.jpg"[^>]+loading="eager"/);
   assert.match(html, /class="proof-count">\+1/);
   assert.doesNotMatch(html, /javascript:bad/);
 });
 
-test("record list distinguishes video and missing-proof fallbacks", () => {
-  const video = renderCheckin({ activeTab: "records", records: [{ id: "v1", sportType: "fitness", hours: 1, status: "已通过", submittedAt: new Date().toISOString(), proofFiles: ["/uploads/workout.mp4"] }] });
+test("record list distinguishes video and marks invalid records uncounted", () => {
+  const video = renderCheckin({ activeTab: "records", records: [{ id: "v1", sportType: "fitness", hours: 1, status: "有效", submittedAt: new Date().toISOString(), proofFiles: ["/uploads/workout.mp4"] }] });
   assert.match(video, /<video[^>]+src="\/uploads\/workout\.mp4"/);
   assert.match(video, /class="record-thumb-play"/);
-  const missing = renderCheckin({ activeTab: "records", records: [{ id: "m1", sportType: "badminton", hours: 1, status: "已驳回", submittedAt: new Date().toISOString(), proofFiles: [] }] });
-  assert.match(missing, /class="record-thumb record-thumb-fallback"/);
-  assert.match(missing, /羽毛球/);
+  const invalid = renderCheckin({ activeTab: "records", records: [{ id: "m1", sportType: "badminton", hours: 1, status: "无效", invalidReason: "凭证缺失", submittedAt: new Date().toISOString(), proofFiles: [] }] });
+  assert.match(invalid, /class="record-thumb record-thumb-fallback"/);
+  assert.match(invalid, /羽毛球/);
+  assert.match(invalid, /不计入学时/);
 });
 
-test("record detail previews all image and video proofs", () => {
-  const html = renderRecordDetail({ id: "r1", sportType: "running", hours: 1, status: "待审核", submittedAt: new Date().toISOString(), proofFiles: ["/uploads/run.jpg", "/uploads/run.mp4"] });
+test("record detail previews proofs and discloses invalid reason", () => {
+  const html = renderRecordDetail({ id: "r1", sportType: "running", hours: 1, status: "有效", startTime: new Date().toISOString(), endTime: new Date().toISOString(), submittedAt: new Date().toISOString(), proofFiles: ["/uploads/run.jpg", "/uploads/run.mp4"] });
   assert.match(html, /<img[^>]+src="\/uploads\/run\.jpg"/);
   assert.match(html, /<video[^>]+src="\/uploads\/run\.mp4"[^>]+controls/);
+  const invalid = renderRecordDetail({ id: "r2", sportType: "running", hours: 1, status: "无效", invalidReason: "凭证无法核验", proofFiles: [] });
+  assert.match(invalid, /不计入学时/);
+  assert.match(invalid, /凭证无法核验/);
 });
 
-test("courses display code section tasks and related records", () => {
+test("courses display code section and related records without tasks", () => {
   const workspace = demoWorkspace();
-  const html = renderCourses(workspace.courses, workspace.tasks, workspace.records);
+  const html = renderCourses(workspace.courses, workspace.records);
   assert.match(html, /GEPE101 \/ Section 1004/);
-  assert.match(html, /课程任务/);
-  assert.match(html, /相关记录/);
+  assert.match(html, /课程相关记录/);
+  assert.doesNotMatch(html, /课程任务/);
 });
 
-test("check-in renders Android task filters and sport selector", () => {
+test("check-in setup lets the student pick a category and sport before starting", () => {
   const workspace = demoWorkspace();
-  const tasks = renderCheckin({ activeTab: "tasks", tasks: workspace.tasks, records: workspace.records, draft: workspace.draft });
-  assert.match(tasks, /data-task-filter="all"/);
-  const submit = renderCheckin({ activeTab: "submit", tasks: workspace.tasks, records: workspace.records, draft: workspace.draft });
-  assert.match(submit, /data-sport-type="running"/);
-  assert.match(submit, /本次学时/);
+  const idle = renderCheckin({ activeTab: "session", phase: "idle", setup: {}, courses: workspace.courses, records: [] });
+  assert.match(idle, /data-setup-sport="running"/);
+  assert.match(idle, /服务类别/);
+  assert.match(idle, /data-action="start-session"/);
 });
 
-test("check-in retains draft supplement and media behavior", () => {
-  const workspace = demoWorkspace();
-  const html = renderCheckin({ activeTab: "records", records: workspace.records, draft: { updatedAt: new Date().toISOString() } });
-  assert.match(html, /本地草稿/);
-  assert.match(html, /需补材料/);
-  assert.match(html, /record-thumb/);
+test("check-in running phase renders a live timer and end control", () => {
+  const session = { id: "s", creditType: "其他运动", sportType: "running", customSport: "", status: "running", startTime: new Date(Date.now() - 65 * 60 * 1000).toISOString(), pausedAccumMs: 0, lastPauseAt: null };
+  const html = renderCheckin({ activeTab: "session", phase: "running", session, now: Date.now(), uploads: [] });
+  assert.match(html, /data-action="end-session"/);
+  assert.match(html, /data-action="pause-session"/);
+  assert.match(html, /01:05:0\d/);
+});
+
+test("check-in today-done blocks a second daily session", () => {
+  const html = renderCheckin({ activeTab: "session", phase: "today-done", records: [], todayRecord: { sportType: "running", hours: 1, submittedAt: new Date().toISOString() } });
+  assert.match(html, /今日已完成一次运动服务/);
 });
 
 test("courses separate current and historical semesters", () => {
   const workspace = demoWorkspace();
-  const html = renderCourses(workspace.courses, workspace.tasks, workspace.records);
+  const html = renderCourses(workspace.courses, workspace.records);
   assert.match(html, /当前学期课程/);
   assert.match(html, /历史课程/);
   assert.match(html, /任课老师/);
+});
+
+test("session earns 0/1/2 hours at the correct duration thresholds", () => {
+  const min = 60 * 60 * 1000;
+  assert.equal(earnedHoursFromActiveMs(min - 1000), 0);
+  assert.equal(earnedHoursFromActiveMs(min), 1);
+  assert.equal(earnedHoursFromActiveMs(2 * min - 1000), 1);
+  assert.equal(earnedHoursFromActiveMs(2 * min), 2);
+});
+
+test("session elapsed excludes paused time and auto-ends at 2h", () => {
+  const now = 10_000_000;
+  const started = startSession({ creditType: "其他运动", sportType: "running" }, now);
+  assert.equal(sessionElapsedMs(started, now + 30 * 60 * 1000), 30 * 60 * 1000);
+  const paused = pauseSession(started, now + 30 * 60 * 1000);
+  assert.equal(sessionElapsedMs(paused, now + 50 * 60 * 1000), 30 * 60 * 1000); // frozen while paused
+  const resumed = resumeSession(paused, now + 50 * 60 * 1000);
+  assert.equal(sessionElapsedMs(resumed, now + 80 * 60 * 1000), 60 * 60 * 1000); // 30 + 30 active
+  const full = startSession({ creditType: "其他运动", sportType: "running" }, now);
+  assert.equal(shouldAutoEnd(full, now + 2 * 60 * 60 * 1000), true);
+  assert.equal(shouldAutoEnd(full, now + 90 * 60 * 1000), false);
+});
+
+test("hasServedToday ignores invalidated records and formatTimer pads", () => {
+  const now = Date.now();
+  assert.equal(hasServedToday([{ status: "有效", startTime: new Date(now).toISOString() }], now), true);
+  assert.equal(hasServedToday([{ status: "无效", startTime: new Date(now).toISOString() }], now), false);
+  assert.equal(hasServedToday([{ status: "有效", startTime: new Date(now - 2 * 86400e3).toISOString() }], now), false);
+  assert.equal(formatTimer(65 * 1000), "01:05");
+  assert.equal(formatTimer(3661 * 1000), "01:01:01");
 });
 
 test("grade estimate uses 25 30 20 25 weights", () => {
