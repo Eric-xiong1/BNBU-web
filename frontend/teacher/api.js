@@ -2,14 +2,33 @@
  * BNBU Sports Web API 接口层
  * 当前返回 mock 数据；对接后端时将 fetch 指向真实 endpoint
  *
- * 打卡规则：学期累计有效时长（默认 20h）+ 专项课专项时长（默认 5h）；
- * 每次提交运动时长与证据，教师审核通过后计入有效时长。
+ * 打卡规则（v3）：提交后默认有效并即时计入学时；教师可标无效 / 恢复 / 修正学时（0/1/2h）；
+ * 学期目标 = 课程运动 + 自主其他运动（默认各 10h，合计 20h）。无「审核通过才计入」。
  */
 (function (global) {
   const BASE = "/api/v1";
 
   function delay(data, ms = 120) {
     return new Promise((resolve) => setTimeout(() => resolve(data), ms));
+  }
+
+  /** 计入学时仅允许 0 / 1 / 2 */
+  function clampCreditHours(h) {
+    const n = Number(h);
+    if (!Number.isFinite(n) || n < 1) return 0;
+    if (n < 2) return 1;
+    return 2;
+  }
+
+  function isRecordValid(e) {
+    if (e.recordStatus === "invalid" || e.reviewStatus === "rejected") return false;
+    return true;
+  }
+
+  function migrateRecordStatus(e) {
+    if (e.recordStatus === "valid" || e.recordStatus === "invalid") return e.recordStatus;
+    if (e.reviewStatus === "rejected") return "invalid";
+    return "valid";
   }
 
   function getCourse(courseId) {
@@ -86,19 +105,25 @@
         ].filter(Boolean);
       }
       const kind = e.kind || (e.type === "video" ? "video" : "image");
+      const recordStatus = migrateRecordStatus(e);
+      const durationHours = clampCreditHours(e.durationHours ?? 1);
       return {
         ...e,
         id,
         kind,
         type: e.type || (kind === "video" ? "video" : "photo"),
-        durationHours: e.durationHours ?? 1,
-        reviewStatus: e.reviewStatus ?? "approved",
+        durationHours,
+        recordStatus,
+        reviewStatus: recordStatus === "invalid" ? "rejected" : "approved",
         isSpecialty: e.isSpecialty ?? defaultSpecialty,
+        creditType: e.creditType || (e.isSpecialty ? "course" : e.creditType) || "general",
         attachments,
         evidenceCount: e.evidenceCount ?? attachments.length,
         thumbUrl: e.thumbUrl || attachments[0]?.thumbUrl || e.thumb || "",
         originalUrl: e.originalUrl || attachments[0]?.originalUrl || "",
         thumb: e.thumbUrl || attachments[0]?.thumbUrl || e.thumb || "",
+        invalidReason: e.invalidReason || "",
+        notifiedStudent: e.notifiedStudent !== false,
       };
     });
   }
@@ -117,12 +142,21 @@
 
   function computeHours(studentId, classId) {
     const items = getStudentEvidenceList(studentId, classId);
-    const approved = items.filter((e) => e.reviewStatus === "approved");
-    const pending = items.filter((e) => e.reviewStatus === "pending");
+    const valid = items.filter(isRecordValid);
+    const invalid = items.filter((e) => !isRecordValid(e));
+    const courseHours = valid
+      .filter((e) => e.creditType === "course" || e.isSpecialty)
+      .reduce((s, e) => s + e.durationHours, 0);
+    const generalHours = valid
+      .filter((e) => e.creditType !== "course" && !e.isSpecialty)
+      .reduce((s, e) => s + e.durationHours, 0);
     return {
-      approvedHours: approved.reduce((s, e) => s + e.durationHours, 0),
-      pendingHours: pending.reduce((s, e) => s + e.durationHours, 0),
-      specialtyHours: approved.filter((e) => e.isSpecialty).reduce((s, e) => s + e.durationHours, 0),
+      approvedHours: valid.reduce((s, e) => s + e.durationHours, 0),
+      pendingHours: 0,
+      invalidCount: invalid.length,
+      courseHours,
+      generalHours,
+      specialtyHours: courseHours,
     };
   }
 
@@ -130,20 +164,24 @@
     const cls = getClass(classId);
     const course = cls ? getCourse(cls.courseId) : null;
     const classLabel = cls ? formatClassLabel(cls) : "";
-    const settings = MOCK.checkinSettings;
+    const settings = getSettingsForCourse(cls?.courseId);
     const hours = computeHours(s.id, classId);
     const items = getStudentEvidenceList(s.id, classId);
     const todayItems = date ? items.filter((e) => e.date === date) : [];
     const todayItem = todayItems[todayItems.length - 1];
+    const todayValid = todayItem ? isRecordValid(todayItem) : null;
 
     return {
       ...s,
       classLabel,
       ...hours,
       semesterRequired: settings.semesterHoursRequired,
-      specialtyRequired: course?.isSpecialty ? settings.specialtyHoursRequired : null,
+      courseHoursRequired: settings.courseHoursRequired,
+      generalHoursRequired: settings.generalHoursRequired,
+      specialtyRequired: null,
       isSpecialtyCourse: !!course?.isSpecialty,
-      todayReview: todayItem?.reviewStatus || null,
+      todayReview: todayItem ? (todayValid ? "approved" : "rejected") : null,
+      todayRecordStatus: todayItem ? todayItem.recordStatus : null,
       todayDuration: todayItem?.durationHours ?? null,
       todaySubmitted: !!todayItem,
       todayEvidenceId: todayItem?.id || null,
@@ -162,6 +200,28 @@
           }
         : null,
     };
+  }
+
+  function getSettingsForCourse(courseId) {
+    const base = MOCK.checkinSettings || {};
+    const perCourse = (courseId && MOCK.courseCheckinSettings?.[courseId]) || {};
+    const courseHoursRequired = Number(perCourse.courseHoursRequired ?? base.courseHoursRequired ?? 10);
+    const generalHoursRequired = Number(perCourse.generalHoursRequired ?? base.generalHoursRequired ?? 10);
+    return {
+      ...base,
+      ...perCourse,
+      courseHoursRequired,
+      generalHoursRequired,
+      semesterHoursRequired: courseHoursRequired + generalHoursRequired,
+      requireTeacherReview: false,
+    };
+  }
+
+  /** 同日有效学时合计（不含指定记录时可传入 excludeId） */
+  function dayValidHours(studentId, date, excludeId) {
+    return getStudentEvidenceList(studentId)
+      .filter((e) => e.date === date && e.id !== excludeId && isRecordValid(e))
+      .reduce((s, e) => s + e.durationHours, 0);
   }
 
   function formatMinSec(totalSeconds) {
@@ -200,16 +260,17 @@
   }
 
   function computeClassStats(classId, date) {
-    const required = MOCK.checkinSettings.semesterHoursRequired;
+    const settings = getSettingsForCourse(getClass(classId)?.courseId);
+    const required = settings.semesterHoursRequired;
     const students = MOCK.students[classId] || [];
-    let pendingReview = 0;
+    let invalidCount = 0;
     let onTrack = 0;
     let behind = 0;
     let progressSum = 0;
 
     for (const s of students) {
       const enriched = enrichStudent(s, classId, date);
-      pendingReview += getStudentEvidenceList(s.id, classId).filter((e) => e.reviewStatus === "pending").length;
+      invalidCount += enriched.invalidCount || 0;
       const progress = required ? enriched.approvedHours / required : 0;
       progressSum += progress;
       if (progress >= 0.7) onTrack++;
@@ -217,19 +278,21 @@
     }
 
     return {
-      pendingReview,
+      pendingReview: 0,
+      invalidCount,
       onTrack,
       behind,
       avgProgress: students.length ? progressSum / students.length : 0,
     };
   }
 
-  function collectPendingCheckins() {
+  /** 打卡审查列表：展示近期记录（默认有效 + 已标无效），不再只列「待审核」 */
+  function collectReviewCheckins() {
     const rows = [];
     for (const [classId, students] of Object.entries(MOCK.students)) {
       const classLabel = formatClassLabel(getClass(classId));
       for (const s of students) {
-        const items = getStudentEvidenceList(s.id, classId).filter((e) => e.reviewStatus === "pending");
+        const items = getStudentEvidenceList(s.id, classId);
         for (const ev of items) {
           rows.push({
             ...ev,
@@ -242,7 +305,12 @@
         }
       }
     }
+    rows.sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.time).localeCompare(String(a.time)));
     return rows;
+  }
+
+  function collectPendingCheckins() {
+    return collectReviewCheckins();
   }
 
   function countPendingApplications(type) {
@@ -644,32 +712,71 @@
       return delay(getStudentEvidenceList(studentId, classId));
     },
 
-    /** GET /checkin/pending — 待审核打卡记录 */
+    /** GET /checkin/pending — 打卡审查列表（含有效与无效） */
     getPendingCheckins() {
-      return delay(collectPendingCheckins());
+      return delay(collectReviewCheckins());
     },
 
-    /** GET /audit/pending-summary — 首页待审汇总（一次请求） */
+    /** GET /audit/pending-summary — 首页待办汇总 */
     getAuditPendingSummary() {
+      const all = collectReviewCheckins();
       return delay({
-        checkin: collectPendingCheckins().length,
+        checkin: all.filter((e) => !isRecordValid(e)).length,
+        invalidCount: all.filter((e) => !isRecordValid(e)).length,
         exemptTest: countPendingApplications("exempt_test"),
-        exemptExam: countPendingApplications("exempt_exam"),
+        exemptExam: 0,
       });
     },
 
-    /** POST /checkin/evidence/:id/review */
-    reviewCheckin(evidenceId, action) {
+    /** POST /checkin/evidence/:id/review — 兼容旧接口；approve=恢复有效，reject=标无效 */
+    reviewCheckin(evidenceId, action, opts = {}) {
       const found = findEvidenceById(evidenceId);
       if (!found) return delay({ success: false });
-      found.item.reviewStatus = action === "approve" ? "approved" : "rejected";
-      return delay({ id: evidenceId, action, success: true });
+      if (action === "approve" || action === "restore") {
+        found.item.recordStatus = "valid";
+        found.item.reviewStatus = "approved";
+        found.item.invalidReason = "";
+      } else {
+        const reason = opts.reason || "其他";
+        found.item.recordStatus = "invalid";
+        found.item.reviewStatus = "rejected";
+        found.item.invalidReason = reason;
+        found.item.notifiedStudent = true;
+      }
+      return delay({ id: evidenceId, action, success: true, notifiedStudent: true });
     },
 
-    /** GET /checkin/settings?courseId=&classId= */
+    /** 标无效（必通知学生） */
+    invalidateCheckin(evidenceId, reason) {
+      if (!reason) return delay({ success: false, message: "请选择无效原因" });
+      return API.reviewCheckin(evidenceId, "reject", { reason });
+    },
+
+    /** 恢复有效 */
+    restoreCheckin(evidenceId) {
+      return API.reviewCheckin(evidenceId, "restore");
+    },
+
+    /** 修正学时：仅 0/1/2，且同日有效合计 ≤2 */
+    adjustCheckinHours(evidenceId, hours) {
+      const found = findEvidenceById(evidenceId);
+      if (!found) return delay({ success: false, message: "记录不存在" });
+      const next = clampCreditHours(hours);
+      const others = dayValidHours(found.studentId, found.item.date, evidenceId);
+      if (isRecordValid(found.item) || found.item.recordStatus !== "invalid") {
+        if (others + next > 2) {
+          return delay({ success: false, message: `同日有效学时合计不可超过 2h（已有 ${others}h）` });
+        }
+      }
+      found.item.durationHours = next;
+      found.item.recordStatus = found.item.recordStatus === "invalid" ? "invalid" : "valid";
+      found.item.reviewStatus = found.item.recordStatus === "invalid" ? "rejected" : "approved";
+      return delay({ success: true, id: evidenceId, durationHours: next });
+    },
+
+    /** GET /checkin/settings?courseId= — 课程级时间窗 */
     getCheckinSettings(courseId, classId) {
-      const course = getCourse(courseId);
-      const s = MOCK.checkinSettings;
+      const s = getSettingsForCourse(courseId);
       const startsAt = s.startsAt;
       const endsAt = s.endsAt;
       const lifecycleStatus =
@@ -684,11 +791,12 @@
         lifecycleStatus,
         courseId,
         classId,
-        isSpecialtyCourse: !!course?.isSpecialty,
+        isSpecialtyCourse: false,
+        specialtyHoursRequired: 0,
       });
     },
 
-    /** PUT /checkin/settings — 成功后应用端应再 GET 回读 */
+    /** PUT /checkin/settings — 按课程保存时间窗与学时目标 */
     updateCheckinSettings(payload) {
       if (payload.startsAt && payload.endsAt) {
         const s = new Date(payload.startsAt);
@@ -701,28 +809,41 @@
           });
         }
       }
+      const courseId = payload.courseId;
       const next = { ...payload };
+      delete next.classId;
       if (next.dailyWindowStart) next.windowStart = next.dailyWindowStart;
       if (next.dailyWindowEnd) next.windowEnd = next.dailyWindowEnd;
       if (next.windowStart && !next.dailyWindowStart) next.dailyWindowStart = next.windowStart;
       if (next.windowEnd && !next.dailyWindowEnd) next.dailyWindowEnd = next.windowEnd;
+      const courseH = Number(next.courseHoursRequired ?? 10);
+      const generalH = Number(next.generalHoursRequired ?? 10);
+      next.courseHoursRequired = courseH;
+      next.generalHoursRequired = generalH;
+      next.semesterHoursRequired = courseH + generalH;
+      next.requireTeacherReview = false;
+      next.specialtyHoursRequired = 0;
       if (next.startsAt && next.endsAt && global.TimeWindow) {
         next.lifecycleStatus = TimeWindow.deriveLifecycle(next.startsAt, next.endsAt);
+      }
+      if (!MOCK.courseCheckinSettings) MOCK.courseCheckinSettings = {};
+      if (courseId) {
+        MOCK.courseCheckinSettings[courseId] = {
+          ...(MOCK.courseCheckinSettings[courseId] || {}),
+          ...next,
+        };
       }
       Object.assign(MOCK.checkinSettings, next);
       MOCK.settingsHistory.unshift({
         at: new Date().toISOString().slice(0, 16).replace("T", " "),
         by: MOCK.currentUser.name,
         change: next.startsAt
-          ? `更新活动窗 ${String(next.startsAt).slice(0, 16)} → ${String(next.endsAt).slice(0, 16)}`
-          : "更新打卡设置",
+          ? `课程 ${courseId || "全部"} 时间窗 ${String(next.startsAt).slice(0, 16)} → ${String(next.endsAt).slice(0, 16)}`
+          : `更新课程打卡设置 ${courseId || ""}`,
       });
       return delay({
         success: true,
-        settings: {
-          ...MOCK.checkinSettings,
-          lifecycleStatus: MOCK.checkinSettings.lifecycleStatus,
-        },
+        settings: getSettingsForCourse(courseId),
       });
     },
 
@@ -736,16 +857,15 @@
       const classId = params.classId || "cl1";
       const cls = getClass(classId);
       const classLabel = cls ? formatClassLabel(cls) : "";
-      const course = cls ? getCourse(cls.courseId) : null;
-      const required = MOCK.checkinSettings.semesterHoursRequired;
-      const specialtyRequired = course?.isSpecialty ? MOCK.checkinSettings.specialtyHoursRequired : null;
+      const settings = getSettingsForCourse(cls?.courseId);
+      const required = settings.semesterHoursRequired;
       const list = MOCK.students[classId] || MOCK.students.cl1 || [];
 
       return delay({
         semester: params.semester || "2025-2026-1",
         classLabel,
         required,
-        specialtyRequired,
+        specialtyRequired: null,
         records: list.map((s) => {
           const enriched = enrichStudent(s, classId, "");
           const progress = required ? enriched.approvedHours / required : 0;
@@ -798,24 +918,39 @@
         no: student?.no || "",
         studentName: student?.name || "",
         classLabel,
-        durationHours: item.durationHours,
+        durationHours: clampCreditHours(item.durationHours),
         desc: item.desc,
         date: item.date,
         time: item.time,
-        status: item.reviewStatus,
+        status: migrateRecordStatus(item),
+        recordStatus: migrateRecordStatus(item),
+        invalidReason: item.invalidReason || "",
         evidenceCount: attachments.length,
         attachments,
       });
     },
 
-    /** POST /applications/:id/review */
-    reviewApplication(id, action, type) {
+    /** POST /applications/:id/review — 免测通过时可带自定义分数 */
+    reviewApplication(id, action, type, opts = {}) {
       for (const key of ["exempt_test", "exempt_exam"]) {
         if (type && type !== key) continue;
-        const app = MOCK.applications[key].find((a) => a.id === id);
+        const list = MOCK.applications[key] || [];
+        const app = list.find((a) => a.id === id);
         if (app) {
-          app.status = action === "approve" ? "approved" : "rejected";
-          return delay({ id, action, success: true });
+          if (action === "approve") {
+            if (key === "exempt_test") {
+              const score = Number(opts.exemptScore);
+              if (!Number.isFinite(score) || score < 0 || score > 100) {
+                return delay({ success: false, message: "请填写 0–100 的免测自定义分数" });
+              }
+              app.exemptScore = score;
+              app.disableEnduranceEntry = true;
+            }
+            app.status = "approved";
+          } else {
+            app.status = "rejected";
+          }
+          return delay({ id, action, success: true, exemptScore: app.exemptScore });
         }
       }
       return delay({ id, action, success: false });
@@ -1064,7 +1199,7 @@
       return delay([
         { id: "u1", name: "张老师", roles: ["sports_teacher"] },
         { id: "u2", name: "李主任", roles: ["dept_head"] },
-        { id: "u3", name: "王教练", roles: ["team_teacher"] },
+        { id: "u3", name: "王教练", roles: ["sports_teacher"] },
       ]);
     },
 

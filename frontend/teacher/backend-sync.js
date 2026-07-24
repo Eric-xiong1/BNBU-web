@@ -8,9 +8,23 @@
   if (!Auth || !API || !global.MOCK) return;
 
   function reviewStatusToEvidence(status) {
-    if (status === "已通过" || status === "可通过") return "approved";
-    if (status === "已驳回") return "rejected";
-    return "pending";
+    // v3：提交即默认有效；旧「已通过/可通过」→有效，「已驳回」→无效
+    if (status === "已通过" || status === "可通过" || status === "approved") return "approved";
+    if (status === "已驳回" || status === "rejected") return "rejected";
+    // 旧 pending / 未知状态按有效展示（兼容后端尚未切换字段）
+    return "approved";
+  }
+
+  function recordStatusFromReview(reviewStatus) {
+    return reviewStatus === "rejected" ? "invalid" : "valid";
+  }
+
+  /** 计入学时仅允许 0 / 1 / 2（与教师端 MOCK 规则一致） */
+  function clampCreditHours(h) {
+    const n = Number(h);
+    if (!Number.isFinite(n) || n < 1) return 0;
+    if (n < 2) return 1;
+    return 2;
   }
 
   /** 将后端 proofFiles（字符串 URL 或对象数组）规范为教师端附件结构 */
@@ -134,12 +148,14 @@
             const sid = r.student_id || r.studentId;
             if (!sid) continue;
             if (!global.MOCK.evidence[sid]) global.MOCK.evidence[sid] = [];
+            const reviewStatus = reviewStatusToEvidence(r.status);
             global.MOCK.evidence[sid].push({
               id: r.id,
               date: String(r.created_at || "").slice(0, 10) || new Date().toISOString().slice(0, 10),
               time: String(r.created_at || "").slice(11, 16) || "-",
-              durationHours: Number(r.hours || 1),
-              reviewStatus: reviewStatusToEvidence(r.status),
+              durationHours: clampCreditHours(r.hours ?? r.durationHours ?? 1),
+              reviewStatus,
+              recordStatus: recordStatusFromReview(reviewStatus),
               isSpecialty: String(r.type || "").includes("课程"),
               type: "image",
               kind: "image",
@@ -179,8 +195,13 @@
         if (rules) {
           const courseRequired = Number(rules.courseRequired || 10);
           const generalRequired = Number(rules.generalRequired || 10);
-          global.MOCK.checkinSettings.semesterHoursRequired = Number(rules.total || courseRequired + generalRequired);
-          global.MOCK.checkinSettings.specialtyHoursRequired = courseRequired;
+          global.MOCK.checkinSettings.courseHoursRequired = courseRequired;
+          global.MOCK.checkinSettings.generalHoursRequired = generalRequired;
+          global.MOCK.checkinSettings.semesterHoursRequired = Number(
+            rules.total || courseRequired + generalRequired
+          );
+          global.MOCK.checkinSettings.specialtyHoursRequired = 0;
+          global.MOCK.checkinSettings.requireTeacherReview = false;
         }
       } catch {
         // teacher may not access admin rules
@@ -213,26 +234,55 @@
   }
 
   const origReviewCheckin = API.reviewCheckin.bind(API);
-  API.reviewCheckin = async function reviewCheckin(evidenceId, action) {
+  API.reviewCheckin = async function reviewCheckin(evidenceId, action, opts) {
     if (!Auth.isDemo() && Auth.readAuth()?.token) {
-      const decision = action === "approve" ? "approve" : action === "reject" ? "reject" : "supplement";
-      let approvedHours = 1;
-      for (const list of Object.values(global.MOCK.evidence)) {
-        const hit = list.find((e) => e.id === evidenceId);
-        if (hit) {
-          approvedHours = Number(hit.durationHours || 1);
-          break;
-        }
-      }
-      await Auth.apiFetch(`/api/teacher/reviews/${encodeURIComponent(evidenceId)}/decision`, {
-        method: "PUT",
-        body: JSON.stringify({ decision, approvedHours, comment: "" }),
-      });
-      await syncFromBackend();
-      return { id: evidenceId, action, success: true };
+      const local = await origReviewCheckin(evidenceId, action, opts);
+      if (!local || local.success === false) return local;
+      return {
+        ...local,
+        apiPending: true,
+        message: "演示逻辑已更新（打卡审查），接口待对接；本次仅写入本地预览",
+      };
     }
-    return origReviewCheckin(evidenceId, action);
+    return origReviewCheckin(evidenceId, action, opts);
   };
+
+  function wrapLocalPreview(fnName, label) {
+    const orig = API[fnName]?.bind(API);
+    if (!orig) return;
+    API[fnName] = async function patched(...args) {
+      if (!Auth.isDemo() && Auth.readAuth()?.token) {
+        const local = await orig(...args);
+        if (!local || local.success === false) return local;
+        return {
+          ...local,
+          apiPending: true,
+          message: `演示逻辑已更新（${label}），接口待对接；本次仅写入本地预览`,
+        };
+      }
+      return orig(...args);
+    };
+  }
+
+  wrapLocalPreview("invalidateCheckin", "标无效");
+  wrapLocalPreview("restoreCheckin", "恢复有效");
+  wrapLocalPreview("adjustCheckinHours", "修正学时");
+
+  const origUpdateSettings = API.updateCheckinSettings?.bind(API);
+  if (origUpdateSettings) {
+    API.updateCheckinSettings = async function updateCheckinSettings(payload) {
+      if (!Auth.isDemo() && Auth.readAuth()?.token) {
+        const local = await origUpdateSettings(payload);
+        if (!local || local.success === false) return local;
+        return {
+          ...local,
+          apiPending: true,
+          message: "演示逻辑已更新（课程级时间窗），接口待对接；本次仅写入本地预览",
+        };
+      }
+      return origUpdateSettings(payload);
+    };
+  }
 
   const origGetCurrentUser = API.getCurrentUser.bind(API);
   API.getCurrentUser = async function getCurrentUser() {

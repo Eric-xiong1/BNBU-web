@@ -1,9 +1,10 @@
 (function () {
   const STATUS_LABEL = {
-    checked: { text: "已通过", cls: "status-ok" },
+    valid: { text: "有效", cls: "status-ok" },
+    invalid: { text: "无效", cls: "status-warn" },
     unchecked: { text: "未提交", cls: "status-warn" },
-    pending_review: { text: "待审核", cls: "status-pending" },
-    rejected: { text: "已驳回", cls: "status-warn" },
+    checked: { text: "有效", cls: "status-ok" },
+    rejected: { text: "无效", cls: "status-warn" },
   };
 
   const AUDIT_STATUS = {
@@ -16,17 +17,13 @@
   const ROLE_HOME = {
     sports_teacher: "home",
     dept_head: "home",
-    team_teacher: "audit-workbench",
-    club_teacher: "home",
     super_admin: "home",
   };
 
   const ROLE_AUDIT_TAB = {
-    sports_teacher: ["checkin_review", "exempt_test", "exempt_exam"],
-    dept_head: ["checkin_review", "exempt_test", "exempt_exam"],
-    team_teacher: ["exempt_test"],
-    club_teacher: [],
-    super_admin: ["checkin_review", "exempt_test", "exempt_exam"],
+    sports_teacher: ["checkin_review", "exempt_test"],
+    dept_head: ["checkin_review", "exempt_test"],
+    super_admin: ["checkin_review", "exempt_test"],
   };
 
   let currentRole = "sports_teacher";
@@ -63,21 +60,36 @@
   let lastGradeRecords = [];
   let settingsTimeWindowMounted = false;
 
+  const MORE_STORAGE_KEY = "bnbuTeacherNavMoreOpen";
+  const MORE_PAGE_IDS = new Set([
+    "checkin-matrix",
+    "checkin-settings",
+    "checkin-history",
+    "exam-physical",
+    "exam-final",
+    "exam-final-items",
+    "roster-import",
+    "attendance-scores",
+    "grade-export",
+    "student-detail",
+    "pending-certifications",
+    "endurance-scoring",
+    "basic-courses",
+    "basic-students",
+    "admin-permissions",
+  ]);
+
   const pages = document.querySelectorAll(".page");
   const navItems = document.querySelectorAll(".nav-item[data-page]");
   const groupTitles = document.querySelectorAll(".nav-group-title[data-group]");
 
   const pageToGroup = {
-    "checkin-overview": "checkin",
-    "checkin-matrix": "checkin",
-    "checkin-settings": "checkin",
-    "checkin-history": "checkin",
-    "audit-workbench": "audit",
+    "checkin-matrix": "checkin-more",
+    "checkin-settings": "checkin-more",
+    "checkin-history": "checkin-more",
     "exam-physical": "exam",
     "exam-final": "exam",
     "exam-final-items": "exam",
-    "grade-summary": "exam",
-    "course-tasks": "course-mgmt",
     "roster-import": "course-mgmt",
     "attendance-scores": "course-mgmt",
     "grade-export": "course-mgmt",
@@ -88,6 +100,37 @@
     "basic-students": "basic",
     "admin-permissions": "admin",
   };
+
+  function setMoreOpen(open, persist = true) {
+    const root = document.getElementById("nav-more");
+    const body = document.getElementById("nav-more-body");
+    const btn = document.getElementById("nav-more-toggle");
+    if (!root) return;
+    root.classList.toggle("is-open", open);
+    if (body) body.hidden = !open;
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (persist) {
+      try {
+        localStorage.setItem(MORE_STORAGE_KEY, open ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  function restoreMorePreference() {
+    let open = false;
+    try {
+      open = localStorage.getItem(MORE_STORAGE_KEY) === "1";
+    } catch {
+      open = false;
+    }
+    setMoreOpen(open, false);
+  }
+
+  function ensureMoreForPage(pageId) {
+    if (MORE_PAGE_IDS.has(pageId)) setMoreOpen(true, true);
+  }
 
   function todayStr() {
     const d = new Date();
@@ -136,6 +179,7 @@
       alert("当前角色无权访问该页面");
       return false;
     }
+    ensureMoreForPage(pageId);
     pages.forEach((p) => p.classList.toggle("active", p.id === "page-" + pageId));
     navItems.forEach((item) => {
       if (!item.hidden) item.classList.toggle("active", item.dataset.page === pageId);
@@ -208,12 +252,14 @@
         const pageId = el.dataset.page;
         if (!pageId) return;
         e.preventDefault();
+        if (pageId === "checkin-overview") resetCheckinOnEnter = true;
         showPage(pageId);
       });
-      if (el.classList.contains("clickable-box")) {
+      if (el.classList.contains("clickable-box") || el.classList.contains("home-core-card")) {
         el.addEventListener("keydown", (e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
+            if (el.dataset.page === "checkin-overview") resetCheckinOnEnter = true;
             showPage(el.dataset.page);
           }
         });
@@ -222,17 +268,12 @@
   }
 
   function formatSemesterHours(s) {
-    let html = `<strong>${s.approvedHours}</strong> / ${s.semesterRequired}h`;
-    if (s.pendingHours) html += `<br><small class="box-hint">+${s.pendingHours}h 待审</small>`;
-    if (s.specialtyRequired != null) {
-      html += `<br><small class="box-hint">专项 ${s.specialtyHours}/${s.specialtyRequired}h</small>`;
-    }
-    return html;
+    return `<strong>${s.approvedHours}</strong> / ${s.semesterRequired}h`;
   }
 
   function renderKpiCards(container, stats) {
     container.innerHTML = `
-      <div class="kpi-card"><span class="kpi-label">待审核</span><span class="kpi-value kpi-warn">${stats.pendingReview}</span></div>
+      <div class="kpi-card"><span class="kpi-label">无效记录</span><span class="kpi-value kpi-warn">${stats.invalidCount}</span></div>
       <div class="kpi-card"><span class="kpi-label">进度达标</span><span class="kpi-value">${stats.onTrack}</span></div>
       <div class="kpi-card"><span class="kpi-label">进度不足</span><span class="kpi-value">${stats.behind}</span></div>
       <div class="kpi-card kpi-accent"><span class="kpi-label">平均进度</span><span class="kpi-value">${Math.round(stats.avgProgress * 100)}%</span></div>`;
@@ -242,14 +283,14 @@
     const agg = list.reduce(
       (a, c) => {
         const s = c.stats;
-        a.pendingReview += s.pendingReview;
+        a.invalidCount += s.invalidCount;
         a.onTrack += s.onTrack;
         a.behind += s.behind;
         a.total += c.total;
         a.progressSum += s.avgProgress * c.total;
         return a;
       },
-      { pendingReview: 0, onTrack: 0, behind: 0, total: 0, avgProgress: 0, progressSum: 0 }
+      { invalidCount: 0, onTrack: 0, behind: 0, total: 0, avgProgress: 0, progressSum: 0 }
     );
     agg.avgProgress = agg.total ? agg.progressSum / agg.total : 0;
     return agg;
@@ -272,7 +313,7 @@
             <div class="class-card-stats">
               <span class="status-ok">达标 ${s.onTrack}</span>
               <span class="status-warn">不足 ${s.behind}</span>
-              <span class="status-pending">待审 ${s.pendingReview}</span>
+              <span class="status-warn">无效 ${s.invalidCount}</span>
             </div>
             <div class="progress-bar-wrap"><div class="progress-bar" style="width:${Math.round(s.avgProgress * 100)}%"></div></div>
           </button>`;
@@ -297,32 +338,39 @@
     });
 
     const pending = await API.getAuditPendingSummary();
-    document.getElementById("home-pending-audit").textContent =
-      `打卡待审 ${pending.checkin} · 免测 ${pending.exemptTest} · 免考 ${pending.exemptExam}`;
+    const pendingEl = document.getElementById("home-pending-audit");
+    if (pendingEl) {
+      pendingEl.textContent = `无效 ${pending.invalidCount} · 免测 ${pending.exemptTest}`;
+    }
   }
 
   function roleLabel(role) {
     return {
       sports_teacher: "体育老师",
       dept_head: "体育部主任",
-      team_teacher: "校队老师",
-      club_teacher: "社团指导老师",
       super_admin: "超级管理员",
     }[role] || role;
   }
 
-  /** 打卡页状态：仅反映当日提交与审核，不含免测/免考 */
+  function isTodayCheckinValid(s) {
+    return s.todayReview === "approved" || s.todayRecordStatus === "valid";
+  }
+
+  function isTodayCheckinInvalid(s) {
+    return s.todayReview === "rejected" || s.todayRecordStatus === "invalid";
+  }
+
+  /** 打卡页状态：当日提交有效/无效/未提交 */
   function getCheckinStatusBadges(s) {
-    if (s.todayReview === "pending") return [STATUS_LABEL.pending_review];
-    if (s.todayReview === "approved") return [STATUS_LABEL.checked];
-    if (s.todayReview === "rejected") return [STATUS_LABEL.rejected];
     if (!s.todaySubmitted) return [STATUS_LABEL.unchecked];
-    return [STATUS_LABEL.unchecked];
+    if (isTodayCheckinInvalid(s)) return [STATUS_LABEL.invalid];
+    if (isTodayCheckinValid(s)) return [STATUS_LABEL.valid];
+    return [STATUS_LABEL.valid];
   }
 
   function getHistoryProgressBadge(r) {
     if (r.progress >= 1) return [{ text: "已满", cls: "status-ok" }];
-    if (r.pendingHours > 0) return [{ text: "有待审", cls: "status-pending" }];
+    if (r.invalidCount > 0) return [{ text: `无效 ${r.invalidCount}`, cls: "status-warn" }];
     return [{ text: "进行中", cls: "status-info" }];
   }
 
@@ -334,9 +382,10 @@
 
   function matchesStudentFilter(s, filter) {
     if (filter === "all") return true;
-    if (filter === "checked") return s.todayReview === "approved";
+    if (filter === "valid") return s.todaySubmitted && isTodayCheckinValid(s);
+    if (filter === "invalid") return s.todaySubmitted && isTodayCheckinInvalid(s);
     if (filter === "unchecked") return !s.todaySubmitted;
-    if (filter === "pending_review") return s.todayReview === "pending";
+    if (filter === "checked") return s.todaySubmitted && isTodayCheckinValid(s);
     return true;
   }
 
@@ -436,7 +485,7 @@
 
     const tbody = document.querySelector("#student-table tbody");
     if (!students.length) {
-      tbody.innerHTML = `<tr><td colspan="7" class="table-empty">暂无符合条件的学生</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="table-empty">暂无符合条件的记录</td></tr>`;
       return;
     }
 
@@ -451,8 +500,8 @@
           ${renderPhotoCell(s)}
           <td>
             <button type="button" class="btn btn-text" data-action="view-evidence" data-student-id="${s.id}" data-student-name="${s.name}">查看证据</button>
-            ${s.todayReview === "pending" && s.todayEvidenceId
-              ? `<button type="button" class="btn btn-text" data-action="audit-checkin" data-evidence-id="${s.todayEvidenceId}">审核</button>`
+            ${s.todaySubmitted && s.todayEvidenceId
+              ? `<button type="button" class="btn btn-text" data-action="audit-checkin" data-evidence-id="${s.todayEvidenceId}">审查</button>`
               : ""}
           </td>
         </tr>`
@@ -506,7 +555,7 @@
         <button type="button" class="timeline-item ${i === idx ? "active" : ""}" data-idx="${i}">
           <time>${ev.date} ${ev.time} · ${ev.durationHours}h</time>
           <strong>${ev.type === "video" ? "🎬 视频" : "📷 照片"} · ${ev.desc}</strong>
-          <span class="badge ${ev.reviewStatus === "approved" ? "status-ok" : ev.reviewStatus === "pending" ? "status-pending" : "status-warn"}">${AUDIT_STATUS[ev.reviewStatus] || ev.reviewStatus}</span>
+          <span class="badge ${ev.reviewStatus === "approved" || ev.recordStatus === "valid" ? "status-ok" : "status-warn"}">${ev.recordStatus === "invalid" || ev.reviewStatus === "rejected" ? "无效" : "有效"}</span>
           ${ev.isSpecialty ? '<span class="badge status-info">专项</span>' : ""}
         </button>`
       )
@@ -540,9 +589,9 @@
       `${ev.date} ${ev.time} · ${ev.durationHours}h — ${ev.desc} · ${AUDIT_STATUS[ev.reviewStatus] || ev.reviewStatus}`;
     const reviewBar = document.getElementById("evidence-review-actions");
     if (reviewBar) {
-      if (ev.reviewStatus === "pending") {
+      if (ev.id) {
         reviewBar.hidden = false;
-        reviewBar.innerHTML = `<button type="button" class="btn btn-text" data-action="audit-checkin-evidence" data-evidence-id="${ev.id}">审核此条打卡</button>`;
+        reviewBar.innerHTML = `<button type="button" class="btn btn-text" data-action="audit-checkin-evidence" data-evidence-id="${ev.id}">审查此条打卡</button>`;
         reviewBar.querySelector("[data-action='audit-checkin-evidence']")?.addEventListener("click", () => {
           openAuditDetail("checkin_review", ev.id, { source: "checkin-overview" });
         });
@@ -619,6 +668,13 @@
     });
   }
 
+  function syncSettingsSemesterHours() {
+    const courseH = Number(document.getElementById("settings-course-hours")?.value) || 0;
+    const generalH = Number(document.getElementById("settings-general-hours")?.value) || 0;
+    const semEl = document.getElementById("settings-semester-hours");
+    if (semEl) semEl.value = courseH + generalH;
+  }
+
   async function renderSettings() {
     const courses = await API.getCourses();
     const courseSel = document.getElementById("settings-course");
@@ -626,14 +682,8 @@
     courseSel.innerHTML = courses.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
     if (prevCourse) courseSel.value = prevCourse;
 
-    const classes = await API.getClasses(courseSel.value);
-    const classSel = document.getElementById("settings-class");
-    const prevClass = classSel.value;
-    classSel.innerHTML = classes.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
-    if (prevClass && classes.some((c) => c.id === prevClass)) classSel.value = prevClass;
-
-    const settings = await API.getCheckinSettings(courseSel.value, classSel.value);
-    lastSettingsSnapshot = { ...settings };
+    const settings = await API.getCheckinSettings(courseSel.value);
+    lastSettingsSnapshot = { ...settings, courseId: courseSel.value };
     const twHost = document.getElementById("settings-time-window");
     if (twHost && window.TimeWindow) {
       twHost.innerHTML = TimeWindow.renderTimeWindowEditor({
@@ -644,9 +694,9 @@
       });
       settingsTimeWindowMounted = true;
     }
-    document.getElementById("settings-semester-hours").value = settings.semesterHoursRequired;
-    document.getElementById("settings-specialty-hours").value = settings.specialtyHoursRequired;
-    document.getElementById("settings-specialty-wrap").hidden = !settings.isSpecialtyCourse;
+    document.getElementById("settings-course-hours").value = settings.courseHoursRequired ?? 10;
+    document.getElementById("settings-general-hours").value = settings.generalHoursRequired ?? 10;
+    syncSettingsSemesterHours();
     document.getElementById("settings-gps").checked = settings.gpsEnabled;
     document.getElementById("settings-radius").value = settings.gpsRadius;
     document.getElementById("settings-radius").disabled = !settings.gpsEnabled;
@@ -677,18 +727,15 @@
     const data = await API.getCheckinHistory({ semester: semSel.value, classId: classSel.value });
     const tbody = document.querySelector("#history-table tbody");
     if (!data.records.length) {
-      tbody.innerHTML = `<tr><td colspan="7" class="table-empty">暂无历史记录</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="table-empty">暂无历史记录</td></tr>`;
       return;
     }
     tbody.innerHTML = data.records
       .map((r) => {
         const badges = getHistoryProgressBadge(r);
-        const specialtyCol =
-          r.specialtyRequired != null ? `${r.specialtyHours}/${r.specialtyRequired}h` : "—";
         return `<tr>
           <td>${r.no}</td><td>${r.name}</td>
           <td>${r.approvedHours}/${data.required}h</td>
-          <td>${specialtyCol}</td>
           <td>${Math.round(r.progress * 100)}%</td>
           <td>${r.scoreHint}</td>
           <td><div class="badge-group">${badges.map((b) => `<span class="badge ${b.cls}">${b.text}</span>`).join("")}</div></td>
@@ -702,12 +749,18 @@
       return currentRole === "sports_teacher" || currentRole === "dept_head" || currentRole === "super_admin";
     }
     if (kind === "exempt_test") {
-      return currentRole === "team_teacher" || currentRole === "sports_teacher" || currentRole === "super_admin";
-    }
-    if (kind === "exempt_exam") {
       return currentRole === "sports_teacher" || currentRole === "dept_head" || currentRole === "super_admin";
     }
     return false;
+  }
+
+  function checkinRecordStatusText(detail) {
+    const st = detail.recordStatus || detail.status;
+    return st === "invalid" ? "无效" : "有效";
+  }
+
+  function isCheckinRecordInvalid(record) {
+    return record.recordStatus === "invalid" || record.reviewStatus === "rejected";
   }
 
   function isAuditActionable(status) {
@@ -726,19 +779,40 @@
     else resetAuditDetailState();
   }
 
-  function setAuditReviewButtonsEnabled(enabled) {
+  function setAuditHint(text, ready = false) {
+    const el = document.getElementById("audit-detail-hint");
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle("is-ready", !!ready);
+  }
+
+  function setAuditCheckinButtonsEnabled(enabled) {
+    document.getElementById("audit-btn-invalidate").disabled = !enabled;
+    document.getElementById("audit-btn-restore").disabled = !enabled;
+    document.getElementById("audit-btn-adjust-hours").disabled = !enabled;
+    setAuditHint(
+      enabled ? "已查看证据，可进行审查操作" : "请先点击查看证据材料，再进行审查操作",
+      enabled
+    );
+  }
+
+  function setAuditExemptButtonsEnabled(enabled) {
     document.getElementById("audit-btn-approve").disabled = !enabled;
     document.getElementById("audit-btn-reject").disabled = !enabled;
-    document.getElementById("audit-detail-hint").textContent = enabled
-      ? "已查看证据，可进行审核"
-      : "请先点击查看证据材料";
+    setAuditHint(enabled ? "已查看证据，可进行审核" : "请先点击查看证据材料，再进行审核", enabled);
   }
 
   function markAuditEvidenceViewed() {
     if (!auditDetail || auditEvidenceViewed) return;
     auditEvidenceViewed = true;
-    if (canReviewAuditKind(auditDetail.kind) && isAuditActionable(auditDetail.status)) {
-      setAuditReviewButtonsEnabled(true);
+    if (auditDetail.kind === "checkin_review" && canReviewAuditKind("checkin_review")) {
+      setAuditCheckinButtonsEnabled(true);
+    } else if (
+      auditDetail.kind === "exempt_test" &&
+      canReviewAuditKind("exempt_test") &&
+      isAuditActionable(auditDetail.status)
+    ) {
+      setAuditExemptButtonsEnabled(true);
     }
   }
 
@@ -770,9 +844,8 @@
   }
 
   const AUDIT_DETAIL_TITLES = {
-    checkin_review: "打卡审核详情",
+    checkin_review: "打卡审查详情",
     exempt_test: "免测申请详情",
-    exempt_exam: "免考申请详情",
   };
 
   function renderAuditDetailInfo(kind, detail) {
@@ -781,10 +854,10 @@
         ["学号", detail.no],
         ["姓名", detail.studentName],
         ["班级", detail.classLabel],
-        ["申报时长", `${detail.durationHours}h`],
+        ["计入学时", `${detail.durationHours}h`],
         ["运动内容", detail.desc],
         ["提交时间", `${detail.date} ${detail.time}`],
-        ["状态", AUDIT_STATUS[detail.status]],
+        ["状态", checkinRecordStatusText(detail)],
       ],
       exempt_test: [
         ["学号", detail.no],
@@ -794,18 +867,43 @@
         ["申请日期", detail.date],
         ["状态", AUDIT_STATUS[detail.status]],
       ],
-      exempt_exam: [
-        ["学号", detail.no],
-        ["姓名", detail.student],
-        ["类型", detail.type],
-        ["申请说明", detail.reason],
-        ["申请日期", detail.date],
-        ["状态", AUDIT_STATUS[detail.status]],
-      ],
     };
     return (rows[kind] || [])
       .map(([label, value]) => `<dt>${label}</dt><dd>${value ?? "—"}</dd>`)
       .join("");
+  }
+
+  function renderAuditDetailActions(kind, detail) {
+    const isCheckin = kind === "checkin_review";
+    document.getElementById("audit-checkin-actions").hidden = !isCheckin;
+    document.getElementById("audit-btn-row-checkin").hidden = !isCheckin;
+    document.getElementById("audit-exempt-actions").hidden = isCheckin;
+    document.getElementById("audit-btn-row-exempt").hidden = isCheckin;
+
+    if (isCheckin) {
+      const reasonEl = document.getElementById("audit-invalid-reason");
+      const hoursEl = document.getElementById("audit-adjust-hours");
+      if (reasonEl) reasonEl.value = detail.invalidReason || "";
+      if (hoursEl) {
+        const h = detail.durationHours ?? 1;
+        hoursEl.value = String([0, 1, 2].includes(h) ? h : 1);
+      }
+      const canAct = canReviewAuditKind("checkin_review");
+      document.getElementById("audit-btn-row-checkin").hidden = !canAct;
+      setAuditCheckinButtonsEnabled(false);
+      if (!canAct) {
+        setAuditHint("当前角色无权审查");
+      }
+    } else {
+      const canAct = canReviewAuditKind(kind) && isAuditActionable(detail.status);
+      document.getElementById("audit-btn-row-exempt").hidden = !canAct;
+      setAuditExemptButtonsEnabled(false);
+      if (!canAct) {
+        setAuditHint(
+          detail.status === "approved" || detail.status === "rejected" ? "该申请已处理" : "当前角色无权审核"
+        );
+      }
+    }
   }
 
   async function openAuditDetail(kind, id, options = {}) {
@@ -827,32 +925,18 @@
 
     document.getElementById("audit-detail-title").textContent = AUDIT_DETAIL_TITLES[kind] || "审核详情";
     document.getElementById("audit-detail-subtitle").textContent =
-      `${detail.studentName || detail.student}（${detail.no}） · ${AUDIT_STATUS[detail.status] || detail.status}`;
+      `${detail.studentName || detail.student}（${detail.no}） · ${
+        kind === "checkin_review" ? checkinRecordStatusText(detail) : AUDIT_STATUS[detail.status] || detail.status
+      }`;
 
     document.getElementById("audit-detail-info").innerHTML = renderAuditDetailInfo(kind, detail);
     renderAuditEvidenceGrid(detail.attachments);
-    const canAct = canReviewAuditKind(kind) && isAuditActionable(detail.status);
-    setAuditReviewButtonsEnabled(false);
-    if (!canAct) {
-      document.getElementById("audit-detail-hint").textContent =
-        detail.status === "approved" || detail.status === "rejected" ? "该申请已处理" : "当前角色无权审核";
-      document.getElementById("audit-btn-approve").hidden = true;
-      document.getElementById("audit-btn-reject").hidden = true;
-    } else {
-      document.getElementById("audit-btn-approve").hidden = false;
-      document.getElementById("audit-btn-reject").hidden = false;
-    }
+    renderAuditDetailActions(kind, detail);
 
     document.getElementById("audit-review-dialog").showModal();
   }
 
-  async function submitAuditReview(action) {
-    if (!auditDetail || !auditEvidenceViewed) return;
-    if (auditDetail.kind === "checkin_review") {
-      await API.reviewCheckin(auditDetail.id, action);
-    } else {
-      await API.reviewApplication(auditDetail.id, action, auditDetail.kind);
-    }
+  async function afterAuditDetailMutation() {
     const source = auditDetailSource;
     closeAuditDetail();
     renderHome();
@@ -867,6 +951,58 @@
     }
   }
 
+  function noticeApiPending(res) {
+    if (res?.apiPending && res.message) alert(res.message);
+  }
+
+  async function submitAuditReview(action) {
+    if (!auditDetail || !auditEvidenceViewed || auditDetail.kind !== "exempt_test") return;
+    const scoreEl = document.getElementById("audit-exempt-score");
+    const exemptScore = scoreEl ? Number(scoreEl.value) : undefined;
+    if (action === "approve" && (exemptScore == null || !Number.isFinite(exemptScore))) {
+      alert("请填写免测自定义分数（0–100）");
+      return;
+    }
+    const res = await API.reviewApplication(auditDetail.id, action, auditDetail.kind, { exemptScore });
+    noticeApiPending(res);
+    await afterAuditDetailMutation();
+  }
+
+  async function submitAuditInvalidate() {
+    if (!auditDetail || !auditEvidenceViewed || auditDetail.kind !== "checkin_review") return;
+    const reason = document.getElementById("audit-invalid-reason")?.value?.trim();
+    if (!reason) {
+      alert("请选择无效原因");
+      return;
+    }
+    const res = await API.invalidateCheckin(auditDetail.id, reason);
+    if (res && res.success === false) {
+      alert(res.message || "标无效失败");
+      return;
+    }
+    noticeApiPending(res);
+    await afterAuditDetailMutation();
+  }
+
+  async function submitAuditRestore() {
+    if (!auditDetail || !auditEvidenceViewed || auditDetail.kind !== "checkin_review") return;
+    const res = await API.restoreCheckin(auditDetail.id);
+    noticeApiPending(res);
+    await afterAuditDetailMutation();
+  }
+
+  async function submitAuditAdjustHours() {
+    if (!auditDetail || !auditEvidenceViewed || auditDetail.kind !== "checkin_review") return;
+    const hours = Number(document.getElementById("audit-adjust-hours")?.value);
+    const res = await API.adjustCheckinHours(auditDetail.id, hours);
+    if (res && res.success === false) {
+      alert(res.message || "修正学时失败");
+      return;
+    }
+    noticeApiPending(res);
+    await afterAuditDetailMutation();
+  }
+
   async function renderAudit() {
     applyRoleMenu();
     document.querySelectorAll("#audit-tabs .tab").forEach((t) => {
@@ -875,21 +1011,25 @@
 
     document.getElementById("audit-panel-checkin_review").hidden = auditTab !== "checkin_review";
     document.getElementById("audit-panel-exempt_test").hidden = auditTab !== "exempt_test";
-    document.getElementById("audit-panel-exempt_exam").hidden = auditTab !== "exempt_exam";
 
     if (auditTab === "checkin_review") {
       const checkinApps = await API.getPendingCheckins();
       document.getElementById("audit-checkin-body").innerHTML = checkinApps.length
         ? checkinApps
-            .map(
-              (a) => `<tr>
+            .map((a) => {
+              const statusBadge = isCheckinRecordInvalid(a)
+                ? `<span class="badge status-warn">无效</span>`
+                : `<span class="badge status-ok">有效</span>`;
+              return `<tr>
                 <td>${a.no}</td><td>${a.studentName}</td><td>${a.classLabel}</td>
-                <td>${a.durationHours}h</td><td>${a.desc}</td><td>${a.date} ${a.time}</td>
-                <td><button type="button" class="btn btn-text" data-audit-detail="checkin_review" data-audit-id="${a.id}">审核</button></td>
-              </tr>`
-            )
+                <td>${a.durationHours}h</td>
+                <td>${statusBadge}</td>
+                <td>${a.desc}</td><td>${a.date} ${a.time}</td>
+                <td><button type="button" class="btn btn-secondary" data-audit-detail="checkin_review" data-audit-id="${a.id}">审查</button></td>
+              </tr>`;
+            })
             .join("")
-        : `<tr><td colspan="7" class="table-empty">暂无待审核打卡</td></tr>`;
+        : `<tr><td colspan="8" class="table-empty">暂无数据</td></tr>`;
     }
 
     if (auditTab === "exempt_test") {
@@ -900,27 +1040,11 @@
               (a) => `<tr>
                 <td>${a.no}</td><td>${a.student}</td><td>${a.type}</td><td>${a.expire}</td>
                 <td><span class="badge status-info">${AUDIT_STATUS[a.status]}</span></td>
-                <td><button type="button" class="btn btn-text" data-audit-detail="exempt_test" data-audit-id="${a.id}">审核</button></td>
+                <td><button type="button" class="btn btn-secondary" data-audit-detail="exempt_test" data-audit-id="${a.id}">审核</button></td>
               </tr>`
             )
             .join("")
-        : `<tr><td colspan="6" class="table-empty">暂无免测申请</td></tr>`;
-    }
-
-    if (auditTab === "exempt_exam") {
-      const examApps = await API.getApplications("exempt_exam");
-      document.getElementById("audit-exempt-exam-body").innerHTML = examApps.length
-        ? examApps
-            .map(
-              (a) => `<tr>
-                <td>${a.no}</td><td>${a.student}</td><td>${a.type}</td>
-                <td class="cell-reason">${a.reason}</td><td>${a.date}</td>
-                <td><span class="badge status-club">${AUDIT_STATUS[a.status]}</span></td>
-                <td><button type="button" class="btn btn-text" data-audit-detail="exempt_exam" data-audit-id="${a.id}">审核</button></td>
-              </tr>`
-            )
-            .join("")
-        : `<tr><td colspan="7" class="table-empty">暂无免考申请</td></tr>`;
+        : `<tr><td colspan="6" class="table-empty">暂无数据</td></tr>`;
     }
 
     document.querySelectorAll("[data-audit-detail]").forEach((btn) => {
@@ -1303,7 +1427,7 @@
         <span>默认：平时×${pct(w.regular)}% + 体测×${pct(w.physical)}% + 期末×${pct(w.final)}%；
         免测：平时×${pct(data.weights.exemptTest.regular)}% + 期末×${pct(data.weights.exemptTest.final)}%；
         免考：平时×${pct(data.weights.exemptExam.regular)}% + 体测×${pct(data.weights.exemptExam.physical)}%。
-        平时分由打卡有效时长折算。<em>免测/免考审核中暂不输出成绩。</em></span>`;
+        平时分由有效学时折算（提交后即时计入，不依赖审核通过）。<em>免测申请处理中暂不输出成绩。</em></span>`;
       return;
     }
     const summaries = (data.courseWeightSummaries || [])
@@ -1314,7 +1438,7 @@
       .join("；");
     el.innerHTML = `
       <strong>各课程权重不同</strong>
-      <span>${summaries || "—"}。下表总评按每位学生<strong>所属课程</strong>的权重分别计算，鼠标悬停总评可查看公式。审核中的免测/免考暂不输出成绩。</span>`;
+      <span>${summaries || "—"}。下表总评按每位学生<strong>所属课程</strong>的权重分别计算；平时分按有效学时折算。免测申请处理中暂不输出成绩。</span>`;
   }
 
   async function populateGradeWeightsCourseSelect() {
@@ -1506,7 +1630,7 @@
     document.getElementById("grade-kpi").innerHTML = `
       <div class="kpi-card"><span class="kpi-label">学生数</span><span class="kpi-value">${st.total}</span></div>
       <div class="kpi-card kpi-accent"><span class="kpi-label">平均总评</span><span class="kpi-value">${st.avgTotal}</span><small class="kpi-sub">已出分 ${st.graded} 人</small></div>
-      <div class="kpi-card"><span class="kpi-label">审核暂不出分</span><span class="kpi-value kpi-warn">${st.pendingExempt}</span></div>
+      <div class="kpi-card"><span class="kpi-label">免测待处理</span><span class="kpi-value kpi-warn">${st.pendingExempt}</span></div>
       <div class="kpi-card"><span class="kpi-label">体测待录入</span><span class="kpi-value kpi-warn">${st.pendingPhysical}</span></div>`;
 
     lastGradeRecords = data.records || [];
@@ -1664,6 +1788,12 @@
 
     document.getElementById("audit-btn-approve").addEventListener("click", () => submitAuditReview("approve"));
     document.getElementById("audit-btn-reject").addEventListener("click", () => submitAuditReview("reject"));
+    document.getElementById("audit-btn-invalidate").addEventListener("click", () => submitAuditInvalidate());
+    document.getElementById("audit-btn-restore").addEventListener("click", () => submitAuditRestore());
+    document.getElementById("audit-btn-adjust-hours").addEventListener("click", () => submitAuditAdjustHours());
+
+    document.getElementById("settings-course-hours")?.addEventListener("input", syncSettingsSemesterHours);
+    document.getElementById("settings-general-hours")?.addEventListener("input", syncSettingsSemesterHours);
 
     document.getElementById("btn-save-settings").addEventListener("click", async () => {
       const errEl = document.getElementById("settings-save-error");
@@ -1696,16 +1826,20 @@
           return;
         }
       }
+      const courseId = document.getElementById("settings-course").value;
+      syncSettingsSemesterHours();
       const res = await API.updateCheckinSettings({
+        courseId,
         ...tw,
         windowStart: tw.dailyWindowStart || tw.windowStart,
         windowEnd: tw.dailyWindowEnd || tw.windowEnd,
+        courseHoursRequired: Number(document.getElementById("settings-course-hours").value),
+        generalHoursRequired: Number(document.getElementById("settings-general-hours").value),
         semesterHoursRequired: Number(document.getElementById("settings-semester-hours").value),
-        specialtyHoursRequired: Number(document.getElementById("settings-specialty-hours").value),
         gpsEnabled: document.getElementById("settings-gps").checked,
         gpsRadius: Number(document.getElementById("settings-radius").value),
       });
-      if (res && res.success === false) {
+      if (res && res.success === false && !res.apiPending) {
         const msg = res.message || "保存失败";
         if (errEl) {
           errEl.hidden = false;
@@ -1714,6 +1848,7 @@
         if (window.TimeWindow) TimeWindow.showEditorError("settings-tw", msg);
         return;
       }
+      noticeApiPending(res);
       await renderSettings();
     });
 
@@ -1724,7 +1859,6 @@
     });
 
     document.getElementById("settings-course").addEventListener("change", renderSettings);
-    document.getElementById("settings-class").addEventListener("change", renderSettings);
 
     document.getElementById("history-semester").addEventListener("change", renderHistory);
     document.getElementById("history-class").addEventListener("change", renderHistory);
@@ -1901,6 +2035,11 @@
 
     bindNavigation();
 
+    document.getElementById("nav-more-toggle")?.addEventListener("click", () => {
+      const root = document.getElementById("nav-more");
+      setMoreOpen(!root?.classList.contains("is-open"), true);
+    });
+
     navItems.forEach((item) => {
       item.addEventListener("click", (e) => {
         e.preventDefault();
@@ -1911,7 +2050,7 @@
 
     groupTitles.forEach((title) => {
       title.addEventListener("click", () => {
-        const firstItem = title.closest(".nav-group")?.querySelector(".nav-item[data-page]");
+        const firstItem = title.closest(".nav-group")?.querySelector(".nav-item[data-page]:not([hidden])");
         if (firstItem) {
           if (firstItem.dataset.page === "checkin-overview") resetCheckinOnEnter = true;
           showPage(firstItem.dataset.page);
@@ -1923,6 +2062,7 @@
     initEvents();
     if (window.LegacyPages) LegacyPages.bindOnce(showPage);
     applyRoleMenu();
+    restoreMorePreference();
     showPage("home");
   }
 

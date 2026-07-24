@@ -7,7 +7,6 @@
   const API = global.API;
 
   const LEGACY_PAGES = new Set([
-    "course-tasks",
     "roster-import",
     "attendance-scores",
     "grade-export",
@@ -18,18 +17,16 @@
 
   const state = {
     courseId: "",
-    taskStatusFilter: "all",
-    tasks: [],
     importPreview: [],
     importMeta: null,
     exportPrecheck: null,
-    delivery: null,
     studentDetailId: "",
     studentHoursDetail: null,
     pendingCerts: [],
     attendanceRows: [],
     scoringResult: null,
     notice: "",
+    noticeTone: "",
   };
 
   let showPageRef = null;
@@ -44,7 +41,7 @@
   }
 
   function statusCls(status) {
-    if (["已通过", "进行中", "可抵扣", "预检通过"].includes(status)) return "status-ok";
+    if (["已通过", "有效", "进行中", "可抵扣", "预检通过"].includes(status)) return "status-ok";
     if (["待审核", "待确认", "草稿"].includes(status)) return "status-pending";
     if (["已驳回", "已关闭", "风险较高"].includes(status)) return "status-warn";
     return "";
@@ -83,12 +80,23 @@
     return `legacy-${pageId}-root`;
   }
 
-  function setNotice(msg) {
-    state.notice = msg;
+  function setNotice(msg, tone = "") {
+    state.notice = msg || "";
+    state.noticeTone = msg ? tone : "";
   }
 
   function renderNotice() {
-    return state.notice ? `<div class="rules-banner"><strong>提示</strong><span>${esc(state.notice)}</span></div>` : "";
+    if (!state.notice) return "";
+    const danger = state.noticeTone === "danger" ? " rules-banner-danger" : "";
+    return `<div class="rules-banner${danger}"><strong>提示</strong><span>${esc(state.notice)}</span></div>`;
+  }
+
+  function formatNameList(items) {
+    const names = (items || []).map((i) => i.name || i.id).filter(Boolean);
+    if (!names.length) return "无";
+    return `<div class="precheck-names">${names
+      .map((n) => `<span class="chip-name" title="${esc(n)}">${esc(n)}</span>`)
+      .join("")}</div>`;
   }
 
   async function renderCourseSelect(selectId, courseId) {
@@ -100,67 +108,6 @@
   }
 
   // ── Demo data ───────────────────────────────────────────────────
-
-  function demoTasks() {
-    const cid = state.courseId || "c1";
-    const fromMock = global.MOCK?.courseTasks?.[cid] || global.MOCK?.courseTasks?.c1;
-    if (fromMock?.length) {
-      return fromMock.map((t) => ({ ...t }));
-    }
-    return [
-      {
-        id: "demo-t1",
-        title: "课外跑步训练 Week 08",
-        hours: 2,
-        startsAt: "2026-03-01T00:00:00+08:00",
-        endsAt: "2026-04-20T23:59:00+08:00",
-        deadline: "第 8 周周日 23:59",
-        proof: "运动 App 截图",
-        status: "进行中",
-        updatedAt: "2026-03-01",
-        recordCount: 12,
-      },
-      {
-        id: "demo-t2",
-        title: "篮球专项体能",
-        hours: 1.5,
-        startsAt: "2026-04-21T00:00:00+08:00",
-        endsAt: "2026-05-15T23:59:00+08:00",
-        deadline: "第 9 周周五",
-        proof: "场地照片",
-        status: "草稿",
-        updatedAt: "2026-02-28",
-        recordCount: 0,
-      },
-      {
-        id: "demo-t3",
-        title: "学期总结跑",
-        hours: 3,
-        startsAt: "2026-01-01T00:00:00+08:00",
-        endsAt: "2026-02-28T23:59:00+08:00",
-        deadline: "第 16 周",
-        proof: "轨迹截图",
-        status: "已关闭",
-        updatedAt: "2026-01-15",
-        recordCount: 30,
-      },
-    ];
-  }
-
-  function taskLifecycle(t) {
-    if (t.lifecycleStatus) return t.lifecycleStatus;
-    if (global.TimeWindow && (t.startsAt || t.endsAt)) {
-      return TimeWindow.deriveLifecycle(t.startsAt, t.endsAt);
-    }
-    return "进行中";
-  }
-
-  function taskWindowLabel(t) {
-    if (global.TimeWindow && (t.startsAt || t.endsAt)) {
-      return TimeWindow.formatWindowRange(t.startsAt, t.endsAt);
-    }
-    return t.deadline || "—";
-  }
 
   function demoImportRows() {
     return [
@@ -208,117 +155,6 @@
     return rows;
   }
 
-  // ── Course tasks ────────────────────────────────────────────────
-
-  async function loadTasks() {
-    const cid = await ensureCourseId();
-    if (!cid) {
-      state.tasks = [];
-      return;
-    }
-    if (hasApi()) {
-      const q = state.taskStatusFilter !== "all" ? `?status=${encodeURIComponent(state.taskStatusFilter)}` : "";
-      state.tasks = await apiFetch(`/api/teacher/courses/${encodeURIComponent(cid)}/tasks${q}`);
-      return;
-    }
-    let tasks = demoTasks();
-    if (state.taskStatusFilter !== "all") {
-      tasks = tasks.filter((t) => t.status === state.taskStatusFilter);
-    }
-    state.tasks = tasks;
-  }
-
-  async function renderCourseTasks() {
-    await loadTasks();
-    const courses = await getCourses();
-    const root = document.getElementById(rootId("course-tasks"));
-    if (!root) return;
-
-    const active = state.tasks.filter((t) => t.status === "进行中").length;
-    const draft = state.tasks.filter((t) => t.status === "草稿").length;
-    const closed = state.tasks.filter((t) => t.status === "已关闭").length;
-    const defaultStarts = "2026-03-01T00:00:00+08:00";
-    const defaultEnds = "2026-06-30T23:59:00+08:00";
-    const twEditor =
-      global.TimeWindow?.renderTimeWindowEditor?.({
-        idPrefix: "task-tw",
-        value: { startsAt: defaultStarts, endsAt: defaultEnds },
-        showDailyWindow: false,
-        includeHint: true,
-      }) || "";
-
-    root.innerHTML = `
-      ${renderNotice()}
-      <div class="toolbar-inline" style="margin-bottom:16px">
-        <select class="field-input" id="legacy-tasks-course">${courses.map((c) => `<option value="${esc(c.id)}"${c.id === state.courseId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
-        <select class="field-input" id="legacy-tasks-status">
-          <option value="all"${state.taskStatusFilter === "all" ? " selected" : ""}>全部任务</option>
-          <option value="进行中"${state.taskStatusFilter === "进行中" ? " selected" : ""}>进行中（发布）</option>
-          <option value="草稿"${state.taskStatusFilter === "草稿" ? " selected" : ""}>草稿</option>
-          <option value="已关闭"${state.taskStatusFilter === "已关闭" ? " selected" : ""}>已关闭</option>
-        </select>
-      </div>
-      <div class="kpi-row" style="margin-bottom:16px">
-        <div class="kpi-card"><span class="kpi-label">进行中</span><strong class="kpi-value">${active}</strong></div>
-        <div class="kpi-card"><span class="kpi-label">草稿</span><strong class="kpi-value">${draft}</strong></div>
-        <div class="kpi-card"><span class="kpi-label">已关闭</span><strong class="kpi-value">${closed}</strong></div>
-      </div>
-      <div class="two-col">
-        <div class="box">
-          <div class="box-header"><h2 class="h2">课程任务列表</h2></div>
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead><tr><th>任务</th><th>小时</th><th>活动时间</th><th>证明</th><th>发布</th><th>操作</th></tr></thead>
-              <tbody>
-                ${state.tasks.length
-                  ? state.tasks
-                      .map((t) => {
-                        const life = taskLifecycle(t);
-                        const lifeBadge = global.TimeWindow
-                          ? TimeWindow.lifecycleBadgeHtml(life)
-                          : `<span class="badge">${esc(life)}</span>`;
-                        return `<tr>
-                      <td><strong>${esc(t.title)}</strong><br><small class="box-hint">${esc(t.updatedAt || "—")}</small></td>
-                      <td>${esc(t.hours ?? t.requiredHours)}h</td>
-                      <td>
-                        <div>${esc(taskWindowLabel(t))}</div>
-                        ${lifeBadge}
-                        ${t.notes || t.deadline ? `<small class="box-hint">备注：${esc(t.notes || t.deadline)}</small>` : ""}
-                      </td>
-                      <td>${esc(t.proof || "—")}</td>
-                      <td><span class="status ${statusCls(t.status)}">${esc(t.status)}</span></td>
-                      <td>
-                        <button class="btn btn-text" type="button" data-legacy-action="task-publish" data-task-id="${esc(t.id)}">发布</button>
-                        <button class="btn btn-text" type="button" data-legacy-action="task-close" data-task-id="${esc(t.id)}">关闭</button>
-                        <button class="btn btn-text btn-danger-outline" type="button" data-legacy-action="task-delete" data-task-id="${esc(t.id)}">删除</button>
-                      </td>
-                    </tr>`;
-                      })
-                      .join("")
-                  : `<tr><td colspan="6" class="empty-cell">当前筛选下没有课程任务</td></tr>`}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div class="box">
-          <div class="box-header"><h2 class="h2">创建课程任务</h2></div>
-          <form id="legacy-create-task-form" class="form-grid">
-            <label class="field"><span class="field-label">任务标题</span><input class="field-input" name="title" value="课外跑步训练 Week 08" required /></label>
-            <label class="field"><span class="field-label">可获得小时</span><input class="field-input" name="hours" type="number" min="0.5" step="0.5" value="2" required /></label>
-            <div class="field" style="grid-column:1/-1">${twEditor}</div>
-            <label class="field"><span class="field-label">备注（原截止说明）</span><input class="field-input" name="deadline" value="第 8 周周日 23:59" /></label>
-            <label class="field"><span class="field-label">证明要求</span><input class="field-input" name="proof" value="运动 App 截图 + 场地照片" /></label>
-            <label class="field"><span class="field-label">初始发布状态</span>
-              <select class="field-input" name="status"><option>草稿</option><option>进行中</option></select>
-            </label>
-            <label class="field" style="grid-column:1/-1"><span class="field-label">任务说明</span><textarea class="field-input" name="description" rows="3">完成指定跑步训练并上传证明。</textarea></label>
-            <p class="auth-error" id="task-save-error" hidden></p>
-            <div class="form-actions"><button class="btn btn-primary" type="submit">保存任务</button></div>
-          </form>
-        </div>
-      </div>`;
-  }
-
   // ── Roster import ───────────────────────────────────────────────
 
   async function renderRosterImport() {
@@ -332,9 +168,10 @@
     const invalidCount = rows.length - validCount;
 
     root.innerHTML = `
+      <div class="legacy-stack">
       ${renderNotice()}
       <div class="rules-banner"><strong>导入说明</strong><span>支持 CSV 导入，须校验姓名、学号、学院、班级、课程代码、Section、选课状态。当前教学班：${esc(courseLabel(courses, state.courseId))}</span></div>
-      <div class="toolbar-inline" style="margin:16px 0">
+      <div class="toolbar-inline">
         <select class="field-input" id="legacy-import-course">${courses.map((c) => `<option value="${esc(c.id)}"${c.id === state.courseId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
         <input type="file" class="field-input" id="legacy-import-file" accept=".csv,text/csv" />
         <button class="btn btn-primary" type="button" data-legacy-action="import-preview">预检名单</button>
@@ -354,14 +191,15 @@
                     <td>${esc(r.name)}</td><td>${esc(r.id)}</td><td>${esc(r.college)}</td>
                     <td>${esc(r.className || "—")}</td><td>${esc(r.courseCode || "—")}</td>
                     <td>${esc(r.section || "—")}</td><td>${esc(r.enrollmentStatus || "—")}</td>
-                    <td><span class="status ${r.valid ? "status-ok" : "status-warn"}">${esc(r.status)}</span></td>
+                    <td><span class="badge ${r.valid ? "status-ok" : "status-warn"}">${esc(r.status)}</span></td>
                   </tr>`
                     )
                     .join("")
-                : `<tr><td colspan="8" class="empty-cell">暂无预检数据</td></tr>`}
+                : `<tr><td colspan="8" class="table-empty">暂无数据</td></tr>`}
             </tbody>
           </table>
         </div>
+      </div>
       </div>`;
   }
 
@@ -476,8 +314,9 @@
     if (!root) return;
 
     root.innerHTML = `
+      <div class="legacy-stack">
       ${renderNotice()}
-      <div class="toolbar-inline" style="margin-bottom:16px">
+      <div class="toolbar-inline">
         <select class="field-input" id="legacy-attendance-course">${courses.map((c) => `<option value="${esc(c.id)}"${c.id === state.courseId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
         <button class="btn btn-primary" type="button" data-legacy-action="attendance-save">批量保存</button>
       </div>
@@ -502,11 +341,12 @@
                     </tr>`
                       )
                       .join("")
-                  : `<tr><td colspan="4" class="empty-cell">暂无学生</td></tr>`}
+                  : `<tr><td colspan="4" class="table-empty">暂无数据</td></tr>`}
               </tbody>
             </table>
           </div>
         </form>
+      </div>
       </div>`;
   }
 
@@ -523,7 +363,7 @@
         method: "PUT",
         body: JSON.stringify({ rows }),
       });
-      setNotice("签到 / 平时分已保存");
+      setNotice("签到平时分已保存");
     } else {
       setNotice(`演示模式：已保存 ${rows.length} 名学生的平时分`);
     }
@@ -566,42 +406,37 @@
     const courses = await getCourses();
     const issues = state.exportPrecheck || {};
     const blocked = exportBlocked(issues);
-    const delivery = state.delivery || { status: "未提交", submittedAt: "—", issueCount: 0, comment: "—" };
     const root = document.getElementById(rootId("grade-export"));
     if (!root) return;
 
     root.innerHTML = `
+      <div class="legacy-stack">
       ${renderNotice()}
-      <div class="toolbar-inline" style="margin-bottom:16px">
+      <div class="rules-banner">
+        <strong>成绩导出说明</strong>
+        <span>归档由管理员发起；本页仅自定义导出 Excel/CSV，可查看预检结果供参考。</span>
+      </div>
+      <div class="toolbar-inline">
         <select class="field-input" id="legacy-export-course">${courses.map((c) => `<option value="${esc(c.id)}"${c.id === state.courseId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
-        <button class="btn btn-secondary" type="button" data-legacy-action="export-precheck">刷新预检</button>
-        <button class="btn btn-secondary" type="button" data-legacy-action="export-delivery">提交预检给体育部</button>
+        <button class="btn btn-secondary" type="button" data-legacy-action="export-view-precheck">查看预检结果</button>
         <button class="btn ${blocked ? "btn-secondary" : "btn-primary"}" type="button" data-legacy-action="export-download"${blocked ? " disabled" : ""}>下载成绩 CSV</button>
       </div>
-      <div class="rules-banner">
+      <div class="rules-banner${blocked ? " rules-banner-danger" : ""}">
         <strong>${blocked ? "预检未通过" : "预检已通过"}</strong>
-        <span>${blocked ? "请先处理下列问题后再导出正式成绩。" : "所有导出检查已通过，可以下载正式成绩 CSV。"}</span>
+        <span>${blocked ? "下列问题供参考；如需正式归档请联系管理员。" : "预检检查已通过，可以下载自定义成绩 CSV。"}</span>
       </div>
       <div class="box">
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr><th>检查项</th><th>详情</th><th>建议</th></tr></thead>
             <tbody>
-              <tr><td>缺少 / 低体测</td><td>${esc((issues.missingPhysical || []).map((i) => i.name || i.id).join("、") || "无")}</td><td>补录体测原始数据</td></tr>
-              <tr><td>打卡未满</td><td>${esc((issues.checkinNotEnough || []).map((i) => i.name || i.id).join("、") || "无")}</td><td>提醒学生补齐学时</td></tr>
-              <tr><td>异常未处理</td><td>${esc((issues.unresolvedReviews || []).map((i) => i.name || i.id).join("、") || "无")}</td><td>进入审核工作台处理</td></tr>
+              <tr><td>缺少 / 低体测</td><td>${formatNameList(issues.missingPhysical)}</td><td>补录体测原始数据</td></tr>
+              <tr><td>打卡未满</td><td>${formatNameList(issues.checkinNotEnough)}</td><td>提醒学生补齐学时</td></tr>
+              <tr><td>异常未处理</td><td>${formatNameList(issues.unresolvedReviews)}</td><td>进入审核工作台处理</td></tr>
             </tbody>
           </table>
         </div>
       </div>
-      <div class="box" style="margin-top:16px">
-        <h2 class="h2">成绩交付状态</h2>
-        <div class="box-hint" style="display:grid;gap:8px;margin-top:12px">
-          <div>当前状态：<span class="status ${statusCls(delivery.status)}">${esc(delivery.status)}</span></div>
-          <div>提交时间：${esc(delivery.submittedAt || "—")}</div>
-          <div>问题数：${esc(delivery.issueCount ?? 0)}</div>
-          <div>说明：${esc(delivery.comment || "—")}</div>
-        </div>
       </div>`;
   }
 
@@ -651,30 +486,11 @@
     setNotice(`演示模式：已按「${global.SortStudents?.sortLabel?.(sort) || sort}」下载 CSV`);
   }
 
-  async function submitDelivery() {
-    const cid = await ensureCourseId();
-    if (hasApi()) {
-      const data = await apiFetch(`/api/teacher/courses/${encodeURIComponent(cid)}/delivery`, {
-        method: "POST",
-        body: JSON.stringify({ comment: "教师端提交预检" }),
-      });
-      state.delivery = {
-        status: data.status,
-        submittedAt: data.submittedAt,
-        issueCount: data.issueCount,
-        comment: "教师端提交预检",
-      };
-    } else {
-      const issues = state.exportPrecheck || {};
-      const issueCount = (issues.missingPhysical?.length || 0) + (issues.checkinNotEnough?.length || 0);
-      state.delivery = {
-        status: issueCount ? "待管理员确认" : "预检通过",
-        submittedAt: new Date().toLocaleString("zh-CN"),
-        issueCount,
-        comment: "演示模式提交",
-      };
-    }
-    setNotice("成绩预检已提交给体育部");
+  async function viewExportPrecheck() {
+    await loadExportPrecheck();
+    const issues = state.exportPrecheck || {};
+    const blocked = exportBlocked(issues);
+    setNotice(blocked ? "预检未通过，下列问题供参考" : "预检已通过，可以下载 CSV");
     await renderGradeExport();
   }
 
@@ -704,9 +520,9 @@
     }
     state.studentHoursDetail = {
       studentId,
-      summary: { studentSubmitted: 6, totalApplied: 8, teamOffset: 2, clubOffset: 0, teacherTask: 1, manualCredit: 0, totalApproved: 9 },
+      summary: { studentSubmitted: 6, totalApplied: 8, teamOffset: 2, clubOffset: 0, manualCredit: 0, totalApproved: 9 },
       items: [
-        { sourceType: "学生自提交（课程相关）", sportType: "跑步", appliedHours: 2, approvedHours: 2, submittedAt: "2026-03-01", status: "已通过" },
+        { sourceType: "学生自提交（课程相关）", sportType: "跑步", appliedHours: 2, approvedHours: 2, submittedAt: "2026-03-01", status: "有效" },
         { sourceType: "校队抵扣", sportType: "篮球", appliedHours: 10, approvedHours: 2, submittedAt: "2026-02-15", status: "可抵扣" },
       ],
     };
@@ -726,8 +542,9 @@
     const items = detail?.items || [];
 
     root.innerHTML = `
+      <div class="legacy-stack">
       ${renderNotice()}
-      <div class="toolbar-inline" style="margin-bottom:16px">
+      <div class="toolbar-inline">
         <select class="field-input" id="legacy-detail-course">${courses.map((c) => `<option value="${esc(c.id)}"${c.id === state.courseId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
         <select class="field-input" id="legacy-detail-student">${students.map((s) => `<option value="${esc(s.id)}"${s.id === state.studentDetailId ? " selected" : ""}>${esc(s.name)} (${esc(s.id)})</option>`).join("")}</select>
       </div>
@@ -744,42 +561,41 @@
                         (r) => `<tr>
                       <td>${esc(r.sourceType)}</td><td>${esc(r.sportType || "—")}</td>
                       <td>${esc(r.appliedHours)}h</td><td>${esc(r.approvedHours)}h</td>
-                      <td><span class="status ${statusCls(r.status)}">${esc(r.status)}</span></td>
+                      <td><span class="badge ${statusCls(r.status)}">${esc(r.status)}</span></td>
                       <td>${esc(r.submittedAt || "—")}</td>
                     </tr>`
                       )
                       .join("")
-                  : `<tr><td colspan="6" class="empty-cell">该学生暂无学时记录</td></tr>`}
+                  : `<tr><td colspan="6" class="table-empty">暂无数据</td></tr>`}
               </tbody>
             </table>
           </div>
         </div>
-        <div>
+        <div class="detail-stack">
           <div class="box">
             <h2 class="h2">学生信息</h2>
             ${student
-              ? `<div class="box-hint" style="display:grid;gap:8px;margin-top:12px">
+              ? `<div class="detail-kv">
               <div>学号：${esc(student.id)}</div>
               <div>姓名：${esc(student.name)}</div>
-              <div>状态：<span class="status ${statusCls(student.status)}">${esc(student.status || "—")}</span></div>
+              <div>状态：<span class="badge ${statusCls(student.status)}">${esc(student.status || "—")}</span></div>
             </div>`
-              : `<p class="empty-cell">未找到学生</p>`}
+              : `<p class="table-empty">暂无数据</p>`}
           </div>
-          <div class="box" style="margin-top:16px">
+          <div class="box">
             <h2 class="h2">学时汇总</h2>
-            <div class="box-hint" style="display:grid;gap:8px;margin-top:12px">
+            <div class="detail-kv">
               <div>学生自提交：${Number(summary.studentSubmitted || 0).toFixed(1)}h</div>
               <div>校队抵扣：${Number(summary.teamOffset || 0).toFixed(1)}h</div>
               <div>社团抵扣：${Number(summary.clubOffset || 0).toFixed(1)}h</div>
-              <div>老师任务：${Number(summary.teacherTask || 0).toFixed(1)}h</div>
               <div>手动加抵：${Number(summary.manualCredit || 0).toFixed(1)}h</div>
-              <div><strong>合计审批：${Number(summary.totalApproved || 0).toFixed(1)}h</strong></div>
+              <div><strong>合计有效：${Number(summary.totalApproved || 0).toFixed(1)}h</strong></div>
             </div>
           </div>
           ${student
-            ? `<div class="box" style="margin-top:16px">
+            ? `<div class="box">
             <h2 class="h2">成绩进度</h2>
-            <div class="box-hint" style="display:grid;gap:8px;margin-top:12px">
+            <div class="detail-kv">
               <div>课程相关：${esc(student.course ?? 0)}h</div>
               <div>其他运动：${esc(student.general ?? 0)}h</div>
               <div>考试：${esc(student.exam ?? "—")}</div>
@@ -789,6 +605,7 @@
           </div>`
             : ""}
         </div>
+      </div>
       </div>`;
   }
 
@@ -808,6 +625,12 @@
     state.pendingCerts = demoPendingCerts();
   }
 
+  function readCertHours(certId) {
+    const course = Number(document.getElementById(`cert-course-hours-${certId}`)?.value || 0);
+    const general = Number(document.getElementById(`cert-general-hours-${certId}`)?.value || 0);
+    return { course, general, total: course + general };
+  }
+
   async function renderPendingCertifications() {
     await loadPendingCerts();
     const courses = await getCourses();
@@ -816,27 +639,33 @@
     if (!root) return;
 
     root.innerHTML = `
+      <div class="legacy-stack">
       ${renderNotice()}
-      <div class="toolbar-inline" style="margin-bottom:16px">
+      <div class="toolbar-inline">
         <select class="field-input" id="legacy-certs-course">${courses.map((c) => `<option value="${esc(c.id)}"${c.id === state.courseId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
       </div>
       <div class="box">
         <h2 class="h2">待确认抵扣（${pending.length}）</h2>
+        <p class="box-hint">课程运动与自主运动合计不得超过 20 小时。确认 / 驳回由授课老师直接完成。</p>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>学生</th><th>组织</th><th>类型</th><th>抵扣小时</th><th>操作</th></tr></thead>
+            <thead><tr><th>学生</th><th>组织</th><th>类型</th><th>课程运动(h)</th><th>自主运动(h)</th><th>合计</th><th>操作</th></tr></thead>
             <tbody>
               ${pending.length
                 ? pending
                     .map((m) => {
                       const name = m.student_name || m.studentName || "";
                       const sid = m.student_id || m.studentId || "";
-                      const hours = m.offset_hours ?? m.offsetHours ?? 10;
+                      const courseHours = 0;
+                      const generalHours = m.offset_hours ?? m.offsetHours ?? 10;
+                      const total = courseHours + generalHours;
                       return `<tr>
                     <td><strong>${esc(name)}</strong><br><small>${esc(sid)}</small></td>
                     <td>${esc(m.organization || "—")}</td>
                     <td>${m.type === "team" ? "校队" : "社团"}</td>
-                    <td><input class="field-input field-input-sm" type="number" min="0.5" max="20" step="0.5" id="cert-hours-${esc(m.id)}" value="${esc(hours)}" style="width:72px" /> h</td>
+                    <td><input class="field-input field-input-sm field-input-narrow" type="number" min="0" max="20" step="0.5" id="cert-course-hours-${esc(m.id)}" value="${esc(courseHours)}" /></td>
+                    <td><input class="field-input field-input-sm field-input-narrow" type="number" min="0" max="20" step="0.5" id="cert-general-hours-${esc(m.id)}" value="${esc(generalHours)}" /></td>
+                    <td><strong>${esc(total)}</strong></td>
                     <td>
                       <button class="btn btn-primary" type="button" data-legacy-action="cert-confirm" data-cert-id="${esc(m.id)}">确认生效</button>
                       <button class="btn btn-secondary btn-danger-outline" type="button" data-legacy-action="cert-reject" data-cert-id="${esc(m.id)}">驳回</button>
@@ -844,27 +673,38 @@
                   </tr>`;
                     })
                     .join("")
-                : `<tr><td colspan="5" class="empty-cell">暂无待确认抵扣</td></tr>`}
+                : `<tr><td colspan="7" class="table-empty">暂无数据</td></tr>`}
             </tbody>
           </table>
         </div>
+      </div>
       </div>`;
   }
 
   async function confirmCert(certId, reject) {
-    if (hasApi()) {
-      if (reject) {
-        await apiFetch(`/api/teacher/certifications/${encodeURIComponent(certId)}/reject`, {
-          method: "PUT",
-          body: JSON.stringify({ reason: "教师驳回" }),
-        });
-      } else {
-        const hours = Number(document.getElementById(`cert-hours-${certId}`)?.value || 10);
+    if (!reject) {
+      const { course, general, total } = readCertHours(certId);
+      if (total > 20) {
+        setNotice(`合计 ${total}h 超过上限 20h，请调整课程运动或自主运动小时后再确认`, "danger");
+        await renderPendingCertifications();
+        return;
+      }
+      if (hasApi()) {
         await apiFetch(`/api/teacher/certifications/${encodeURIComponent(certId)}/confirm`, {
           method: "PUT",
-          body: JSON.stringify({ adjustedHours: hours }),
+          body: JSON.stringify({ courseHours: course, generalHours: general, adjustedHours: total }),
         });
+      } else {
+        state.pendingCerts = state.pendingCerts.filter((m) => m.id !== certId);
+        setNotice(`抵扣已确认：课程运动 ${course}h，自主运动 ${general}h（合计 ${total}h）`);
+        await renderPendingCertifications();
+        return;
       }
+    } else if (hasApi()) {
+      await apiFetch(`/api/teacher/certifications/${encodeURIComponent(certId)}/reject`, {
+        method: "PUT",
+        body: JSON.stringify({ reason: "教师驳回" }),
+      });
     } else {
       state.pendingCerts = state.pendingCerts.filter((m) => m.id !== certId);
     }
@@ -880,6 +720,7 @@
     const result = state.scoringResult;
 
     root.innerHTML = `
+      <div class="legacy-stack">
       ${renderNotice()}
       <div class="two-col">
         <div class="box">
@@ -899,7 +740,7 @@
             <div class="form-actions"><button class="btn btn-primary" type="submit">开始换算</button></div>
           </form>
           ${result
-            ? `<div class="rules-banner" style="margin-top:16px">
+            ? `<div class="rules-banner">
               <strong>试算结果：${esc(result.score)} 分（${esc(result.tier || "—")}）</strong>
               <span>用时 ${Math.floor(result.timeSeconds / 60)}′${String(result.timeSeconds % 60).padStart(2, "0")}″ · <em>试算，非正式成绩</em></span>
             </div>`
@@ -908,7 +749,7 @@
         <div class="box">
           <h2 class="h2">评分表参考</h2>
           <p class="box-hint">1000 米 / 800 米耐力跑国标换算。用时越短分数越高，及格线约 4′30″–4′34″。</p>
-          <div class="table-wrap" style="max-height:420px;overflow:auto">
+          <div class="table-wrap table-scroll-sm">
             <table class="data-table data-table-sm">
               <thead><tr><th>等级</th><th>分数</th><th>大一大二男</th><th>大一大二女</th></tr></thead>
               <tbody>
@@ -919,6 +760,7 @@
             </table>
           </div>
         </div>
+      </div>
       </div>`;
   }
 
@@ -940,119 +782,9 @@
     await renderEnduranceScoring();
   }
 
-  // ── Task actions ────────────────────────────────────────────────
-
-  async function createTask(formData) {
-    const cid = await ensureCourseId();
-    const errEl = document.getElementById("task-save-error");
-    if (errEl) {
-      errEl.hidden = true;
-      errEl.textContent = "";
-    }
-    let startsAt = null;
-    let endsAt = null;
-    let lifecycleStatus = null;
-    if (global.TimeWindow) {
-      const tw = TimeWindow.readTimeWindowEditor("task-tw", false);
-      const check = TimeWindow.validateTimeWindow(tw.startsAt, tw.endsAt);
-      if (!check.ok) {
-        TimeWindow.showEditorError("task-tw", check.message);
-        if (errEl) {
-          errEl.hidden = false;
-          errEl.textContent = check.message;
-        }
-        throw new Error(check.message);
-      }
-      TimeWindow.showEditorError("task-tw", "");
-      startsAt = tw.startsAt;
-      endsAt = tw.endsAt;
-      lifecycleStatus = tw.lifecycleStatus;
-      if (
-        !TimeWindow.confirmWindowChange({
-          recordCount: 0,
-          prevStartsAt: "",
-          prevEndsAt: "",
-          nextStartsAt: startsAt,
-          nextEndsAt: endsAt,
-        })
-      ) {
-        throw new Error("已取消保存");
-      }
-    }
-    const payload = {
-      title: formData.get("title"),
-      hours: Number(formData.get("hours")),
-      deadline: formData.get("deadline"),
-      notes: formData.get("deadline"),
-      proof: formData.get("proof"),
-      status: formData.get("status"),
-      description: formData.get("description"),
-      startsAt,
-      endsAt,
-      lifecycleStatus,
-    };
-    if (hasApi()) {
-      await apiFetch(`/api/teacher/courses/${encodeURIComponent(cid)}/tasks`, {
-        method: "POST",
-        body: JSON.stringify(payload),
-      });
-    } else {
-      if (!global.MOCK.courseTasks) global.MOCK.courseTasks = {};
-      if (!global.MOCK.courseTasks[cid]) global.MOCK.courseTasks[cid] = demoTasks();
-      const task = {
-        id: "demo-t" + Date.now(),
-        title: payload.title,
-        hours: payload.hours,
-        requiredHours: payload.hours,
-        deadline: payload.deadline,
-        notes: payload.notes,
-        proof: payload.proof,
-        status: payload.status,
-        description: payload.description,
-        startsAt,
-        endsAt,
-        lifecycleStatus,
-        recordCount: 0,
-        updatedAt: new Date().toISOString().slice(0, 10),
-      };
-      global.MOCK.courseTasks[cid].unshift(task);
-    }
-    setNotice("任务已创建");
-  }
-
-  async function patchTask(taskId, fields) {
-    const cid = await ensureCourseId();
-    if (hasApi()) {
-      await apiFetch(`/api/teacher/courses/${encodeURIComponent(cid)}/tasks/${encodeURIComponent(taskId)}`, {
-        method: "PATCH",
-        body: JSON.stringify(fields),
-      });
-      return;
-    }
-    if (!global.MOCK.courseTasks) global.MOCK.courseTasks = {};
-    if (!global.MOCK.courseTasks[cid]) global.MOCK.courseTasks[cid] = demoTasks();
-    global.MOCK.courseTasks[cid] = global.MOCK.courseTasks[cid].map((t) =>
-      t.id === taskId ? { ...t, ...fields } : t
-    );
-  }
-
-  async function deleteTask(taskId) {
-    const cid = await ensureCourseId();
-    if (hasApi()) {
-      await apiFetch(`/api/teacher/courses/${encodeURIComponent(cid)}/tasks/${encodeURIComponent(taskId)}`, {
-        method: "DELETE",
-      });
-      return;
-    }
-    if (global.MOCK.courseTasks?.[cid]) {
-      global.MOCK.courseTasks[cid] = global.MOCK.courseTasks[cid].filter((t) => t.id !== taskId);
-    }
-  }
-
   // ── Router ──────────────────────────────────────────────────────
 
   const renderers = {
-    "course-tasks": renderCourseTasks,
     "roster-import": renderRosterImport,
     "attendance-scores": renderAttendanceScores,
     "grade-export": renderGradeExport,
@@ -1085,20 +817,7 @@
 
   async function handleAction(action, el) {
     try {
-      if (action === "task-publish") {
-        await patchTask(el.dataset.taskId, { status: "进行中" });
-        setNotice("任务已发布");
-        await renderCourseTasks();
-      } else if (action === "task-close") {
-        await patchTask(el.dataset.taskId, { status: "已关闭" });
-        setNotice("任务已关闭");
-        await renderCourseTasks();
-      } else if (action === "task-delete") {
-        if (!confirm("确定删除该任务？")) return;
-        await deleteTask(el.dataset.taskId);
-        setNotice("任务已删除");
-        await renderCourseTasks();
-      } else if (action === "import-preview") {
+      if (action === "import-preview") {
         const file = document.getElementById("legacy-import-file")?.files?.[0];
         await previewImport(file);
         setNotice(file ? "预检完成" : "已加载演示预检数据");
@@ -1110,15 +829,11 @@
         await renderRosterImport();
       } else if (action === "attendance-save") {
         await saveAttendanceScores();
-      } else if (action === "export-precheck") {
-        await loadExportPrecheck();
-        setNotice("预检已刷新");
-        await renderGradeExport();
+      } else if (action === "export-view-precheck") {
+        await viewExportPrecheck();
       } else if (action === "export-download") {
         await downloadGradeCsv();
         await renderGradeExport();
-      } else if (action === "export-delivery") {
-        await submitDelivery();
       } else if (action === "cert-confirm") {
         await confirmCert(el.dataset.certId, false);
       } else if (action === "cert-reject") {
@@ -1142,13 +857,7 @@
     });
 
     document.body.addEventListener("change", async (e) => {
-      if (e.target.id === "legacy-tasks-course") {
-        state.courseId = e.target.value;
-        await renderCourseTasks();
-      } else if (e.target.id === "legacy-tasks-status") {
-        state.taskStatusFilter = e.target.value;
-        await renderCourseTasks();
-      } else if (e.target.id === "legacy-import-course") {
+      if (e.target.id === "legacy-import-course") {
         state.courseId = e.target.value;
         await renderRosterImport();
       } else if (e.target.id === "legacy-attendance-course") {
@@ -1171,15 +880,7 @@
     });
 
     document.body.addEventListener("submit", async (e) => {
-      if (e.target.id === "legacy-create-task-form") {
-        e.preventDefault();
-        try {
-          await createTask(new FormData(e.target));
-          await renderCourseTasks();
-        } catch (err) {
-          alert(err.message || String(err));
-        }
-      } else if (e.target.id === "legacy-scoring-form") {
+      if (e.target.id === "legacy-scoring-form") {
         e.preventDefault();
         try {
           await runScoring(e.target);

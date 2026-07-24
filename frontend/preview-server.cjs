@@ -73,28 +73,43 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  fs.stat(filePath, (statError, stat) => {
-    if (statError || !stat.isFile()) {
-      send(response, 404, "Not Found", { "Content-Type": "text/plain; charset=utf-8" });
-      return;
-    }
+  function serveFile(targetPath) {
+    fs.stat(targetPath, (statError, stat) => {
+      if (statError) {
+        send(response, 404, "Not Found", { "Content-Type": "text/plain; charset=utf-8" });
+        return;
+      }
 
-    const type = contentTypes[path.extname(filePath).toLowerCase()] || "application/octet-stream";
-    response.writeHead(200, {
-      ...securityHeaders,
-      "Content-Type": type,
-      "Content-Length": stat.size,
+      // Directory requests like /student/ → serve index.html
+      if (stat.isDirectory()) {
+        serveFile(path.join(targetPath, "index.html"));
+        return;
+      }
+
+      if (!stat.isFile()) {
+        send(response, 404, "Not Found", { "Content-Type": "text/plain; charset=utf-8" });
+        return;
+      }
+
+      const type = contentTypes[path.extname(targetPath).toLowerCase()] || "application/octet-stream";
+      response.writeHead(200, {
+        ...securityHeaders,
+        "Content-Type": type,
+        "Content-Length": stat.size,
+      });
+
+      if (request.method === "HEAD") {
+        response.end();
+        return;
+      }
+
+      fs.createReadStream(targetPath)
+        .on("error", () => send(response, 500, "Internal Server Error", { "Content-Type": "text/plain; charset=utf-8" }))
+        .pipe(response);
     });
+  }
 
-    if (request.method === "HEAD") {
-      response.end();
-      return;
-    }
-
-    fs.createReadStream(filePath)
-      .on("error", () => send(response, 500, "Internal Server Error", { "Content-Type": "text/plain; charset=utf-8" }))
-      .pipe(response);
-  });
+  serveFile(filePath);
 });
 
 server.requestTimeout = 10000;
