@@ -21,21 +21,19 @@
   };
 
   const ROLE_AUDIT_TAB = {
-    sports_teacher: ["checkin_review", "exempt_test"],
-    dept_head: ["checkin_review", "exempt_test"],
-    super_admin: ["checkin_review", "exempt_test"],
+    sports_teacher: ["checkin_review", "exempt_test", "exempt_exam", "certifications"],
+    dept_head: ["checkin_review", "exempt_test", "exempt_exam", "certifications"],
+    super_admin: ["checkin_review", "exempt_test", "exempt_exam", "certifications"],
   };
 
   let currentRole = "sports_teacher";
   let selectedDate = todayStr();
   let checkinState = { level: 1, classId: null, className: "", studentId: null, studentName: "" };
   let resetCheckinOnEnter = false;
-  let matrixCourseId = null;
   let studentFilter = "all";
   let studentSearch = "";
   let auditTab = "checkin_review";
   let auditDetail = null;
-  let auditEvidenceViewed = false;
   let auditDetailSource = null;
   let selectedEvidenceIdx = 0;
   let physicalCourseId = "";
@@ -49,6 +47,7 @@
   let basicCourseId = "";
   let basicClassId = "";
   let basicStudentSearch = "";
+  let hoursDetailStudentId = "";
   let finalItemsDraft = null;
   let finalClassId = "";
   let finalStatus = "all";
@@ -61,44 +60,23 @@
   let settingsTimeWindowMounted = false;
 
   const MORE_STORAGE_KEY = "bnbuTeacherNavMoreOpen";
-  const MORE_PAGE_IDS = new Set([
-    "checkin-matrix",
-    "checkin-settings",
-    "checkin-history",
-    "exam-physical",
-    "exam-final",
-    "exam-final-items",
-    "roster-import",
-    "attendance-scores",
-    "grade-export",
-    "student-detail",
-    "pending-certifications",
-    "endurance-scoring",
-    "basic-courses",
-    "basic-students",
-    "admin-permissions",
-  ]);
+  const MORE_PAGE_IDS = new Set();
 
   const pages = document.querySelectorAll(".page");
   const navItems = document.querySelectorAll(".nav-item[data-page]");
   const groupTitles = document.querySelectorAll(".nav-group-title[data-group]");
 
   const pageToGroup = {
-    "checkin-matrix": "checkin-more",
-    "checkin-settings": "checkin-more",
-    "checkin-history": "checkin-more",
-    "exam-physical": "exam",
-    "exam-final": "exam",
-    "exam-final-items": "exam",
-    "roster-import": "course-mgmt",
-    "attendance-scores": "course-mgmt",
-    "grade-export": "course-mgmt",
-    "student-detail": "course-mgmt",
-    "pending-certifications": "course-mgmt",
-    "endurance-scoring": "course-mgmt",
-    "basic-courses": "basic",
-    "basic-students": "basic",
-    "admin-permissions": "admin",
+    "roster-import": "prep",
+    "checkin-settings": "prep",
+    "grade-rules": "prep",
+    "checkin-overview": "run",
+    "hours-progress": "run",
+    "audit-workbench": "run",
+    "attendance-scores": "enter",
+    "exam-physical": "enter",
+    "exam-final": "enter",
+    "grade-summary": "close",
   };
 
   function setMoreOpen(open, persist = true) {
@@ -141,9 +119,7 @@
   }
 
   function syncDateInputs() {
-    const homeDate = document.getElementById("home-date");
     const checkinDate = document.getElementById("checkin-date");
-    if (homeDate) homeDate.value = selectedDate;
     if (checkinDate) checkinDate.value = selectedDate;
   }
 
@@ -193,22 +169,30 @@
   }
 
   function showPage(pageId, options = {}) {
+    if (pageId === "exam-final-items") pageId = "grade-rules";
+    if (pageId === "pending-certifications") {
+      auditTab = "certifications";
+      pageId = "audit-workbench";
+    }
     if (!activatePage(pageId)) return;
 
     if (pageId === "home") renderHome();
     if (pageId === "checkin-overview") enterCheckinOverview(options);
-    if (pageId === "checkin-matrix") renderMatrix();
     if (pageId === "checkin-settings") renderSettings();
-    if (pageId === "checkin-history") renderHistory();
+    if (pageId === "hours-progress") renderHoursProgress(options);
     if (pageId === "audit-workbench") renderAudit();
     if (pageId === "exam-physical") renderPhysical();
     if (pageId === "exam-final") renderFinalExam();
-    if (pageId === "exam-final-items") renderFinalItemsConfig();
+    if (pageId === "grade-rules") {
+      window.CoreLoop?.setRulesCourse?.(options.courseId);
+      window.CoreLoop?.renderGradeRules?.();
+    }
     if (pageId === "grade-summary") renderGradeSummary();
-    if (pageId === "admin-permissions") renderPermissions();
-    if (pageId === "basic-courses") renderBasicCourses();
-    if (pageId === "basic-students") renderBasicStudents();
-    if (window.LegacyPages?.isLegacyPage(pageId)) {
+    if (pageId === "roster-import") {
+      renderRosterHub(options);
+    } else if (pageId === "attendance-scores") {
+      window.CoreLoop?.renderAttendanceBoard?.();
+    } else if (window.LegacyPages?.isLegacyPage(pageId)) {
       window.LegacyPages.render(pageId, options);
     }
   }
@@ -329,18 +313,28 @@
     const user = await API.getCurrentUser();
     document.getElementById("greeting-text").textContent = `你好，${user.name}（${roleLabel(currentRole)}）`;
 
-    syncDateInputs();
     const classes = await API.getCheckinOverview({ date: selectedDate });
     renderKpiCards(document.getElementById("home-kpi"), sumStats(classes));
-
-    renderClassCards(document.getElementById("home-class-cards"), classes, (id, name) => {
-      showPage("checkin-overview", { drillTo: { id, name } });
-    });
 
     const pending = await API.getAuditPendingSummary();
     const pendingEl = document.getElementById("home-pending-audit");
     if (pendingEl) {
-      pendingEl.textContent = `无效 ${pending.invalidCount} · 免测 ${pending.exemptTest}`;
+      pendingEl.textContent = `无效 ${pending.invalidCount} · 免测 ${pending.exemptTest} · 免考待审`;
+    }
+
+    const st = await API.getCourseGradeStatus("c1");
+    const prep = document.getElementById("home-prep-status");
+    if (prep) prep.textContent = st.rule?.status === "published" ? `已发布 v${st.rule.version}` : "规则未发布 · 请先定版";
+    const close = document.getElementById("home-close-status");
+    if (close) close.textContent = window.CoreLoop?.statusLabel?.[st.status] || st.status;
+
+    const journey = document.getElementById("home-journey-kpi");
+    if (journey) {
+      journey.innerHTML = `
+        <div class="kpi-card"><span class="kpi-label">今日打卡班级</span><span class="kpi-value">${classes.length}</span></div>
+        <div class="kpi-card"><span class="kpi-label">待审免测</span><span class="kpi-value kpi-warn">${pending.exemptTest}</span></div>
+        <div class="kpi-card"><span class="kpi-label">课程状态</span><span class="kpi-value">${window.CoreLoop?.statusLabel?.[st.status] || "—"}</span></div>
+        <div class="kpi-card"><span class="kpi-label">规则</span><span class="kpi-value">${st.rule?.status === "published" ? "已冻结" : "草稿"}</span></div>`;
     }
   }
 
@@ -430,22 +424,6 @@
     const courseId = document.getElementById("checkin-course-filter").value;
     const classes = await API.getCheckinOverview({ courseId, date: selectedDate });
     renderClassCards(document.getElementById("checkin-class-list"), classes, drillToStudents);
-
-    const heatmapEl = document.getElementById("checkin-heatmap");
-    const hm = await API.getCheckinHeatmap(checkinState.classId || "cl1", selectedDate.slice(0, 7));
-    heatmapEl.innerHTML = hm.values
-      .map((v, i) => {
-        const level = v >= 0.85 ? 4 : v >= 0.7 ? 3 : v >= 0.5 ? 2 : 1;
-        return `<button type="button" class="heat-cell l${level}" data-heat-idx="${i}" title="${Math.round(v * 100)}%"></button>`;
-      })
-      .join("");
-
-    heatmapEl.querySelectorAll(".heat-cell").forEach((cell) => {
-      cell.addEventListener("click", () => {
-        heatmapEl.querySelectorAll(".heat-cell").forEach((c) => c.classList.remove("selected"));
-        cell.classList.add("selected");
-      });
-    });
   }
 
   async function drillToStudents(classId, className) {
@@ -540,21 +518,54 @@
 
     const items = await API.getStudentEvidence(studentId);
     const timeline = document.getElementById("evidence-timeline");
+    const wall = document.getElementById("evidence-thumb-wall");
 
     if (!items.length) {
       timeline.innerHTML = `<p class="box-hint">暂无历史打卡证据</p>`;
+      if (wall) wall.innerHTML = "";
       document.getElementById("media-preview").innerHTML = `<div class="media-placeholder">暂无材料</div>`;
       document.getElementById("evidence-desc").textContent = "";
       return;
     }
 
     const idx = options.restore ? Math.min(selectedEvidenceIdx, items.length - 1) : 0;
+
+    if (wall) {
+      const tiles = [];
+      items.forEach((ev, ei) => {
+        const atts = ev.attachments?.length ? ev.attachments : [ev];
+        atts.forEach((att, ai) => {
+          const thumbHtml =
+            window.MediaViewer?.thumbImgHtml?.(att, "evidence-wall-img") ||
+            `<span class="evidence-card-thumb">${att.type === "video" || att.kind === "video" ? "🎬" : "📷"}</span>`;
+          tiles.push(`
+            <button type="button" class="evidence-wall-tile" data-ev-idx="${ei}" data-att-idx="${ai}" title="${ev.date} ${ev.desc || ""}">
+              <span class="evidence-wall-thumb">${thumbHtml}</span>
+              <span class="evidence-wall-meta">${ev.date} · ${ev.durationHours}h</span>
+            </button>`);
+        });
+      });
+      wall.innerHTML = tiles.join("");
+      wall.querySelectorAll(".evidence-wall-tile").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const ei = Number(btn.dataset.evIdx);
+          const ai = Number(btn.dataset.attIdx);
+          selectedEvidenceIdx = ei;
+          timeline.querySelectorAll(".timeline-item").forEach((t) => t.classList.remove("active"));
+          timeline.querySelector(`.timeline-item[data-idx="${ei}"]`)?.classList.add("active");
+          showEvidencePreview(items[ei]);
+          const atts = items[ei].attachments?.length ? items[ei].attachments : [items[ei]];
+          openMediaDialog(atts, ai);
+        });
+      });
+    }
+
     timeline.innerHTML = items
       .map(
         (ev, i) => `
         <button type="button" class="timeline-item ${i === idx ? "active" : ""}" data-idx="${i}">
           <time>${ev.date} ${ev.time} · ${ev.durationHours}h</time>
-          <strong>${ev.type === "video" ? "🎬 视频" : "📷 照片"} · ${ev.desc}</strong>
+          <strong>${ev.type === "video" ? "视频" : "照片"} · ${ev.desc}</strong>
           <span class="badge ${ev.reviewStatus === "approved" || ev.recordStatus === "valid" ? "status-ok" : "status-warn"}">${ev.recordStatus === "invalid" || ev.reviewStatus === "rejected" ? "无效" : "有效"}</span>
           ${ev.isSpecialty ? '<span class="badge status-info">专项</span>' : ""}
         </button>`
@@ -642,32 +653,6 @@
     dlg.showModal();
   }
 
-  async function renderMatrix() {
-    const courses = await API.getCourses();
-    const list = document.getElementById("matrix-course-list");
-    if (!matrixCourseId && courses[0]) matrixCourseId = courses[0].id;
-
-    list.innerHTML = courses
-      .map(
-        (c) =>
-          `<li><button type="button" class="list-item ${c.id === matrixCourseId ? "active" : ""}" data-course-id="${c.id}">${c.name}</button></li>`
-      )
-      .join("");
-
-    list.querySelectorAll("[data-course-id]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        matrixCourseId = btn.dataset.courseId;
-        renderMatrix();
-      });
-    });
-
-    const classes = await API.getCheckinOverview({ courseId: matrixCourseId, date: selectedDate });
-    renderKpiCards(document.getElementById("matrix-kpi"), sumStats(classes));
-    renderClassCards(document.getElementById("matrix-class-list"), classes, (id, name) => {
-      showPage("checkin-overview", { drillTo: { id, name } });
-    });
-  }
-
   function syncSettingsSemesterHours() {
     const courseH = Number(document.getElementById("settings-course-hours")?.value) || 0;
     const generalH = Number(document.getElementById("settings-general-hours")?.value) || 0;
@@ -712,43 +697,69 @@
       : `<li class="box-hint">暂无变更记录</li>`;
   }
 
-  async function renderHistory() {
-    const semSel = document.getElementById("history-semester");
+  async function renderHoursProgress(options = {}) {
+    if (options.studentId) hoursDetailStudentId = options.studentId;
+    if (options.courseId) basicCourseId = options.courseId;
+
+    const semSel = document.getElementById("hours-semester");
     const prevSem = semSel.value;
     semSel.innerHTML = MOCK.semesters.map((s) => `<option value="${s}">${s}</option>`).join("");
     if (prevSem) semSel.value = prevSem;
 
     const classes = await API.getClasses();
-    const classSel = document.getElementById("history-class");
+    const classSel = document.getElementById("hours-class");
     const prevClass = classSel.value;
     classSel.innerHTML = classes.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
     if (prevClass && classes.some((c) => c.id === prevClass)) classSel.value = prevClass;
 
     const data = await API.getCheckinHistory({ semester: semSel.value, classId: classSel.value });
-    const tbody = document.querySelector("#history-table tbody");
+    const tbody = document.querySelector("#hours-progress-table tbody");
     if (!data.records.length) {
-      tbody.innerHTML = `<tr><td colspan="6" class="table-empty">暂无历史记录</td></tr>`;
-      return;
-    }
-    tbody.innerHTML = data.records
-      .map((r) => {
-        const badges = getHistoryProgressBadge(r);
-        return `<tr>
+      tbody.innerHTML = `<tr><td colspan="7" class="table-empty">暂无记录</td></tr>`;
+    } else {
+      tbody.innerHTML = data.records
+        .map((r) => {
+          const badges = getHistoryProgressBadge(r);
+          return `<tr>
           <td>${r.no}</td><td>${r.name}</td>
           <td>${r.approvedHours}/${data.required}h</td>
           <td>${Math.round(r.progress * 100)}%</td>
           <td>${r.scoreHint}</td>
           <td><div class="badge-group">${badges.map((b) => `<span class="badge ${b.cls}">${b.text}</span>`).join("")}</div></td>
+          <td><button type="button" class="btn btn-text" data-hours-detail="${r.no}">明细</button></td>
         </tr>`;
-      })
-      .join("");
+        })
+        .join("");
+    }
+
+    tbody.querySelectorAll("[data-hours-detail]").forEach((btn) => {
+      btn.addEventListener("click", () => openHoursDetail(btn.dataset.hoursDetail));
+    });
+
+    if (hoursDetailStudentId) openHoursDetail(hoursDetailStudentId);
+    else {
+      const panel = document.getElementById("hours-detail-panel");
+      if (panel) panel.hidden = true;
+    }
+  }
+
+  async function openHoursDetail(studentId) {
+    hoursDetailStudentId = studentId;
+    const panel = document.getElementById("hours-detail-panel");
+    if (panel) panel.hidden = false;
+    if (window.LegacyPages?.renderStudentDetailInto) {
+      await window.LegacyPages.renderStudentDetailInto("legacy-hours-detail-root", {
+        studentId,
+        courseId: basicCourseId || undefined,
+      });
+    }
   }
 
   function canReviewAuditKind(kind) {
     if (kind === "checkin_review") {
       return currentRole === "sports_teacher" || currentRole === "dept_head" || currentRole === "super_admin";
     }
-    if (kind === "exempt_test") {
+    if (kind === "exempt_test" || kind === "exempt_exam") {
       return currentRole === "sports_teacher" || currentRole === "dept_head" || currentRole === "super_admin";
     }
     return false;
@@ -769,7 +780,6 @@
 
   function resetAuditDetailState() {
     auditDetail = null;
-    auditEvidenceViewed = false;
     auditDetailSource = null;
   }
 
@@ -790,29 +800,18 @@
     document.getElementById("audit-btn-invalidate").disabled = !enabled;
     document.getElementById("audit-btn-restore").disabled = !enabled;
     document.getElementById("audit-btn-adjust-hours").disabled = !enabled;
-    setAuditHint(
-      enabled ? "已查看证据，可进行审查操作" : "请先点击查看证据材料，再进行审查操作",
-      enabled
-    );
+    const makeup = document.getElementById("audit-btn-makeup");
+    if (makeup) makeup.disabled = !enabled;
+    if (enabled) {
+      setAuditHint("建议查看凭证后再操作；标无效将通知学生", true);
+    }
   }
 
   function setAuditExemptButtonsEnabled(enabled) {
     document.getElementById("audit-btn-approve").disabled = !enabled;
     document.getElementById("audit-btn-reject").disabled = !enabled;
-    setAuditHint(enabled ? "已查看证据，可进行审核" : "请先点击查看证据材料，再进行审核", enabled);
-  }
-
-  function markAuditEvidenceViewed() {
-    if (!auditDetail || auditEvidenceViewed) return;
-    auditEvidenceViewed = true;
-    if (auditDetail.kind === "checkin_review" && canReviewAuditKind("checkin_review")) {
-      setAuditCheckinButtonsEnabled(true);
-    } else if (
-      auditDetail.kind === "exempt_test" &&
-      canReviewAuditKind("exempt_test") &&
-      isAuditActionable(auditDetail.status)
-    ) {
-      setAuditExemptButtonsEnabled(true);
+    if (enabled) {
+      setAuditHint("建议查看凭证后再操作", true);
     }
   }
 
@@ -826,7 +825,7 @@
       .map((att, i) => {
         const thumbHtml =
           window.MediaViewer?.thumbImgHtml?.(att, "evidence-card-img") ||
-          `<span class="evidence-card-thumb">${att.type === "video" || att.kind === "video" ? "🎬" : "📷"} ${att.thumb || att.name}</span>`;
+          `<span class="evidence-card-thumb">${att.type === "video" || att.kind === "video" ? "视频" : "图片"} ${att.thumb || att.name || ""}</span>`;
         return `
         <button type="button" class="evidence-card" data-evidence-idx="${i}">
           <span class="evidence-card-thumb-wrap">${thumbHtml}</span>
@@ -837,7 +836,6 @@
 
     grid.querySelectorAll(".evidence-card").forEach((btn) => {
       btn.addEventListener("click", () => {
-        markAuditEvidenceViewed();
         openMediaDialog(attachments, Number(btn.dataset.evidenceIdx));
       });
     });
@@ -846,6 +844,7 @@
   const AUDIT_DETAIL_TITLES = {
     checkin_review: "打卡审查详情",
     exempt_test: "免测申请详情",
+    exempt_exam: "免考申请详情",
   };
 
   function renderAuditDetailInfo(kind, detail) {
@@ -867,6 +866,14 @@
         ["申请日期", detail.date],
         ["状态", AUDIT_STATUS[detail.status]],
       ],
+      exempt_exam: [
+        ["学号", detail.no],
+        ["姓名", detail.student],
+        ["类型", detail.type],
+        ["理由", detail.reason],
+        ["申请日期", detail.date],
+        ["状态", AUDIT_STATUS[detail.status]],
+      ],
     };
     return (rows[kind] || [])
       .map(([label, value]) => `<dt>${label}</dt><dd>${value ?? "—"}</dd>`)
@@ -875,9 +882,10 @@
 
   function renderAuditDetailActions(kind, detail) {
     const isCheckin = kind === "checkin_review";
+    const isExemptTest = kind === "exempt_test";
     document.getElementById("audit-checkin-actions").hidden = !isCheckin;
     document.getElementById("audit-btn-row-checkin").hidden = !isCheckin;
-    document.getElementById("audit-exempt-actions").hidden = isCheckin;
+    document.getElementById("audit-exempt-actions").hidden = !isExemptTest;
     document.getElementById("audit-btn-row-exempt").hidden = isCheckin;
 
     if (isCheckin) {
@@ -890,18 +898,20 @@
       }
       const canAct = canReviewAuditKind("checkin_review");
       document.getElementById("audit-btn-row-checkin").hidden = !canAct;
-      setAuditCheckinButtonsEnabled(false);
+      setAuditCheckinButtonsEnabled(canAct);
       if (!canAct) {
         setAuditHint("当前角色无权审查");
       }
     } else {
       const canAct = canReviewAuditKind(kind) && isAuditActionable(detail.status);
       document.getElementById("audit-btn-row-exempt").hidden = !canAct;
-      setAuditExemptButtonsEnabled(false);
+      setAuditExemptButtonsEnabled(canAct);
       if (!canAct) {
         setAuditHint(
           detail.status === "approved" || detail.status === "rejected" ? "该申请已处理" : "当前角色无权审核"
         );
+      } else if (kind === "exempt_exam") {
+        setAuditHint("免考通过后学生不进入专项考试录入", true);
       }
     }
   }
@@ -917,7 +927,6 @@
     if (!detail) return;
 
     auditDetail = detail;
-    auditEvidenceViewed = false;
     auditDetailSource = options.source || "audit-workbench";
 
     const closeBtn = document.getElementById("audit-detail-close");
@@ -956,20 +965,22 @@
   }
 
   async function submitAuditReview(action) {
-    if (!auditDetail || !auditEvidenceViewed || auditDetail.kind !== "exempt_test") return;
+    if (!auditDetail || (auditDetail.kind !== "exempt_test" && auditDetail.kind !== "exempt_exam")) return;
     const scoreEl = document.getElementById("audit-exempt-score");
     const exemptScore = scoreEl ? Number(scoreEl.value) : undefined;
-    if (action === "approve" && (exemptScore == null || !Number.isFinite(exemptScore))) {
+    if (auditDetail.kind === "exempt_test" && action === "approve" && (exemptScore == null || !Number.isFinite(exemptScore))) {
       alert("请填写免测自定义分数（0–100）");
       return;
     }
-    const res = await API.reviewApplication(auditDetail.id, action, auditDetail.kind, { exemptScore });
+    const res = await API.reviewApplication(auditDetail.id, action, auditDetail.kind, {
+      exemptScore: auditDetail.kind === "exempt_test" ? exemptScore : undefined,
+    });
     noticeApiPending(res);
     await afterAuditDetailMutation();
   }
 
   async function submitAuditInvalidate() {
-    if (!auditDetail || !auditEvidenceViewed || auditDetail.kind !== "checkin_review") return;
+    if (!auditDetail || auditDetail.kind !== "checkin_review") return;
     const reason = document.getElementById("audit-invalid-reason")?.value?.trim();
     if (!reason) {
       alert("请选择无效原因");
@@ -985,14 +996,14 @@
   }
 
   async function submitAuditRestore() {
-    if (!auditDetail || !auditEvidenceViewed || auditDetail.kind !== "checkin_review") return;
+    if (!auditDetail || auditDetail.kind !== "checkin_review") return;
     const res = await API.restoreCheckin(auditDetail.id);
     noticeApiPending(res);
     await afterAuditDetailMutation();
   }
 
   async function submitAuditAdjustHours() {
-    if (!auditDetail || !auditEvidenceViewed || auditDetail.kind !== "checkin_review") return;
+    if (!auditDetail || auditDetail.kind !== "checkin_review") return;
     const hours = Number(document.getElementById("audit-adjust-hours")?.value);
     const res = await API.adjustCheckinHours(auditDetail.id, hours);
     if (res && res.success === false) {
@@ -1009,8 +1020,26 @@
       t.classList.toggle("active", t.dataset.tab === auditTab);
     });
 
-    document.getElementById("audit-panel-checkin_review").hidden = auditTab !== "checkin_review";
-    document.getElementById("audit-panel-exempt_test").hidden = auditTab !== "exempt_test";
+    const panelCheckin = document.getElementById("audit-panel-checkin_review");
+    const panelTest = document.getElementById("audit-panel-exempt_test");
+    const panelExam = document.getElementById("audit-panel-exempt_exam");
+    const panelCert = document.getElementById("audit-panel-certifications");
+    if (panelCheckin) panelCheckin.hidden = auditTab !== "checkin_review";
+    if (panelTest) panelTest.hidden = auditTab !== "exempt_test";
+    if (panelExam) panelExam.hidden = auditTab !== "exempt_exam";
+    if (panelCert) panelCert.hidden = auditTab !== "certifications";
+
+    const pending = await API.getAuditPendingSummary();
+    const examApps = await API.getApplications("exempt_exam");
+    const examPending = examApps.filter((a) => a.status === "pending" || a.status === "reviewing").length;
+    const kpi = document.getElementById("audit-hub-kpi");
+    if (kpi) {
+      kpi.innerHTML = `
+        <div class="kpi-card"><span class="kpi-label">无效记录</span><span class="kpi-value kpi-warn">${pending.invalidCount}</span></div>
+        <div class="kpi-card"><span class="kpi-label">待审免测</span><span class="kpi-value">${pending.exemptTest}</span></div>
+        <div class="kpi-card"><span class="kpi-label">待审免考</span><span class="kpi-value">${examPending}</span></div>
+        <div class="kpi-card"><span class="kpi-label">抵扣</span><span class="kpi-value">见本页 Tab</span></div>`;
+    }
 
     if (auditTab === "checkin_review") {
       const checkinApps = await API.getPendingCheckins();
@@ -1020,16 +1049,38 @@
               const statusBadge = isCheckinRecordInvalid(a)
                 ? `<span class="badge status-warn">无效</span>`
                 : `<span class="badge status-ok">有效</span>`;
+              const atts = a.attachments?.length ? a.attachments : a.thumbUrl || a.thumb ? [a] : [];
+              const thumbStrip = atts.length
+                ? `<div class="audit-thumb-strip">${atts
+                    .slice(0, 3)
+                    .map((att, i) => {
+                      const thumbHtml =
+                        window.MediaViewer?.thumbImgHtml?.(att, "audit-row-thumb-img") ||
+                        `<span>${att.type === "video" || att.kind === "video" ? "视频" : "图"}</span>`;
+                      return `<button type="button" class="audit-row-thumb" data-audit-preview="${a.id}" data-att-idx="${i}">${thumbHtml}</button>`;
+                    })
+                    .join("")}${atts.length > 3 ? `<span class="box-hint">+${atts.length - 3}</span>` : ""}</div>`
+                : `<span class="box-hint">—</span>`;
               return `<tr>
                 <td>${a.no}</td><td>${a.studentName}</td><td>${a.classLabel}</td>
                 <td>${a.durationHours}h</td>
                 <td>${statusBadge}</td>
+                <td>${thumbStrip}</td>
                 <td>${a.desc}</td><td>${a.date} ${a.time}</td>
                 <td><button type="button" class="btn btn-secondary" data-audit-detail="checkin_review" data-audit-id="${a.id}">审查</button></td>
               </tr>`;
             })
             .join("")
-        : `<tr><td colspan="8" class="table-empty">暂无数据</td></tr>`;
+        : `<tr><td colspan="9" class="table-empty">暂无数据</td></tr>`;
+
+      document.querySelectorAll("[data-audit-preview]").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          const detail = await API.getCheckinReviewDetail(btn.dataset.auditPreview);
+          const atts = detail?.attachments?.length ? detail.attachments : [];
+          if (atts.length) openMediaDialog(atts, Number(btn.dataset.attIdx) || 0);
+        });
+      });
     }
 
     if (auditTab === "exempt_test") {
@@ -1045,6 +1096,27 @@
             )
             .join("")
         : `<tr><td colspan="6" class="table-empty">暂无数据</td></tr>`;
+    }
+
+    if (auditTab === "exempt_exam") {
+      const body = document.getElementById("audit-exempt-exam-body");
+      if (body) {
+        body.innerHTML = examApps.length
+          ? examApps
+              .map(
+                (a) => `<tr>
+                <td>${a.no}</td><td>${a.student}</td><td>${a.type}</td><td>${a.reason || "—"}</td>
+                <td><span class="badge status-info">${AUDIT_STATUS[a.status]}</span></td>
+                <td><button type="button" class="btn btn-secondary" data-audit-detail="exempt_exam" data-audit-id="${a.id}">审核</button></td>
+              </tr>`
+              )
+              .join("")
+          : `<tr><td colspan="6" class="table-empty">暂无数据</td></tr>`;
+      }
+    }
+
+    if (auditTab === "certifications" && window.LegacyPages?.render) {
+      await window.LegacyPages.render("pending-certifications");
     }
 
     document.querySelectorAll("[data-audit-detail]").forEach((btn) => {
@@ -1141,6 +1213,10 @@
     document.querySelectorAll("[data-physical-entry]").forEach((btn) => {
       btn.addEventListener("click", () => openPhysicalEntry(btn.dataset.physicalEntry));
     });
+
+    if (window.LegacyPages?.renderEnduranceScoring) {
+      await window.LegacyPages.renderEnduranceScoring();
+    }
   }
 
   async function openPhysicalEntry(studentId) {
@@ -1274,9 +1350,9 @@
 
   function renderGradeWeightsForm(weights) {
     const groups = [
-      { key: "normal", title: "默认（含体测）", fields: ["regular", "physical", "final"], labels: ["平时分", "体测", "期末"] },
-      { key: "exemptTest", title: "免测", fields: ["regular", "final"], labels: ["平时分", "期末"] },
-      { key: "exemptExam", title: "免考", fields: ["regular", "physical"], labels: ["平时分", "体测"] },
+      { key: "normal", title: "默认（含体测）", fields: ["regular", "physical", "final"], labels: ["打卡分", "体测", "期末"] },
+      { key: "exemptTest", title: "免测", fields: ["regular", "final"], labels: ["打卡分", "期末"] },
+      { key: "exemptExam", title: "免考", fields: ["regular", "physical"], labels: ["打卡分", "体测"] },
     ];
     document.getElementById("grade-weights-form").innerHTML = groups
       .map((g) => {
@@ -1321,6 +1397,7 @@
     if (value == null) return "—";
     if (kind === "physical" && value === "免测") return '<span class="badge status-info">免测</span>';
     if (kind === "final" && value === "免考") return '<span class="badge status-info">免考</span>';
+    if (kind === "final" && value === "缺考") return '<span class="badge status-warn">缺考</span>';
     if (kind === "physical" && value == null) return '<span class="badge status-warn">待录入</span>';
     return value;
   }
@@ -1338,13 +1415,15 @@
     if (r.gradePending) {
       return `<tr class="row-muted">
         <td>${r.no}</td><td>${r.name}</td><td>${r.courseName || "—"}</td><td>${r.classLabel}</td>
-        <td colspan="3"><span class="badge status-pending">${r.pendingReason}</span></td>
+        <td colspan="5"><span class="badge status-pending">${r.pendingReason}</span></td>
         <td>—</td>
       </tr>`;
     }
+    const checkinCell = `${formatRegularCell(r)}${r.checkinOverridden ? '<br><small class="box-hint">已覆盖</small>' : ""}`;
     return `<tr>
       <td>${r.no}</td><td>${r.name}</td><td>${r.courseName || "—"}</td><td>${r.classLabel}</td>
-      <td>${formatRegularCell(r)}</td>
+      <td>${checkinCell}</td>
+      <td>${r.attendanceScore != null ? r.attendanceScore : "—"}</td>
       <td>${formatGradeCell(r.physicalScore, "physical")}${
         r.enduranceRawDisplay
           ? `<br><small class="box-hint">耐力 ${r.enduranceRawDisplay}${r.endurancePercent != null ? ` · ${r.endurancePercent}` : ""}</small>`
@@ -1352,6 +1431,7 @@
       }</td>
       <td>${formatGradeCell(r.finalScore, "final")}</td>
       <td title="${r.formula || ""}"><strong>${r.totalScore}</strong></td>
+      <td><button type="button" class="btn btn-text" data-override-checkin="${r.studentId}" data-auto="${r.checkinPercent ?? ""}">覆盖打卡分</button></td>
     </tr>`;
   }
 
@@ -1420,31 +1500,31 @@
 
   function renderGradeRulesBanner(data) {
     const el = document.getElementById("grade-rules-banner");
+    if (!el) return;
     if (data.activeCourseId && data.weights) {
       const w = data.weights.normal;
       el.innerHTML = `
         <strong>当前课程：${data.courseWeightSummaries.find((c) => c.courseId === data.activeCourseId)?.courseName || ""}</strong>
-        <span>默认：平时×${pct(w.regular)}% + 体测×${pct(w.physical)}% + 期末×${pct(w.final)}%；
-        免测：平时×${pct(data.weights.exemptTest.regular)}% + 期末×${pct(data.weights.exemptTest.final)}%；
-        免考：平时×${pct(data.weights.exemptExam.regular)}% + 体测×${pct(data.weights.exemptExam.physical)}%。
-        平时分由有效学时折算（提交后即时计入，不依赖审核通过）。<em>免测申请处理中暂不输出成绩。</em></span>`;
+        <span>打卡×${pct(w.regular)}% + 平时×${pct(w.attendance || 0)}% + 体测×${pct(w.physical)}% + 专项×${pct(w.final)}%。
+        打卡分=有效学时折算（可覆盖）；平时表现=课次出勤。规则在「成绩规则」页发布冻结。<em>免测/免考审核中暂不输出成绩。</em></span>`;
       return;
     }
     const summaries = (data.courseWeightSummaries || [])
       .map(
         (c) =>
-          `<strong>${c.courseName}</strong>：平时${pct(c.normal.regular)}% / 体测${pct(c.normal.physical)}% / 期末${pct(c.normal.final)}%`
+          `<strong>${c.courseName}</strong>：打卡${pct(c.normal.regular)}% / 平时${pct(c.normal.attendance || 0)}% / 体测${pct(c.normal.physical)}% / 专项${pct(c.normal.final)}%`
       )
       .join("；");
     el.innerHTML = `
       <strong>各课程权重不同</strong>
-      <span>${summaries || "—"}。下表总评按每位学生<strong>所属课程</strong>的权重分别计算；平时分按有效学时折算。免测申请处理中暂不输出成绩。</span>`;
+      <span>${summaries || "—"}。总评按所属课程权重计算。</span>`;
   }
 
   async function populateGradeWeightsCourseSelect() {
+    const select = document.getElementById("grade-weights-course");
+    if (!select) return;
     const courses = await API.getCourses();
     const teacherCourses = (await API.getTeacherCourseOverview()).map((c) => c.id);
-    const select = document.getElementById("grade-weights-course");
     select.innerHTML = courses
       .filter((c) => teacherCourses.includes(c.id))
       .map((c) => `<option value="${c.id}" ${c.id === gradeWeightsCourseId ? "selected" : ""}>${c.name}</option>`)
@@ -1473,7 +1553,7 @@
     const w = weights.normal;
     document.getElementById("final-items-weight-hint").innerHTML = `
       <strong>该课程算分占比</strong>
-      <span>平时${pct(w.regular)}% / 体测${pct(w.physical)}% / 期末${pct(w.final)}%（可在「成绩汇总」页调整）</span>`;
+      <span>平时${pct(w.regular)}% / 体测${pct(w.physical)}% / 期末${pct(w.final)}%（可在「本课成绩核算」页调整）</span>`;
 
     document.getElementById("final-items-body").innerHTML = finalItemsDraft
       .map(
@@ -1542,18 +1622,22 @@
             const score =
               r.entryStatus === "exempt"
                 ? `<span class="text-muted">${r.exemptReason || "免考"}</span>`
-                : r.totalScore != null
-                  ? `<strong>${r.totalScore}</strong>`
-                  : "—";
-            const progress = r.entryStatus === "exempt" ? "—" : `${r.itemsEntered}/${r.itemsTotal}`;
+                : r.entryStatus === "absent"
+                  ? `<strong>0</strong>`
+                  : r.totalScore != null
+                    ? `<strong>${r.totalScore}</strong>`
+                    : "—";
+            const progress = r.entryStatus === "exempt" || r.entryStatus === "absent" ? "—" : `${r.itemsEntered}/${r.itemsTotal}`;
             const statusBadge =
               r.entryStatus === "exempt"
                 ? `<span class="badge status-info">免考</span>`
-                : r.entryStatus === "submitted"
-                  ? `<span class="badge status-ok">已录入</span>`
-                  : r.entryStatus === "draft"
-                    ? `<span class="badge status-pending">草稿</span>`
-                    : `<span class="badge status-warn">未录入</span>`;
+                : r.entryStatus === "absent"
+                  ? `<span class="badge status-warn">缺考</span>`
+                  : r.entryStatus === "submitted"
+                    ? `<span class="badge status-ok">已录入</span>`
+                    : r.entryStatus === "draft"
+                      ? `<span class="badge status-pending">草稿</span>`
+                      : `<span class="badge status-warn">未录入</span>`;
             return `<tr>
               <td>${r.no}</td><td>${r.name}</td><td>${r.classLabel}</td><td>${r.courseName}</td>
               <td>${score}</td><td>${progress}</td><td>${statusBadge}</td>
@@ -1608,10 +1692,6 @@
   }
 
   async function renderGradeSummary() {
-    await populateGradeWeightsCourseSelect();
-    const weights = await API.getGradeWeights(gradeWeightsCourseId);
-    renderGradeWeightsForm(weights);
-
     await populateCourseSelect("grade-course-filter", gradeCourseId, true);
     await populateClassSelect("grade-class-filter", gradeCourseId, gradeClassId);
 
@@ -1637,16 +1717,44 @@
     const sorted = updateGradeCopyStats(lastGradeRecords);
     document.querySelector("#grade-table tbody").innerHTML = sorted.length
       ? sorted.map(renderGradeTableRow).join("")
-      : `<tr><td colspan="8" class="empty-cell">暂无数据</td></tr>`;
+      : `<tr><td colspan="10" class="empty-cell">暂无数据</td></tr>`;
+
+    document.querySelectorAll("[data-override-checkin]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const cur = prompt("覆盖打卡分（0-100，留空取消覆盖）", btn.dataset.auto || "");
+        if (cur === null) return;
+        await API.setCheckinScoreOverride(btn.dataset.overrideCheckin, cur === "" ? null : Number(cur));
+        renderGradeSummary();
+      });
+    });
+
+    if (window.LegacyPages?.renderGradeExportPanel) {
+      await window.LegacyPages.renderGradeExportPanel("grade-export-precheck-root", {
+        courseId: gradeCourseId || gradeWeightsCourseId,
+      });
+    }
+    await window.CoreLoop?.renderAppeals?.(gradeCourseId || "c1");
   }
 
-  async function renderBasicCourses() {
+  async function renderRosterHub(options = {}) {
+    if (options.courseId) basicCourseId = options.courseId;
+    if (options.classId) basicClassId = options.classId;
+    await renderRosterCourseOverview();
+    await renderBasicStudents();
+    if (window.LegacyPages?.render) {
+      await window.LegacyPages.render("roster-import", options);
+    }
+  }
+
+  async function renderRosterCourseOverview() {
+    const root = document.getElementById("roster-course-overview");
+    if (!root) return;
     const courses = await API.getTeacherCourseOverview();
     if (!courses.length) {
-      document.getElementById("basic-course-list").innerHTML = `<div class="box"><p class="box-hint">暂无授课课程</p></div>`;
+      root.innerHTML = `<div class="box"><p class="box-hint">暂无授课课程</p></div>`;
       return;
     }
-    document.getElementById("basic-course-list").innerHTML = courses
+    root.innerHTML = courses
       .map(
         (c) => `
         <div class="box course-overview-box">
@@ -1662,7 +1770,7 @@
                 (cls) => `
               <button type="button" class="class-card" data-basic-class="${cls.id}" data-basic-course="${c.id}">
                 <div class="class-card-head"><strong>${cls.name}</strong><span class="rate-badge">${cls.studentCount} 人</span></div>
-                <p class="box-hint">点击查看学生名单</p>
+                <p class="box-hint">筛选下方在册学生</p>
               </button>`
               )
               .join("")}
@@ -1671,11 +1779,11 @@
       )
       .join("");
 
-    document.querySelectorAll("[data-basic-class]").forEach((btn) => {
+    root.querySelectorAll("[data-basic-class]").forEach((btn) => {
       btn.addEventListener("click", () => {
         basicCourseId = btn.dataset.basicCourse;
         basicClassId = btn.dataset.basicClass;
-        showPage("basic-students");
+        renderBasicStudents();
       });
     });
   }
@@ -1690,31 +1798,30 @@
       q: basicStudentSearch || undefined,
     });
 
-    document.getElementById("basic-students-summary").textContent = `共 ${data.total} 名学生`;
-    document.getElementById("basic-students-body").innerHTML = data.records.length
+    const summary = document.getElementById("basic-students-summary");
+    if (summary) summary.textContent = `共 ${data.total} 名学生`;
+    const body = document.getElementById("basic-students-body");
+    if (!body) return;
+    body.innerHTML = data.records.length
       ? data.records
           .map(
             (s) => `<tr>
             <td>${s.no}</td><td>${s.name}</td><td>${s.classLabel}</td>
             <td>${s.gender || "—"}</td><td>${s.age ?? "—"}</td>
-            <td><button class="btn btn-text" type="button" data-legacy-page="student-detail" data-student-id="${s.no}" data-course-id="${basicCourseId || s.courseId || ""}">学时明细</button></td>
+            <td><button class="btn btn-text" type="button" data-open-hours="${s.no}" data-course-id="${basicCourseId || s.courseId || ""}">学时明细</button></td>
           </tr>`
           )
           .join("")
       : `<tr><td colspan="6" class="empty-cell">暂无学生</td></tr>`;
-  }
 
-  async function renderPermissions() {
-    const users = await API.getRoleConfig();
-    document.querySelector("#permissions-table tbody").innerHTML = users
-      .map(
-        (u) => `<tr>
-        <td>${u.name}</td>
-        <td>${u.roles.map(roleLabel).join("、")}</td>
-        <td><button class="btn btn-text">编辑角色</button></td>
-      </tr>`
-      )
-      .join("");
+    body.querySelectorAll("[data-open-hours]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        showPage("hours-progress", {
+          studentId: btn.dataset.openHours,
+          courseId: btn.dataset.courseId || undefined,
+        });
+      });
+    });
   }
 
   async function initFilters() {
@@ -1727,7 +1834,6 @@
   function onDateChange() {
     syncDateInputs();
     const activePage = document.querySelector(".page.active")?.id;
-    if (activePage === "page-home") renderHome();
     if (activePage === "page-checkin-overview") {
       if (checkinState.level === 1) loadCheckinLevel1();
       else if (checkinState.level === 2) {
@@ -1735,7 +1841,6 @@
         renderStudentTable();
       }
     }
-    if (activePage === "page-checkin-matrix") renderMatrix();
   }
 
   function initEvents() {
@@ -1746,11 +1851,6 @@
         else window.location.href = "../index.html";
       });
     }
-
-    document.getElementById("home-date").addEventListener("change", (e) => {
-      setSelectedDate(e.target.value);
-      onDateChange();
-    });
 
     document.getElementById("checkin-date").addEventListener("change", (e) => {
       setSelectedDate(e.target.value);
@@ -1791,6 +1891,24 @@
     document.getElementById("audit-btn-invalidate").addEventListener("click", () => submitAuditInvalidate());
     document.getElementById("audit-btn-restore").addEventListener("click", () => submitAuditRestore());
     document.getElementById("audit-btn-adjust-hours").addEventListener("click", () => submitAuditAdjustHours());
+    document.getElementById("audit-btn-makeup")?.addEventListener("click", async () => {
+      if (!auditDetail || auditDetail.kind !== "checkin_review") return;
+      const hours = document.getElementById("audit-makeup-hours")?.value;
+      if (!hours) {
+        alert("请选择补录学时");
+        return;
+      }
+      const note = document.getElementById("audit-internal-note")?.value || "";
+      const publicFb = document.getElementById("audit-public-feedback")?.value || "";
+      if (!confirm(`将补录 ${hours}h 并通知学生（公开反馈：${publicFb || "无"}）？`)) return;
+      const studentId = Object.entries(MOCK.evidence || {}).find(([, list]) =>
+        (list || []).some((e) => e.id === auditDetail.id)
+      )?.[0];
+      const res = await API.addManualCredit(studentId || auditDetail.no, hours, note);
+      if (res.success === false) return alert(res.message);
+      alert(`已补录 ${hours}h（演示写入本地）${publicFb ? "；将向学生展示公开反馈" : ""}`);
+      await afterAuditDetailMutation();
+    });
 
     document.getElementById("settings-course-hours")?.addEventListener("input", syncSettingsSemesterHours);
     document.getElementById("settings-general-hours")?.addEventListener("input", syncSettingsSemesterHours);
@@ -1860,19 +1978,24 @@
 
     document.getElementById("settings-course").addEventListener("change", renderSettings);
 
-    document.getElementById("history-semester").addEventListener("change", renderHistory);
-    document.getElementById("history-class").addEventListener("change", renderHistory);
+    document.getElementById("hours-semester")?.addEventListener("change", () => renderHoursProgress());
+    document.getElementById("hours-class")?.addEventListener("change", () => renderHoursProgress());
+    document.getElementById("hours-detail-close")?.addEventListener("click", () => {
+      hoursDetailStudentId = "";
+      const panel = document.getElementById("hours-detail-panel");
+      if (panel) panel.hidden = true;
+    });
 
     document.getElementById("btn-export-checkin").addEventListener("click", async () => {
       const res = await API.exportCheckin({ format: "xlsx", date: selectedDate });
       alert(`导出请求已发送：${res.url}`);
     });
 
-    document.getElementById("btn-export-history").addEventListener("click", async () => {
+    document.getElementById("btn-export-hours")?.addEventListener("click", async () => {
       const res = await API.exportCheckin({
         format: "xlsx",
-        semester: document.getElementById("history-semester").value,
-        classId: document.getElementById("history-class").value,
+        semester: document.getElementById("hours-semester").value,
+        classId: document.getElementById("hours-class").value,
       });
       alert(`导出请求已发送：${res.url}`);
     });
@@ -1916,7 +2039,15 @@
       gradeClassId = e.target.value;
       renderGradeSummary();
     });
-    document.getElementById("btn-export-grade").addEventListener("click", () => alert("导出功能演示：对接后端后支持导出成绩汇总表"));
+    document.getElementById("btn-export-grade").addEventListener("click", async () => {
+      if (window.LegacyPages?.downloadGradeCsv) {
+        try {
+          await window.LegacyPages.downloadGradeCsv(gradeCourseId || gradeWeightsCourseId);
+        } catch (err) {
+          alert(err.message || "导出失败");
+        }
+      }
+    });
 
     document.getElementById("grade-roster-sort")?.addEventListener("change", (e) => {
       if (window.SortStudents) SortStudents.setRosterSort(e.target.value);
@@ -1926,48 +2057,51 @@
     document.getElementById("btn-copy-endurance")?.addEventListener("click", () => copyGradeTsv("endurance"));
     document.getElementById("btn-copy-both")?.addEventListener("click", () => copyGradeTsv("both"));
 
-    document.getElementById("grade-weights-course").addEventListener("change", async (e) => {
+    document.getElementById("grade-weights-course")?.addEventListener("change", async (e) => {
       gradeWeightsCourseId = e.target.value;
       await renderGradeSummary();
     });
 
-    document.getElementById("btn-save-grade-weights").addEventListener("click", async () => {
+    document.getElementById("btn-save-grade-weights")?.addEventListener("click", async () => {
       const weights = collectGradeWeights();
       const errors = validateGradeWeights(weights);
       const hint = document.getElementById("grade-weights-hint");
-      if (errors.length) {
-        hint.hidden = false;
-        hint.textContent = errors.join("；") + "。保存时将自动归一化。";
-      } else {
-        hint.hidden = true;
+      if (hint) {
+        if (errors.length) {
+          hint.hidden = false;
+          hint.textContent = errors.join("；") + "。保存时将自动归一化。";
+        } else {
+          hint.hidden = true;
+        }
       }
       await API.updateGradeWeights(gradeWeightsCourseId, weights);
       renderGradeSummary();
     });
-    document.getElementById("btn-reset-grade-weights").addEventListener("click", async () => {
+    document.getElementById("btn-reset-grade-weights")?.addEventListener("click", async () => {
       await API.resetGradeWeights(gradeWeightsCourseId);
-      document.getElementById("grade-weights-hint").hidden = true;
+      const hint = document.getElementById("grade-weights-hint");
+      if (hint) hint.hidden = true;
       renderGradeSummary();
     });
 
-    document.getElementById("final-items-course").addEventListener("change", (e) => {
+    document.getElementById("final-items-course")?.addEventListener("change", (e) => {
       finalItemsCourseId = e.target.value;
       finalItemsDraft = null;
       renderFinalItemsConfig();
     });
-    document.getElementById("btn-add-final-item").addEventListener("click", () => {
+    document.getElementById("btn-add-final-item")?.addEventListener("click", () => {
       if (!finalItemsDraft) finalItemsDraft = [];
       finalItemsDraft.push({ key: `final_${Date.now()}`, label: "新项目", unit: "" });
       renderFinalItemsConfig();
     });
-    document.getElementById("btn-save-final-items").addEventListener("click", async () => {
+    document.getElementById("btn-save-final-items")?.addEventListener("click", async () => {
       const items = collectFinalItemsDraft();
       await API.updateFinalExamConfig(finalItemsCourseId, { items });
       finalItemsDraft = null;
       alert("期末项目配置已保存");
       renderFinalItemsConfig();
     });
-    document.getElementById("btn-reset-final-items").addEventListener("click", async () => {
+    document.getElementById("btn-reset-final-items")?.addEventListener("click", async () => {
       if (!confirm("确定恢复该课程的默认期末项目？")) return;
       await API.resetFinalExamConfig(finalItemsCourseId);
       finalItemsDraft = null;
@@ -2000,7 +2134,15 @@
     });
     document.getElementById("final-btn-draft").addEventListener("click", () => saveFinalEntry(false));
     document.getElementById("final-btn-submit").addEventListener("click", () => saveFinalEntry(true));
-    document.getElementById("btn-export-final").addEventListener("click", () => alert("导出功能演示：对接后端后支持导出期末成绩"));
+    document.getElementById("final-btn-absent")?.addEventListener("click", async () => {
+      if (!finalEntryId) return;
+      if (!confirm("标记缺考将计 0 分，确认？")) return;
+      await API.markFinalAbsent(finalEntryId);
+      document.getElementById("final-entry-dialog").close();
+      finalEntryId = null;
+      renderFinalExam();
+    });
+    document.getElementById("btn-export-final").addEventListener("click", () => alert("导出功能演示：对接后端后支持导出专项成绩"));
 
     document.getElementById("basic-course-filter").addEventListener("change", async (e) => {
       basicCourseId = e.target.value;
@@ -2039,6 +2181,8 @@
       const root = document.getElementById("nav-more");
       setMoreOpen(!root?.classList.contains("is-open"), true);
     });
+
+    if (window.CoreLoop) window.CoreLoop.bindEvents(showPage);
 
     navItems.forEach((item) => {
       item.addEventListener("click", (e) => {

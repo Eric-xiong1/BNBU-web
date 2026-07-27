@@ -25,63 +25,6 @@ window.MOCK = {
     { id: "cl8", courseId: "c4", classNo: "2401", total: 36 },
   ],
 
-  heatmap: {
-    default: [
-      0.6, 0.7, 0.8, 0.75, 0.9, 0.85, 0.4,
-      0.65, 0.72, 0.88, 0.91, 0.78, 0.82, 0.55,
-      0.7, 0.83, 0.86, 0.92, 0.88, 0.79, 0.68,
-      0.74, 0.81, 0.87, 0.9, 0.84, 0.76, 0.71,
-    ],
-    cl1: [
-      0.72, 0.78, 0.85, 0.8, 0.92, 0.88, 0.55,
-      0.68, 0.75, 0.9, 0.93, 0.82, 0.86, 0.6,
-      0.74, 0.88, 0.9, 0.95, 0.91, 0.83, 0.7,
-      0.78, 0.84, 0.89, 0.92, 0.87, 0.8, 0.73,
-    ],
-    cl2: [
-      0.55, 0.62, 0.7, 0.68, 0.82, 0.75, 0.38,
-      0.58, 0.65, 0.78, 0.85, 0.72, 0.76, 0.48,
-      0.62, 0.74, 0.8, 0.86, 0.82, 0.7, 0.58,
-      0.66, 0.72, 0.79, 0.84, 0.78, 0.68, 0.62,
-    ],
-    cl3: [
-      0.68, 0.74, 0.82, 0.78, 0.88, 0.84, 0.52,
-      0.7, 0.76, 0.86, 0.9, 0.8, 0.84, 0.58,
-      0.72, 0.85, 0.88, 0.93, 0.89, 0.81, 0.68,
-      0.76, 0.82, 0.87, 0.9, 0.85, 0.78, 0.7,
-    ],
-    cl4: [
-      0.75, 0.8, 0.88, 0.85, 0.94, 0.9, 0.6,
-      0.78, 0.84, 0.92, 0.95, 0.86, 0.9, 0.65,
-      0.8, 0.9, 0.93, 0.96, 0.92, 0.86, 0.74,
-      0.82, 0.88, 0.93, 0.95, 0.9, 0.84, 0.78,
-    ],
-    cl5: [
-      0.7, 0.76, 0.84, 0.8, 0.9, 0.86, 0.5,
-      0.72, 0.78, 0.88, 0.91, 0.82, 0.86, 0.55,
-      0.74, 0.86, 0.89, 0.94, 0.9, 0.82, 0.7,
-      0.78, 0.84, 0.89, 0.92, 0.87, 0.8, 0.72,
-    ],
-    cl6: [
-      0.82, 0.86, 0.92, 0.9, 0.96, 0.94, 0.72,
-      0.84, 0.88, 0.94, 0.97, 0.92, 0.94, 0.78,
-      0.86, 0.92, 0.95, 0.98, 0.96, 0.9, 0.82,
-      0.88, 0.92, 0.95, 0.97, 0.94, 0.88, 0.84,
-    ],
-    cl7: [
-      0.78, 0.82, 0.88, 0.85, 0.92, 0.9, 0.65,
-      0.8, 0.84, 0.9, 0.93, 0.88, 0.9, 0.7,
-      0.82, 0.88, 0.91, 0.94, 0.92, 0.86, 0.78,
-      0.84, 0.88, 0.92, 0.94, 0.9, 0.84, 0.8,
-    ],
-    cl8: [
-      0.62, 0.68, 0.76, 0.72, 0.84, 0.78, 0.42,
-      0.64, 0.7, 0.82, 0.86, 0.76, 0.8, 0.5,
-      0.68, 0.78, 0.82, 0.88, 0.84, 0.74, 0.62,
-      0.7, 0.76, 0.82, 0.86, 0.8, 0.72, 0.66,
-    ],
-  },
-
   students: {
     cl1: [
       { id: "s1", no: "20240001", name: "张三" },
@@ -427,6 +370,88 @@ window.MOCK = {
     { studentId: "s43", no: "20240080", name: "刘雯", classId: "cl8", age: 19, gender: "女", height: 170, weight: 56, matched: true, entryStatus: "submitted", scores: { vitalCapacity: 3200, run50m: 8.0, sitReach: 28, longJump: 210, sitUps: 50, run800m: 198 }, convertedScores: { run800m: 90 }, totalScore: 88 },
     { studentId: "s47", no: "20240084", name: "陈雪", classId: "cl8", age: 20, gender: "女", height: 163, weight: 53, matched: true, entryStatus: "pending", scores: null, totalScore: null },
   ],
+
+  /** 成绩规则：四项 + 发布状态 */
+  courseGradeRules: {
+    c1: {
+      status: "published",
+      version: 1,
+      publishedAt: "2026-03-05",
+      items: [
+        { type: "checkin", name: "体育打卡", weight: 0.3, locked: true },
+        { type: "final", name: "专项考试", weight: 0.25, locked: true },
+        { type: "attendance", name: "平时表现", weight: 0.2, locked: true },
+        { type: "physical", name: "体测", weight: 0.25, locked: true },
+      ],
+      finalSubItems: [
+        { key: "run100m", label: "100米跑", unit: "秒", lowerBetter: true },
+        { key: "longJump", label: "立定跳远", unit: "cm" },
+        { key: "ballThrow", label: "实心球", unit: "m" },
+      ],
+    },
+    c3: {
+      status: "draft",
+      version: 0,
+      publishedAt: null,
+      items: [
+        { type: "checkin", name: "体育打卡", weight: 0.35, locked: true },
+        { type: "final", name: "专项考试", weight: 0.3, locked: true },
+        { type: "attendance", name: "平时表现", weight: 0.15, locked: true },
+        { type: "physical", name: "体测", weight: 0.2, locked: true },
+      ],
+      finalSubItems: [
+        { key: "shooting", label: "1分钟投篮", unit: "次" },
+        { key: "dribbleLayup", label: "运球上篮", unit: "秒", lowerBetter: true },
+        { key: "scrimmage", label: "实战评估", unit: "分" },
+      ],
+    },
+  },
+
+  /** 课程成绩生命周期 */
+  courseGradeStatus: {
+    c1: "recording",
+    c3: "rules_draft",
+  },
+
+  checkinScoreOverrides: {},
+  manualCredits: {},
+
+  attendanceSessions: {
+    c1: [
+      { id: "w1", label: "第1周", date: "2026-03-03" },
+      { id: "w2", label: "第2周", date: "2026-03-10" },
+      { id: "w3", label: "第3周", date: "2026-03-17" },
+      { id: "w4", label: "第4周", date: "2026-03-24" },
+      { id: "w5", label: "第5周", date: "2026-03-31" },
+      { id: "w6", label: "第6周", date: "2026-04-07" },
+      { id: "w7", label: "第7周", date: "2026-04-14" },
+      { id: "w8", label: "第8周", date: "2026-04-21" },
+    ],
+  },
+
+  attendanceRules: {
+    c1: { base: 100, late: 5, leave: 3, absent: 10, floor: 0 },
+  },
+
+  /** studentId -> { sessionId: 出勤|迟到|请假|缺勤, override?: number } */
+  attendanceRecords: {},
+
+  gradeAppeals: [
+    {
+      id: "ap1",
+      courseId: "c1",
+      studentId: "s2",
+      no: "20240002",
+      name: "李四",
+      item: "体测",
+      reason: "坐位体前屈成绩录入有误，现场复测更高",
+      status: "pending",
+    },
+  ],
+
+  gradePublicity: {
+    c1: { publishedAt: null, days: 5, endsAt: null },
+  },
 };
 
 (function enrichMockMedia(MOCK) {

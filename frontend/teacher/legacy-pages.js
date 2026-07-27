@@ -9,11 +9,11 @@
   const LEGACY_PAGES = new Set([
     "roster-import",
     "attendance-scores",
-    "grade-export",
-    "student-detail",
     "pending-certifications",
-    "endurance-scoring",
   ]);
+
+  let gradeExportRootId = "grade-export-precheck-root";
+  let studentDetailRootId = "legacy-hours-detail-root";
 
   const state = {
     courseId: "",
@@ -170,7 +170,7 @@
     root.innerHTML = `
       <div class="legacy-stack">
       ${renderNotice()}
-      <div class="rules-banner"><strong>导入说明</strong><span>支持 CSV 导入，须校验姓名、学号、学院、班级、课程代码、Section、选课状态。当前教学班：${esc(courseLabel(courses, state.courseId))}</span></div>
+      <div class="rules-banner"><strong>导入说明</strong><span>支持 CSV 导入（推荐 UTF-8；Excel 另存可能为 GBK，系统会自动尝试）。须校验姓名、学号、学院、班级、课程代码、Section、选课状态。当前教学班：${esc(courseLabel(courses, state.courseId))}</span></div>
       <div class="toolbar-inline">
         <select class="field-input" id="legacy-import-course">${courses.map((c) => `<option value="${esc(c.id)}"${c.id === state.courseId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
         <input type="file" class="field-input" id="legacy-import-file" accept=".csv,text/csv" />
@@ -203,6 +203,73 @@
       </div>`;
   }
 
+  function looksLikeMojibake(text) {
+    if (!text) return true;
+    if (/Ã.|Â.|ä¸|å.|æ.|ç.|è.|é./.test(text) && !/[\u4e00-\u9fff]{2}/.test(text)) return true;
+    if (/�/.test(text)) return true;
+    return false;
+  }
+
+  function csvHasExpectedHeaders(text) {
+    const firstLine = String(text).split(/\r?\n/)[0] || "";
+    const compact = firstLine.replace(/\s/g, "").toLowerCase();
+    return (
+      compact.includes("姓名") ||
+      compact.includes("学号") ||
+      compact.includes("name") ||
+      compact.includes("studentid")
+    );
+  }
+
+  async function readCsvText(file) {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let start = 0;
+    if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) start = 3;
+    const utf8 = new TextDecoder("utf-8").decode(bytes.subarray(start));
+    if (csvHasExpectedHeaders(utf8) && !looksLikeMojibake(utf8)) return utf8;
+    try {
+      const gbk = new TextDecoder("gb18030").decode(bytes.subarray(start));
+      if (csvHasExpectedHeaders(gbk) || !looksLikeMojibake(gbk)) return gbk;
+    } catch {
+      /* gb18030 may be unavailable in some engines */
+    }
+    try {
+      const gbk2 = new TextDecoder("gbk").decode(bytes.subarray(start));
+      if (csvHasExpectedHeaders(gbk2) || !looksLikeMojibake(gbk2)) return gbk2;
+    } catch {
+      /* ignore */
+    }
+    return utf8;
+  }
+
+  function mapImportRows(parsed) {
+    const headers = parsed[0].map((h) => h.replace(/\s/g, "").toLowerCase());
+    return parsed.slice(1).map((cells, idx) => {
+      const get = (keys) => {
+        for (const k of keys) {
+          const i = headers.indexOf(k);
+          if (i >= 0) return cells[i] || "";
+        }
+        return "";
+      };
+      const id = get(["学号", "studentid", "id"]);
+      const valid = Boolean(get(["姓名", "name"]) && id);
+      return {
+        name: get(["姓名", "name"]),
+        id,
+        college: get(["学院", "college"]),
+        className: get(["班级", "classname"]),
+        courseCode: get(["课程代码", "coursecode"]),
+        section: get(["section"]),
+        enrollmentStatus: get(["选课状态", "enrollmentstatus"]) || "已选",
+        valid,
+        status: valid ? "可导入" : "字段缺失",
+        rowIndex: idx,
+      };
+    });
+  }
+
   async function previewImport(file) {
     const cid = await ensureCourseId();
     if (!cid) return;
@@ -223,36 +290,13 @@
       return;
     }
     if (file) {
-      const text = await file.text();
+      const text = await readCsvText(file);
       const parsed = parseCsv(text);
       if (parsed.length < 2) {
         state.importPreview = [];
         throw new Error("CSV 格式无效");
       }
-      const headers = parsed[0].map((h) => h.replace(/\s/g, "").toLowerCase());
-      state.importPreview = parsed.slice(1).map((cells, idx) => {
-        const get = (keys) => {
-          for (const k of keys) {
-            const i = headers.indexOf(k);
-            if (i >= 0) return cells[i] || "";
-          }
-          return "";
-        };
-        const id = get(["学号", "studentid", "id"]);
-        const valid = Boolean(get(["姓名", "name"]) && id);
-        return {
-          name: get(["姓名", "name"]),
-          id,
-          college: get(["学院", "college"]),
-          className: get(["班级", "classname"]),
-          courseCode: get(["课程代码", "coursecode"]),
-          section: get(["section"]),
-          enrollmentStatus: get(["选课状态", "enrollmentstatus"]) || "已选",
-          valid,
-          status: valid ? "可导入" : "字段缺失",
-          rowIndex: idx,
-        };
-      });
+      state.importPreview = mapImportRows(parsed);
       return;
     }
     state.importPreview = demoImportRows();
@@ -316,6 +360,10 @@
     root.innerHTML = `
       <div class="legacy-stack">
       ${renderNotice()}
+      <div class="rules-banner">
+        <strong>录入说明</strong>
+        <span>本页为课次出勤与课堂表现分，计入「平时表现」成绩项；<em>不是</em>有效学时折算的打卡分（打卡分见本课成绩核算）。</span>
+      </div>
       <div class="toolbar-inline">
         <select class="field-input" id="legacy-attendance-course">${courses.map((c) => `<option value="${esc(c.id)}"${c.id === state.courseId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
         <button class="btn btn-primary" type="button" data-legacy-action="attendance-save">批量保存</button>
@@ -363,7 +411,7 @@
         method: "PUT",
         body: JSON.stringify({ rows }),
       });
-      setNotice("签到平时分已保存");
+      setNotice("平时表现已保存");
     } else {
       setNotice(`演示模式：已保存 ${rows.length} 名学生的平时分`);
     }
@@ -401,46 +449,44 @@
     );
   }
 
-  async function renderGradeExport() {
+  async function renderGradeExportPanel(rootIdOverride, options = {}) {
+    if (options.courseId) await ensureCourseId(options.courseId);
+    else await ensureCourseId();
+    if (rootIdOverride) gradeExportRootId = rootIdOverride;
     await loadExportPrecheck();
     const courses = await getCourses();
     const issues = state.exportPrecheck || {};
     const blocked = exportBlocked(issues);
-    const root = document.getElementById(rootId("grade-export"));
+    const root = document.getElementById(gradeExportRootId);
     if (!root) return;
 
     root.innerHTML = `
       <div class="legacy-stack">
       ${renderNotice()}
-      <div class="rules-banner">
-        <strong>成绩导出说明</strong>
-        <span>归档由管理员发起；本页仅自定义导出 Excel/CSV，可查看预检结果供参考。</span>
-      </div>
       <div class="toolbar-inline">
         <select class="field-input" id="legacy-export-course">${courses.map((c) => `<option value="${esc(c.id)}"${c.id === state.courseId ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
-        <button class="btn btn-secondary" type="button" data-legacy-action="export-view-precheck">查看预检结果</button>
+        <button class="btn btn-secondary" type="button" data-legacy-action="export-view-precheck">刷新预检</button>
         <button class="btn ${blocked ? "btn-secondary" : "btn-primary"}" type="button" data-legacy-action="export-download"${blocked ? " disabled" : ""}>下载成绩 CSV</button>
       </div>
       <div class="rules-banner${blocked ? " rules-banner-danger" : ""}">
         <strong>${blocked ? "预检未通过" : "预检已通过"}</strong>
-        <span>${blocked ? "下列问题供参考；如需正式归档请联系管理员。" : "预检检查已通过，可以下载自定义成绩 CSV。"}</span>
+        <span>${blocked ? "下列问题供参考；正式归档请联系管理员。" : "可下载自定义成绩 CSV。"}</span>
       </div>
-      <div class="box">
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th>检查项</th><th>详情</th><th>建议</th></tr></thead>
-            <tbody>
-              <tr><td>缺少 / 低体测</td><td>${formatNameList(issues.missingPhysical)}</td><td>补录体测原始数据</td></tr>
-              <tr><td>打卡未满</td><td>${formatNameList(issues.checkinNotEnough)}</td><td>提醒学生补齐学时</td></tr>
-              <tr><td>异常未处理</td><td>${formatNameList(issues.unresolvedReviews)}</td><td>进入审核工作台处理</td></tr>
-            </tbody>
-          </table>
-        </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>检查项</th><th>详情</th><th>建议</th></tr></thead>
+          <tbody>
+            <tr><td>缺少 / 低体测</td><td>${formatNameList(issues.missingPhysical)}</td><td>补录体测原始数据</td></tr>
+            <tr><td>打卡未满</td><td>${formatNameList(issues.checkinNotEnough)}</td><td>提醒学生补齐学时</td></tr>
+            <tr><td>异常未处理</td><td>${formatNameList(issues.unresolvedReviews)}</td><td>进入审核工作台处理</td></tr>
+          </tbody>
+        </table>
       </div>
       </div>`;
   }
 
-  async function downloadGradeCsv() {
+  async function downloadGradeCsv(preferredCourseId) {
+    if (preferredCourseId) await ensureCourseId(preferredCourseId);
     const cid = await ensureCourseId();
     const sort = global.SortStudents?.getRosterSort?.() || "import";
     if (hasApi()) {
@@ -491,7 +537,7 @@
     const issues = state.exportPrecheck || {};
     const blocked = exportBlocked(issues);
     setNotice(blocked ? "预检未通过，下列问题供参考" : "预检已通过，可以下载 CSV");
-    await renderGradeExport();
+    await renderGradeExportPanel(gradeExportRootId);
   }
 
   // ── Student detail ──────────────────────────────────────────────
@@ -528,6 +574,13 @@
     };
   }
 
+  async function renderStudentDetailInto(rootIdOverride, options = {}) {
+    if (options.courseId) await ensureCourseId(options.courseId);
+    if (options.studentId) state.studentDetailId = options.studentId;
+    if (rootIdOverride) studentDetailRootId = rootIdOverride;
+    await renderStudentDetail();
+  }
+
   async function renderStudentDetail() {
     const students = await loadStudentList();
     if (!state.studentDetailId && students[0]) state.studentDetailId = students[0].id;
@@ -535,7 +588,7 @@
     const courses = await getCourses();
     const student = students.find((s) => s.id === state.studentDetailId);
     const detail = state.studentHoursDetail;
-    const root = document.getElementById(rootId("student-detail"));
+    const root = document.getElementById(studentDetailRootId) || document.getElementById(rootId("student-detail"));
     if (!root) return;
 
     const summary = detail?.summary || {};
@@ -592,18 +645,6 @@
               <div><strong>合计有效：${Number(summary.totalApproved || 0).toFixed(1)}h</strong></div>
             </div>
           </div>
-          ${student
-            ? `<div class="box">
-            <h2 class="h2">成绩进度</h2>
-            <div class="detail-kv">
-              <div>课程相关：${esc(student.course ?? 0)}h</div>
-              <div>其他运动：${esc(student.general ?? 0)}h</div>
-              <div>考试：${esc(student.exam ?? "—")}</div>
-              <div>出勤：${esc(student.attendance ?? "—")}</div>
-              <div>体测：${esc(student.physical ?? "—")}</div>
-            </div>
-          </div>`
-            : ""}
         </div>
       </div>
       </div>`;
@@ -787,10 +828,7 @@
   const renderers = {
     "roster-import": renderRosterImport,
     "attendance-scores": renderAttendanceScores,
-    "grade-export": renderGradeExport,
-    "student-detail": renderStudentDetail,
     "pending-certifications": renderPendingCertifications,
-    "endurance-scoring": renderEnduranceScoring,
   };
 
   async function render(pageId, options = {}) {
@@ -833,7 +871,7 @@
         await viewExportPrecheck();
       } else if (action === "export-download") {
         await downloadGradeCsv();
-        await renderGradeExport();
+        await renderGradeExportPanel(gradeExportRootId);
       } else if (action === "cert-confirm") {
         await confirmCert(el.dataset.certId, false);
       } else if (action === "cert-reject") {
@@ -865,7 +903,7 @@
         await renderAttendanceScores();
       } else if (e.target.id === "legacy-export-course") {
         state.courseId = e.target.value;
-        await renderGradeExport();
+        await renderGradeExportPanel(gradeExportRootId);
       } else if (e.target.id === "legacy-detail-course") {
         state.courseId = e.target.value;
         state.studentDetailId = "";
@@ -894,7 +932,8 @@
       const link = e.target.closest("[data-legacy-page]");
       if (!link || !showPageRef) return;
       e.preventDefault();
-      const pageId = link.dataset.legacyPage;
+      let pageId = link.dataset.legacyPage;
+      if (pageId === "student-detail") pageId = "hours-progress";
       const opts = {};
       if (link.dataset.studentId) opts.studentId = link.dataset.studentId;
       if (link.dataset.courseId) opts.courseId = link.dataset.courseId;
@@ -908,6 +947,10 @@
     },
     render,
     bindOnce,
+    renderGradeExportPanel,
+    downloadGradeCsv,
+    renderEnduranceScoring,
+    renderStudentDetailInto,
     setContext(ctx = {}) {
       if (ctx.courseId) state.courseId = ctx.courseId;
       if (ctx.studentId) state.studentDetailId = ctx.studentId;

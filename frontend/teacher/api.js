@@ -350,42 +350,107 @@
     return normalized;
   }
 
+  function getCourseGradeRule(courseId) {
+    const rules = MOCK.courseGradeRules || {};
+    if (rules[courseId]) return JSON.parse(JSON.stringify(rules[courseId]));
+    const base = rules.c1 || {
+      status: "draft",
+      version: 0,
+      items: [
+        { type: "checkin", name: "体育打卡", weight: 0.3, locked: true },
+        { type: "final", name: "专项考试", weight: 0.25, locked: true },
+        { type: "attendance", name: "平时表现", weight: 0.2, locked: true },
+        { type: "physical", name: "体测", weight: 0.25, locked: true },
+      ],
+      finalSubItems: getFinalExamItems(courseId),
+    };
+    return JSON.parse(JSON.stringify(base));
+  }
+
+  function ruleWeightMap(courseId) {
+    const rule = getCourseGradeRule(courseId);
+    const map = { checkin: 0.3, attendance: 0.2, physical: 0.25, final: 0.25 };
+    (rule.items || []).forEach((it) => {
+      map[it.type] = Number(it.weight) || 0;
+    });
+    return map;
+  }
+
+  function computeAttendanceScore(studentId, courseId) {
+    const cid = courseId || "c1";
+    const sessions = (MOCK.attendanceSessions && (MOCK.attendanceSessions[cid] || MOCK.attendanceSessions.c1)) || [];
+    const rules = (MOCK.attendanceRules && (MOCK.attendanceRules[cid] || MOCK.attendanceRules.c1)) || {
+      base: 100,
+      late: 5,
+      leave: 3,
+      absent: 10,
+      floor: 0,
+    };
+    const rec = (MOCK.attendanceRecords && MOCK.attendanceRecords[studentId]) || {};
+    if (rec.override != null && rec.override !== "") return Number(rec.override);
+    let score = rules.base;
+    sessions.forEach((s) => {
+      const st = rec[s.id] || "出勤";
+      if (st === "迟到") score -= rules.late;
+      else if (st === "请假") score -= rules.leave;
+      else if (st === "缺勤") score -= rules.absent;
+    });
+    return Math.max(rules.floor, Math.round(score * 10) / 10);
+  }
+
+  function resolveCheckinScore(studentId, classId, autoScore) {
+    const ov = MOCK.checkinScoreOverrides?.[studentId];
+    if (ov != null && ov !== "") return { score: Number(ov), overridden: true };
+    return { score: autoScore, overridden: false };
+  }
+
   function computeRegularScore(studentId, classId) {
     const students = MOCK.students[classId] || [];
     const s = students.find((st) => st.id === studentId);
     if (!s) return 0;
     const enriched = enrichStudent(s, classId, "");
     const ratio = enriched.semesterRequired ? enriched.approvedHours / enriched.semesterRequired : 0;
-    return Math.min(100, Math.round(ratio * 100));
+    return Math.min(100, Math.round(ratio * 1000) / 10);
   }
 
   function getGradeWeightsForCourse(courseId) {
-    const courses = MOCK.gradeWeights.courses;
-    return courses[courseId] || courses.default;
+    const w = ruleWeightMap(courseId);
+    return {
+      normal: { regular: w.checkin, attendance: w.attendance, physical: w.physical, final: w.final },
+      exemptTest: { regular: 0.5, attendance: 0.2, final: 0.3 },
+      exemptExam: { regular: 0.4, attendance: 0.2, physical: 0.4 },
+    };
   }
 
   function formatGradeFormula(weights, exemptTestStatus, exemptExamStatus) {
+    const n = weights.normal || weights;
     if (exemptTestStatus === "approved") {
-      return `免测：平时×${Math.round(weights.exemptTest.regular * 100)}% + 期末×${Math.round(weights.exemptTest.final * 100)}%`;
+      return `免测：打卡×${Math.round((weights.exemptTest?.regular || 0.5) * 100)}% + 平时×${Math.round((weights.exemptTest?.attendance || 0.2) * 100)}% + 专项×${Math.round((weights.exemptTest?.final || 0.3) * 100)}%`;
     }
     if (exemptExamStatus === "approved") {
-      return `免考：平时×${Math.round(weights.exemptExam.regular * 100)}% + 体测×${Math.round(weights.exemptExam.physical * 100)}%`;
+      return `免考：打卡×${Math.round((weights.exemptExam?.regular || 0.4) * 100)}% + 平时×${Math.round((weights.exemptExam?.attendance || 0.2) * 100)}% + 体测×${Math.round((weights.exemptExam?.physical || 0.4) * 100)}%`;
     }
-    return `平时×${Math.round(weights.normal.regular * 100)}% + 体测×${Math.round(weights.normal.physical * 100)}% + 期末×${Math.round(weights.normal.final * 100)}%`;
+    return `打卡×${Math.round((n.regular || 0) * 100)}% + 平时×${Math.round((n.attendance || 0) * 100)}% + 体测×${Math.round((n.physical || 0) * 100)}% + 专项×${Math.round((n.final || 0) * 100)}%`;
   }
 
-  function computeTotalGrade(regular, physical, final, exemptTestStatus, exemptExamStatus, courseId) {
+  function computeTotalGrade(checkin, attendance, physical, final, exemptTestStatus, exemptExamStatus, courseId) {
     const w = getGradeWeightsForCourse(courseId);
+    const c = Number(checkin) || 0;
+    const a = Number(attendance) || 0;
+    const p = physical == null || physical === "免测" ? 0 : Number(physical) || 0;
+    const f = final == null || final === "免考" || final === "缺考" ? (final === "缺考" ? 0 : 0) : Number(final) || 0;
     if (exemptTestStatus === "approved") {
-      return Math.round(regular * w.exemptTest.regular + (final || 0) * w.exemptTest.final);
+      return Math.round(c * w.exemptTest.regular + a * (w.exemptTest.attendance || 0) + f * w.exemptTest.final);
     }
     if (exemptExamStatus === "approved") {
-      return Math.round(regular * w.exemptExam.regular + (physical || 0) * w.exemptExam.physical);
+      return Math.round(c * w.exemptExam.regular + a * (w.exemptExam.attendance || 0) + p * w.exemptExam.physical);
     }
-    return Math.round(regular * w.normal.regular + (physical || 0) * w.normal.physical + (final || 0) * w.normal.final);
+    return Math.round(c * w.normal.regular + a * (w.normal.attendance || 0) + p * w.normal.physical + f * w.normal.final);
   }
 
   function getFinalExamItems(courseId) {
+    const rule = MOCK.courseGradeRules?.[courseId];
+    if (rule?.finalSubItems?.length) return rule.finalSubItems;
     const courses = MOCK.finalExamConfig.courses;
     return (courses[courseId] || courses.default).items;
   }
@@ -455,6 +520,7 @@
         if (status === "draft") return r.entryStatus === "draft";
         if (status === "pending") return r.entryStatus === "pending";
         if (status === "exempt") return r.entryStatus === "exempt";
+        if (status === "absent") return r.entryStatus === "absent";
         return true;
       });
     }
@@ -584,20 +650,29 @@
         r.classId,
         ""
       );
-      const regular =
-        r.checkinScore ??
-        r.regularScore ??
-        r.checkinPercent ??
-        computeRegularScore(r.studentId, r.classId);
+      const autoCheckin = computeRegularScore(r.studentId, r.classId);
+      const checkinResolved = resolveCheckinScore(r.studentId, r.classId, autoCheckin);
+      const regular = checkinResolved.score;
+      const attendanceScore = computeAttendanceScore(r.studentId, courseIdForStudent);
       const physical = r.totalScore;
       const finalRecord = getFinalExamRecord(r.studentId);
-      const final =
+      let final =
         r.exemptExamStatus === "approved"
           ? null
           : finalRecord?.entryStatus === "exempt"
             ? null
-            : finalRecord?.totalScore ?? null;
-      const total = computeTotalGrade(regular, physical, final, r.exemptTestStatus, r.exemptExamStatus, courseIdForStudent);
+            : finalRecord?.entryStatus === "absent"
+              ? 0
+              : finalRecord?.totalScore ?? null;
+      const total = computeTotalGrade(
+        regular,
+        attendanceScore,
+        physical,
+        final,
+        r.exemptTestStatus,
+        r.exemptExamStatus,
+        courseIdForStudent
+      );
       const formula = formatGradeFormula(weights, r.exemptTestStatus, r.exemptExamStatus);
       const endurance = enduranceFieldsFromPhysical(r);
       return {
@@ -613,15 +688,24 @@
         checkinHoursApproved: enriched.approvedHours,
         checkinHoursRequired: enriched.semesterRequired,
         checkinPercent: regular,
+        checkinOverridden: checkinResolved.overridden,
         regularScore: regular,
+        attendanceScore,
         enduranceRawDisplay: endurance.enduranceRawDisplay,
         endurancePercent: endurance.endurancePercent,
         physicalScore: r.exemptTestStatus === "approved" ? "免测" : physical,
-        finalScore: r.exemptExamStatus === "approved" ? "免考" : final,
+        finalScore:
+          r.exemptExamStatus === "approved"
+            ? "免考"
+            : finalRecord?.entryStatus === "absent"
+              ? "缺考"
+              : final,
         totalScore: total,
         formula,
         exemptTest: r.exemptTestStatus === "approved",
         exemptExam: r.exemptExamStatus === "approved",
+        courseStatus: MOCK.courseGradeStatus?.[courseIdForStudent] || "recording",
+        ruleStatus: getCourseGradeRule(courseIdForStudent).status,
       };
     });
 
@@ -693,12 +777,6 @@
           stats: computeClassStats(c.id, date),
         }))
       );
-    },
-
-    /** GET /checkin/heatmap?classId=&month= */
-    getCheckinHeatmap(classId, month) {
-      const values = MOCK.heatmap[classId] || MOCK.heatmap.default;
-      return delay({ classId, month, values });
     },
 
     /** GET /checkin/students?classId=&date= */
@@ -1201,6 +1279,184 @@
         { id: "u2", name: "李主任", roles: ["dept_head"] },
         { id: "u3", name: "王教练", roles: ["sports_teacher"] },
       ]);
+    },
+
+    getCourseGradeRule(courseId) {
+      return delay(getCourseGradeRule(courseId || "c1"));
+    },
+
+    saveCourseGradeRule(courseId, payload) {
+      const cid = courseId || "c1";
+      if (!MOCK.courseGradeRules) MOCK.courseGradeRules = {};
+      const prev = MOCK.courseGradeRules[cid] || getCourseGradeRule(cid);
+      if (prev.status === "published" && payload.force !== true) {
+        return delay({ success: false, message: "已发布规则已冻结，如需改结构请申请废止" });
+      }
+      MOCK.courseGradeRules[cid] = {
+        ...prev,
+        ...payload,
+        status: payload.status || prev.status || "draft",
+        items: payload.items || prev.items,
+        finalSubItems: payload.finalSubItems || prev.finalSubItems,
+      };
+      if (MOCK.courseGradeRules[cid].status === "draft") {
+        MOCK.courseGradeStatus = MOCK.courseGradeStatus || {};
+        MOCK.courseGradeStatus[cid] = "rules_draft";
+      }
+      // sync final exam config
+      if (payload.finalSubItems) {
+        if (!MOCK.finalExamConfig.courses[cid]) MOCK.finalExamConfig.courses[cid] = { items: [] };
+        MOCK.finalExamConfig.courses[cid].items = payload.finalSubItems;
+      }
+      return delay({ success: true, rule: MOCK.courseGradeRules[cid] });
+    },
+
+    publishCourseGradeRule(courseId) {
+      const cid = courseId || "c1";
+      const rule = getCourseGradeRule(cid);
+      const sum = (rule.items || []).reduce((s, it) => s + Number(it.weight || 0), 0);
+      if (Math.abs(sum - 1) > 0.01) {
+        return delay({ success: false, message: `权重合计 ${Math.round(sum * 100)}%，须为 100%` });
+      }
+      if (!MOCK.courseGradeRules) MOCK.courseGradeRules = {};
+      MOCK.courseGradeRules[cid] = {
+        ...rule,
+        status: "published",
+        version: (rule.version || 0) + 1,
+        publishedAt: new Date().toISOString().slice(0, 10),
+      };
+      MOCK.courseGradeStatus = MOCK.courseGradeStatus || {};
+      MOCK.courseGradeStatus[cid] = "recording";
+      if (rule.finalSubItems) {
+        MOCK.finalExamConfig.courses[cid] = { items: rule.finalSubItems };
+      }
+      return delay({ success: true, rule: MOCK.courseGradeRules[cid] });
+    },
+
+    getCourseGradeStatus(courseId) {
+      const cid = courseId || "c1";
+      return delay({
+        courseId: cid,
+        status: MOCK.courseGradeStatus?.[cid] || "rules_draft",
+        rule: getCourseGradeRule(cid),
+        publicity: MOCK.gradePublicity?.[cid] || null,
+      });
+    },
+
+    publishCourseGrades(courseId) {
+      const cid = courseId || "c1";
+      const rule = getCourseGradeRule(cid);
+      if (rule.status !== "published") {
+        return delay({ success: false, message: "请先发布成绩规则" });
+      }
+      const summary = buildGradeSummary({ courseId: cid });
+      const missing = summary.records.filter(
+        (r) =>
+          !r.gradePending &&
+          (r.checkinPercent == null ||
+            r.attendanceScore == null ||
+            (r.physicalScore == null && !r.exemptTest) ||
+            (r.finalScore == null && !r.exemptExam))
+      );
+      if (missing.length) {
+        return delay({
+          success: false,
+          message: `仍有 ${missing.length} 人存在未录入项，无法发布`,
+        });
+      }
+      const days = MOCK.gradePublicity?.[cid]?.days || 5;
+      const ends = new Date();
+      ends.setDate(ends.getDate() + days);
+      MOCK.gradePublicity = MOCK.gradePublicity || {};
+      MOCK.gradePublicity[cid] = {
+        publishedAt: new Date().toISOString(),
+        days,
+        endsAt: ends.toISOString().slice(0, 10),
+      };
+      MOCK.courseGradeStatus[cid] = "publicity";
+      return delay({ success: true, status: "publicity", publicity: MOCK.gradePublicity[cid] });
+    },
+
+    endCoursePublicity(courseId) {
+      const cid = courseId || "c1";
+      const pending = (MOCK.gradeAppeals || []).filter((a) => a.courseId === cid && a.status === "pending");
+      if (pending.length) {
+        return delay({ success: false, message: `仍有 ${pending.length} 条未处理申诉` });
+      }
+      MOCK.courseGradeStatus[cid] = "ready_archive";
+      return delay({ success: true, status: "ready_archive" });
+    },
+
+    getGradeAppeals(courseId) {
+      const cid = courseId || "c1";
+      return delay((MOCK.gradeAppeals || []).filter((a) => !cid || a.courseId === cid));
+    },
+
+    resolveGradeAppeal(appealId, action, note) {
+      const ap = (MOCK.gradeAppeals || []).find((a) => a.id === appealId);
+      if (!ap) return delay({ success: false, message: "申诉不存在" });
+      ap.status = action === "accept" ? "accepted" : "rejected";
+      ap.resolveNote = note || "";
+      return delay({ success: true, appeal: ap });
+    },
+
+    setCheckinScoreOverride(studentId, score) {
+      MOCK.checkinScoreOverrides = MOCK.checkinScoreOverrides || {};
+      if (score == null || score === "") delete MOCK.checkinScoreOverrides[studentId];
+      else MOCK.checkinScoreOverrides[studentId] = Number(score);
+      return delay({ success: true });
+    },
+
+    addManualCredit(studentId, hours, note) {
+      const h = Number(hours);
+      if (![1, 2].includes(h)) return delay({ success: false, message: "补录学时仅允许 1 或 2" });
+      MOCK.manualCredits = MOCK.manualCredits || {};
+      MOCK.manualCredits[studentId] = (MOCK.manualCredits[studentId] || 0) + h;
+      return delay({ success: true, total: MOCK.manualCredits[studentId], note: note || "" });
+    },
+
+    getAttendanceBoard(courseId) {
+      const cid = courseId || "c1";
+      const sessions = MOCK.attendanceSessions?.[cid] || MOCK.attendanceSessions?.c1 || [];
+      const rules = MOCK.attendanceRules?.[cid] || MOCK.attendanceRules?.c1;
+      const classIds = MOCK.classes.filter((c) => c.courseId === cid).map((c) => c.id);
+      const students = [];
+      classIds.forEach((classId) => {
+        (MOCK.students[classId] || []).forEach((s) => {
+          students.push({
+            ...s,
+            classId,
+            score: computeAttendanceScore(s.id, cid),
+            records: MOCK.attendanceRecords?.[s.id] || {},
+          });
+        });
+      });
+      return delay({ courseId: cid, sessions, rules, students });
+    },
+
+    saveAttendanceBoard(courseId, payload) {
+      const cid = courseId || "c1";
+      if (payload.rules) {
+        MOCK.attendanceRules = MOCK.attendanceRules || {};
+        MOCK.attendanceRules[cid] = payload.rules;
+      }
+      if (payload.records) {
+        MOCK.attendanceRecords = MOCK.attendanceRecords || {};
+        Object.assign(MOCK.attendanceRecords, payload.records);
+      }
+      return delay({ success: true });
+    },
+
+    markFinalAbsent(studentId) {
+      let rec = MOCK.finalExams.find((r) => r.studentId === studentId);
+      if (!rec) {
+        rec = { studentId, entryStatus: "absent", scores: {}, totalScore: 0 };
+        MOCK.finalExams.push(rec);
+      } else {
+        rec.entryStatus = "absent";
+        rec.totalScore = 0;
+      }
+      return delay({ success: true });
     },
 
     /** POST /admin/roles */
