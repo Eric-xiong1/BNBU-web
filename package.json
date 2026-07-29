@@ -10,15 +10,12 @@
     "premock-api": "npm install --prefix backend --silent",
     "mock-api": "node backend/mock-api.cjs",
     "test:web": "node frontend/self-test.cjs",
-    "test:student": "node --test frontend/student/student-test.mjs && node frontend/student/student-smoke.cjs",
-    "test:student:browser": "node frontend/student/student-browser.cjs",
-    "smoke:student": "node frontend/student/student-smoke.cjs",
+    "test:student": "node frontend/student/student-smoke.mjs",
     "test:api": "npm test --prefix backend",
     "seed": "node database/run-seed.cjs",
-    "build:student-demo": "node frontend/student/build-demo.cjs",
     "build:teacher-demo": "node frontend/teacher/build-demo.cjs",
     "build:admin-demo": "node frontend/build-admin-demo.cjs",
-    "build:demos": "npm run build:student-demo && npm run build:teacher-demo && npm run build:admin-demo"
+    "build:demos": "npm run build:teacher-demo && npm run build:admin-demo"
   },
   "devDependencies": {
     "esbuild": "^0.25.12",
