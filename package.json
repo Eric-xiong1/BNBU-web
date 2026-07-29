@@ -14,9 +14,14 @@
     "test:student:browser": "node frontend/student/student-browser.cjs",
     "smoke:student": "node frontend/student/student-smoke.cjs",
     "test:api": "npm test --prefix backend",
-    "seed": "node database/run-seed.cjs"
+    "seed": "node database/run-seed.cjs",
+    "build:student-demo": "node frontend/student/build-demo.cjs",
+    "build:teacher-demo": "node frontend/teacher/build-demo.cjs",
+    "build:admin-demo": "node frontend/build-admin-demo.cjs",
+    "build:demos": "npm run build:student-demo && npm run build:teacher-demo && npm run build:admin-demo"
   },
   "devDependencies": {
+    "esbuild": "^0.25.12",
     "playwright": "^1.61.1"
   }
 }
