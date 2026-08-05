@@ -9,10 +9,18 @@ export const BUILD = {
 const NS = "bnbu.student.web.";
 
 function read(key, fallback = null) {
+  let raw;
   try {
-    const raw = globalThis.localStorage?.getItem(NS + key);
-    return raw === null || raw === undefined ? fallback : JSON.parse(raw);
+    raw = globalThis.localStorage?.getItem(NS + key);
   } catch {
+    return fallback;
+  }
+  if (raw === null || raw === undefined) return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // Self-heal: drop a corrupted entry so it cannot keep failing on every read.
+    try { globalThis.localStorage?.removeItem(NS + key); } catch { /* ignore */ }
     return fallback;
   }
 }
@@ -66,8 +74,10 @@ export const localStore = {
 
   // Mutable overlay on top of the mock workspace (read notices, new records,
   // join request, contact binding, exemptions) so state survives reloads.
+  // Older or partially-written overlays are merged onto the defaults so every
+  // field the app touches is guaranteed to exist with the right shape.
   getOverlay() {
-    return read("workspaceOverlay", null) || {
+    const defaults = {
       readNoticeIds: [],
       newRecords: [],
       joinRequest: null,
@@ -75,6 +85,13 @@ export const localStore = {
       contact: null,
       healthReminderAck: false,
     };
+    const stored = read("workspaceOverlay", null);
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) return defaults;
+    const overlay = { ...defaults, ...stored };
+    for (const key of ["readNoticeIds", "newRecords", "exemptions"]) {
+      if (!Array.isArray(overlay[key])) overlay[key] = [];
+    }
+    return overlay;
   },
   setOverlay(overlay) { write("workspaceOverlay", overlay); },
   clearOverlay() { write("workspaceOverlay", null); },

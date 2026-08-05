@@ -175,7 +175,3 @@ export function hourText(value) {
   const n = Number(value) || 0;
   return n % 1 === 0 ? `${n}h` : `${n.toFixed(1)}h`;
 }
-
-export const CREDIT_TYPE_LABEL = { course: "课程相关", general: "其他运动", offset: "系统抵扣" };
-
-export const JOIN_STATUS = { PENDING: "待审核", ACTIVE: "已通过", REJECTED: "已拒绝", NEEDS_CORRECTION: "需补正" };

@@ -1,8 +1,18 @@
 // Smoke test for the Android-replica student web app.
-// Exercises the framework-free logic modules (i18n, session policy, mock data)
-// without a DOM. Run: node frontend/student/student-smoke.mjs
+// Exercises the framework-free logic modules (i18n, session policy, mock data,
+// proof rules, local store) without a DOM. Run: node frontend/student/student-smoke.mjs
 
 import assert from "node:assert/strict";
+
+// localStorage shim so store.js is testable in Node. Safe with hoisted static
+// imports: store.js only touches localStorage inside function bodies.
+const memoryStorage = new Map();
+globalThis.localStorage = {
+  getItem(key) { return memoryStorage.has(key) ? memoryStorage.get(key) : null; },
+  setItem(key, value) { memoryStorage.set(key, String(value)); },
+  removeItem(key) { memoryStorage.delete(key); },
+};
+
 import { t, tx, setLanguage } from "./js/i18n.js";
 import {
   canStartExercise, hasSubmittedCheckInToday, startSession, pauseSession,
@@ -10,6 +20,8 @@ import {
   SESSION_MAX_MILLIS,
 } from "./js/session.js";
 import { createMockWorkspace, MOCK_INVITES, hourText } from "./js/data.js";
+import { validateProofFile } from "./js/proofs.js";
+import { localStore } from "./js/store.js";
 
 const failures = [];
 const check = (name, fn) => {
@@ -84,6 +96,62 @@ check("daily submission guard uses local submission date", () => {
 check("hourText matches Kotlin Double.hourText()", () => {
   assert.equal(hourText(2), "2h");
   assert.equal(hourText(1.5), "1.5h");
+});
+
+check("time window blocks excluded dates and passed deadlines", () => {
+  // 2026-07-29 04:00 UTC = 2026-07-29 12:00 Asia/Shanghai.
+  const now = new Date(Date.UTC(2026, 6, 29, 4, 0, 0));
+  const base = {
+    windowMode: "semester_wide", dailyStartTime: "00:00", dailyEndTime: "23:59",
+    excludedDates: [], dateRangeStart: null, dateRangeEnd: null, semesterDeadline: null,
+  };
+  assert.equal(canStartExercise(base, now), null);
+  const excluded = canStartExercise({ ...base, excludedDates: ["2026-07-29"] }, now);
+  assert.ok(excluded && excluded.length > 0);
+  const pastDeadline = canStartExercise({ ...base, semesterDeadline: "2026-07-28" }, now);
+  assert.ok(pastDeadline && pastDeadline.includes("2026-07-28"));
+});
+
+check("proof rules (v6.1 §5.1): format whitelist and size caps", () => {
+  // MIME match, including jpeg→jpg canonicalization.
+  assert.deepEqual(validateProofFile({ name: "a.jpeg", type: "image/jpeg", size: 100 }, "image"), { ok: true, extension: "jpg" });
+  assert.deepEqual(validateProofFile({ name: "b.png", type: "image/png", size: 100 }, "image"), { ok: true, extension: "png" });
+  // Extension fallback when the browser reports no MIME type (HEIC on mobile).
+  assert.deepEqual(validateProofFile({ name: "c.HEIC", type: "", size: 100 }, "image"), { ok: true, extension: "heic" });
+  assert.deepEqual(validateProofFile({ name: "d.mov", type: "", size: 100 }, "video"), { ok: true, extension: "mov" });
+  // Rejected formats.
+  assert.deepEqual(validateProofFile({ name: "e.gif", type: "image/gif", size: 100 }, "image"), { ok: false, error: "format" });
+  assert.deepEqual(validateProofFile({ name: "f.avi", type: "video/x-msvideo", size: 100 }, "video"), { ok: false, error: "format" });
+  // Size caps: 8MB images, 100MB videos.
+  assert.deepEqual(validateProofFile({ name: "g.jpg", type: "image/jpeg", size: 8_000_001 }, "image"), { ok: false, error: "size" });
+  assert.deepEqual(validateProofFile({ name: "h.mp4", type: "video/mp4", size: 100_000_001 }, "video"), { ok: false, error: "size" });
+  assert.equal(validateProofFile({ name: "i.mp4", type: "video/mp4", size: 100_000_000 }, "video").ok, true);
+});
+
+check("store self-heals corrupted keys and merges overlay defaults", () => {
+  // Corrupted JSON → defaults returned and the bad key removed.
+  memoryStorage.set("bnbu.student.web.workspaceOverlay", "{not json");
+  let overlay = localStore.getOverlay();
+  assert.deepEqual(overlay.readNoticeIds, []);
+  assert.equal(overlay.healthReminderAck, false);
+  assert.equal(memoryStorage.has("bnbu.student.web.workspaceOverlay"), false);
+  // Partial legacy overlay → missing fields filled, wrong shapes coerced.
+  memoryStorage.set("bnbu.student.web.workspaceOverlay", JSON.stringify({ readNoticeIds: "oops", healthReminderAck: true }));
+  overlay = localStore.getOverlay();
+  assert.deepEqual(overlay.readNoticeIds, []);
+  assert.equal(overlay.healthReminderAck, true);
+  assert.deepEqual(overlay.newRecords, []);
+  assert.equal(overlay.joinRequest, null);
+  memoryStorage.delete("bnbu.student.web.workspaceOverlay");
+});
+
+check("exercise session round-trips through the store per account", () => {
+  const session = startSession({ creditType: "course", sportType: "badminton" }, 5_000);
+  localStore.setExerciseSession("acct-1", session);
+  assert.deepEqual(localStore.getExerciseSession("acct-1"), session);
+  assert.equal(localStore.getExerciseSession("acct-2"), null);
+  localStore.clearExerciseSession("acct-1");
+  assert.equal(localStore.getExerciseSession("acct-1"), null);
 });
 
 if (failures.length) {

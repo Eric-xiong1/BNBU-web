@@ -1,12 +1,15 @@
 // Exercise check-in flow (#20–#24) — feature/checkin/CheckInScreen.kt,
 // ExerciseCheckInScreen.kt, CheckInRecords.kt, SessionMediaManager.kt and the
 // session controller. States: Idle → Active ↔ Paused → Finished → Submitted.
-// <1h discard clears drafts and credits nothing; 2h reaches the daily cap.
+// Draft lifecycle follows 业务流程_学生端.md v6.1 §4.6/§5.3: an under-1h end
+// keeps local drafts (the student may start again the same day); only an
+// explicit discard or a successful submission clears them.
 
 import { tx, currentLocale } from "../i18n.js";
 import { icon } from "../icons.js";
 import { esc, spinner, emptyPlaceholder, validationPanel, sectionTitle } from "../ui.js";
 import { hourText } from "../data.js";
+import { validateProofFile } from "../proofs.js";
 import {
   canStartExercise, hasSubmittedCheckInToday, loadSession, saveSession, clearSession,
   startSession, pauseSession, resumeSession, sessionDurationMs, shouldAutoEnd,
@@ -17,8 +20,6 @@ const MAX_DESCRIPTION = 200;
 const MAX_REMARK = 200;
 const MAX_IMAGES = 6;
 const MAX_VIDEOS = 1;
-const MAX_IMAGE_BYTES = 8_000_000;
-const MAX_VIDEO_BYTES = 100_000_000;
 const MAX_REQUEST_BYTES = 120_000_000;
 const OTHER = "other";
 
@@ -77,9 +78,17 @@ function checkinState(app) {
       captureError: null,
       recordOpenError: null,
       drafts: [],
+      pendingRetakeId: null,
     };
   }
   return app.ui.checkin;
+}
+
+/** The single current enrolled-and-open course (shared lookup). */
+function findCurrentCourse(workspace) {
+  return workspace.courses.find(
+    (c) => c.isCurrent && c.enrollmentStatus === "enrolled" && ["active", "open", "enabled"].includes(String(c.status).trim().toLowerCase())
+  ) || null;
 }
 
 function accountId(app) {
@@ -99,10 +108,7 @@ function evaluateReadiness(app) {
   if (!app.hasActiveEnrollment()) {
     return { canStart: false, blockedReason: tx("你尚未加入本学期体育课程，请先扫码或输入邀请码加入", "You have not joined a sports course this semester. Scan a QR code or enter an invitation code first.") };
   }
-  const openCourse = workspace.courses.some(
-    (c) => c.isCurrent && c.enrollmentStatus === "enrolled" && ["active", "open", "enabled"].includes(String(c.status).trim().toLowerCase())
-  );
-  if (!openCourse) {
+  if (!findCurrentCourse(workspace)) {
     return { canStart: false, blockedReason: tx("当前课程尚未开放打卡，请联系任课教师", "Check-in is not open for the current course. Contact your instructor.") };
   }
   const windowReason = canStartExercise(workspace.checkInTimeWindow);
@@ -200,9 +206,7 @@ function renderPreparation(app) {
   const timeWindow = workspace.checkInTimeWindow;
   const readiness = evaluateReadiness(app);
   const blocked = readiness.blockedReason;
-  const currentCourse = workspace.courses.find(
-    (c) => c.isCurrent && c.enrollmentStatus === "enrolled" && ["active", "open", "enabled"].includes(String(c.status).trim().toLowerCase())
-  );
+  const currentCourse = findCurrentCourse(workspace);
   const courseSport = currentCourse ? courseSportSelection(currentCourse.name) : null;
   const setup = ui.setup;
   const isCourse = setup.creditType === "course";
@@ -742,13 +746,15 @@ function finishSession(app, session, { auto }) {
   const ui = checkinState(app);
   const duration = sessionDurationMs(session);
   if (duration < SESSION_MIN_CREDIT_MILLIS && !auto) {
-    // <1h: no credit; timer reset; local drafts cleared.
-    for (const draft of ui.drafts) if (draft.url?.startsWith("blob:")) URL.revokeObjectURL(draft.url);
-    ui.drafts = [];
+    // <1h: no credit and the timer resets, but local drafts are KEPT so the
+    // student can start again within today's open hours (v6.1 §4.6/§5.3).
     clearSession(accountId(app));
     app.showDialog({
       title: tx("运动提示", "Exercise notice"),
-      body: tx("运动时长未满 1 小时，本次不会计入打卡时长，计时已清零，本地草稿已清除。", "This exercise is under 1 hour and will not count toward check-in hours. The timer and local drafts were cleared."),
+      body: tx(
+        "运动时长未满 1 小时，本次不会计入打卡时长，计时已清零。已拍摄的本地草稿已保留，今日开放时段内可继续开始运动。",
+        "This exercise is under 1 hour and will not count toward check-in hours. The timer was reset. Your local drafts were kept, and you can start again within today’s open hours."
+      ),
       buttons: [{ label: tx("我知道了", "Got it"), action: "dialog.close" }],
     });
     return;
@@ -773,13 +779,19 @@ function pickCaptureInput(app, kind) {
 async function addDraftFromFile(app, file, type, replaceId = null) {
   const ui = checkinState(app);
   ui.captureError = null;
-  if (type === "image" && file.size > MAX_IMAGE_BYTES) {
-    ui.captureError = tx("图片超过 8MB", "The photo exceeds 8MB.");
-    app.render();
-    return;
-  }
-  if (type === "video" && file.size > MAX_VIDEO_BYTES) {
-    ui.captureError = tx("视频超过 100MB", "The video exceeds 100MB.");
+  // v6.1 §5.1/§9.7 — reject by named file with a concrete reason.
+  const verdict = validateProofFile(file, type);
+  if (!verdict.ok) {
+    const name = file.name || (type === "image" ? tx("图片文件", "image file") : tx("视频文件", "video file"));
+    if (verdict.error === "format") {
+      ui.captureError = type === "image"
+        ? tx(`「${name}」格式不支持：图片仅支持 JPG/PNG/WebP/HEIC/HEIF。`, `“${name}” is not a supported format. Images must be JPG/PNG/WebP/HEIC/HEIF.`)
+        : tx(`「${name}」格式不支持：视频仅支持 MP4/MOV。`, `“${name}” is not a supported format. Videos must be MP4/MOV.`);
+    } else {
+      ui.captureError = type === "image"
+        ? tx(`「${name}」超过单张图片 8MB 上限。`, `“${name}” exceeds the 8MB per-photo limit.`)
+        : tx(`「${name}」超过单个视频 100MB 上限。`, `“${name}” exceeds the 100MB per-video limit.`);
+    }
     app.render();
     return;
   }
@@ -797,19 +809,19 @@ async function addDraftFromFile(app, file, type, replaceId = null) {
   const draft = {
     id: replaceId || `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     type,
-    fileName: `proof_${type === "image" ? "photo" : "video"}_${Date.now()}.${type === "image" ? "jpg" : "mp4"}`,
+    fileName: `proof_${type === "image" ? "photo" : "video"}_${Date.now()}.${verdict.extension}`,
     byteCount: file.size,
     durationSeconds,
     url,
     selected: true,
   };
-  if (replaceId) {
-    const index = ui.drafts.findIndex((d) => d.id === replaceId);
-    if (index >= 0) {
-      if (ui.drafts[index].url?.startsWith("blob:")) URL.revokeObjectURL(ui.drafts[index].url);
-      ui.drafts[index] = { ...draft, selected: ui.drafts[index].selected };
-    }
+  const index = replaceId ? ui.drafts.findIndex((d) => d.id === replaceId) : -1;
+  if (index >= 0) {
+    if (ui.drafts[index].url?.startsWith("blob:")) URL.revokeObjectURL(ui.drafts[index].url);
+    ui.drafts[index] = { ...draft, selected: ui.drafts[index].selected };
   } else {
+    // A stale replace target (e.g. deleted meanwhile) falls back to appending
+    // so the fresh capture is never silently dropped.
     ui.drafts.push(draft);
   }
   ui.mediaNotice = type === "image" ? tx("已添加现场照片。", "On-site photo added.") : tx("已添加现场视频。", "On-site video added.");
@@ -842,9 +854,7 @@ function submitCheckIn(app, session) {
     const pad = (n) => String(n).padStart(2, "0");
     const started = new Date(session.startedAt);
     const submittedAt = `${started.getFullYear()}-${pad(started.getMonth() + 1)}-${pad(started.getDate())} ${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
-    const currentCourse = app.state.workspace.courses.find(
-      (c) => c.isCurrent && c.enrollmentStatus === "enrolled" && ["active", "open", "enabled"].includes(String(c.status).trim().toLowerCase())
-    );
+    const currentCourse = findCurrentCourse(app.state.workspace);
     const proofs = selected.map((d, index) => ({
       id: `${session.startedAt}-proof-${index}`,
       type: d.type,
@@ -971,9 +981,7 @@ export const checkinActions = {
       return;
     }
     const workspace = app.state.workspace;
-    const currentCourse = workspace.courses.find(
-      (c) => c.isCurrent && c.enrollmentStatus === "enrolled" && ["active", "open", "enabled"].includes(String(c.status).trim().toLowerCase())
-    );
+    const currentCourse = findCurrentCourse(workspace);
     const isCourse = ui.setup.creditType === "course";
     const courseSport = currentCourse ? courseSportSelection(currentCourse.name) : null;
     const details = {
@@ -989,7 +997,8 @@ export const checkinActions = {
     };
     const begin = () => {
       persist(app, startSession(details));
-      ui.drafts = [];
+      // Drafts kept from an under-1h attempt stay available (v6.1 §5.3);
+      // submission and explicit discard are the only clearing points.
       ui.locationStatus = "acquiring";
       app.render();
       // Foreground one-time location, matching the Android fine/coarse request.
@@ -1043,7 +1052,7 @@ export const checkinActions = {
     app.showDialog({
       title: tx("你确定要结束本次运动吗？", "End this exercise session?"),
       body: short
-        ? tx("运动未满 1 小时，结束后不会计入打卡，计时将清零，本地草稿将被清除。", "This exercise is under 1 hour. Ending it will not count toward check-in hours and will clear the timer and local drafts.")
+        ? tx("运动未满 1 小时，结束后不会计入打卡，计时将清零；已拍摄的本地草稿将保留。", "This exercise is under 1 hour. Ending it will not count toward check-in hours and will reset the timer; your local drafts will be kept.")
         : "",
       buttons: [
         { label: tx("取消", "Cancel"), action: "dialog.close" },
@@ -1055,19 +1064,6 @@ export const checkinActions = {
     app.state.dialog = null;
     const session = loadSession(accountId(app));
     if (!session) return;
-    const duration = sessionDurationMs(session);
-    if (duration < SESSION_MIN_CREDIT_MILLIS) {
-      const ui = checkinState(app);
-      for (const draft of ui.drafts) if (draft.url?.startsWith("blob:")) URL.revokeObjectURL(draft.url);
-      ui.drafts = [];
-      clearSession(accountId(app));
-      app.showDialog({
-        title: tx("运动提示", "Exercise notice"),
-        body: tx("运动时长未满 1 小时，本次不会计入打卡时长，计时已清零，本地草稿已清除。", "This exercise is under 1 hour and will not count toward check-in hours. The timer and local drafts were cleared."),
-        buttons: [{ label: tx("我知道了", "Got it"), action: "dialog.close" }],
-      });
-      return;
-    }
     finishSession(app, session, { auto: false });
   },
   "checkin.debugAddHour": (app) => {

@@ -139,6 +139,13 @@ export const app = {
   },
   logout() {
     localStore.clearSession();
+    // Release per-screen transient state, mirroring the Android controller's
+    // clearAccount on sign-out (media draft blobs would otherwise leak).
+    for (const draft of this.ui.checkin?.drafts || []) {
+      if (draft.url?.startsWith("blob:")) URL.revokeObjectURL(draft.url);
+    }
+    this.ui = {};
+    this.scrollPositions.clear();
     this.state.authenticated = false;
     this.state.requiresContactBinding = false;
     this.state.workspace = emptyWorkspace();

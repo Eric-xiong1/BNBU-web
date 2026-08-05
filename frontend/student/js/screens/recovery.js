@@ -51,7 +51,7 @@ export function renderRecoveryRequest(app) {
         <div style="height:24px"></div>
         <div class="headline-small text-on-surface">${tx("申请已提交", "Request submitted")}</div>
         <div style="height:10px"></div>
-        <div class="body-large text-muted" style="text-align:center">${tx("恢复申请已提交，请等待老师或管理员联系你", "Your recovery request was submitted. Please wait for a teacher or administrator to contact you.")}</div>
+        <div class="body-large text-muted" style="text-align:center">${tx("恢复申请已提交，请等待管理员联系你", "Your recovery request was submitted. Please wait for an administrator to contact you.")}</div>
         <div style="height:32px"></div>
         <button class="primary-btn pressable" data-action="recovery.back" style="min-height:52px;border-radius:var(--shape-large)">${tx("返回登录", "Back to sign in")}</button>
       </div>
@@ -60,7 +60,7 @@ export function renderRecoveryRequest(app) {
     body = `<div class="recovery-form col" style="gap:28px">
       <div class="col" style="gap:10px">
         <div class="headline-medium text-on-surface">${tx("换手机后无法登录？", "Can't sign in after changing phones?")}</div>
-        <div class="body-large text-muted">${tx("提交以下信息后，老师或管理员会核对你的身份，并协助绑定新的联系方式。", "Submit the details below so a teacher or administrator can verify your identity and help link new contact details.")}</div>
+        <div class="body-large text-muted">${tx("提交以下信息后，管理员会核对你的身份，并协助绑定新的联系方式。", "Submit the details below so an administrator can verify your identity and help link new contact details.")}</div>
       </div>
       ${ui.error ? validationPanel(ui.error) : ""}
       ${recoverySection(

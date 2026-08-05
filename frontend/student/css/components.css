@@ -559,3 +559,22 @@ textarea.text-field { resize: vertical; min-height: 96px; }
 .col.gap16 { gap: var(--space-16); }
 .grow { flex: 1; min-width: 0; }
 .ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Accessibility: honor the OS "reduce motion" preference ──
+   Screen transitions, pager swipes and pressed states collapse to instant
+   changes; layout and colors are untouched (visual parity preserved). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Keep indeterminate progress visible: a frozen spinner reads as "stuck". */
+  .spinner {
+    animation-duration: 1.4s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
