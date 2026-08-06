@@ -58,7 +58,39 @@ function resolveFile(requestUrl) {
   return filePath;
 }
 
+// Same-origin proxies so the preview page can reach the local unified backend
+// (`/api/*` → NestJS :3000) and its private object storage (`/minio/*` →
+// MinIO :9000, keeping the presigned-URL Host intact). This sidesteps
+// browser sandboxes/CORS: the page only ever talks to its own origin.
+const proxyTargets = [
+  { prefix: "/api/", host: "127.0.0.1", port: Number(process.env.API_PORT || 3000), strip: "" },
+  { prefix: "/minio/", host: "127.0.0.1", port: Number(process.env.MINIO_PORT || 9000), strip: "/minio" },
+];
+
+function tryProxy(request, response) {
+  const target = proxyTargets.find((t) => request.url.startsWith(t.prefix));
+  if (!target) return false;
+  const upstreamPath = target.strip ? request.url.slice(target.strip.length) : request.url;
+  const headers = { ...request.headers, host: `${target.host}:${target.port}` };
+  const upstream = http.request(
+    { host: target.host, port: target.port, method: request.method, path: upstreamPath, headers },
+    (upstreamResponse) => {
+      response.writeHead(upstreamResponse.statusCode, upstreamResponse.headers);
+      upstreamResponse.pipe(response);
+    }
+  );
+  upstream.on("error", () => {
+    send(response, 502, JSON.stringify({ code: "UPSTREAM_UNAVAILABLE", message: "Backend service is not reachable.", details: {}, requestId: "proxy", timestamp: new Date().toISOString() }), {
+      "Content-Type": "application/json; charset=utf-8",
+    });
+  });
+  request.pipe(upstream);
+  return true;
+}
+
 const server = http.createServer((request, response) => {
+  if (tryProxy(request, response)) return;
+
   if (!["GET", "HEAD"].includes(request.method)) {
     send(response, 405, "Method Not Allowed", {
       Allow: "GET, HEAD",

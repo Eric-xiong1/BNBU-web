@@ -15,6 +15,12 @@ import {
   startSession, pauseSession, resumeSession, sessionDurationMs, shouldAutoEnd,
   creditedHours, formatTimer, SESSION_MIN_CREDIT_MILLIS, SESSION_MAX_MILLIS,
 } from "../session.js";
+import {
+  startServerSession, pauseServerSession, resumeServerSession, finishServerSession,
+  cancelServerSession, getActiveSession, createRecordDraft, submitRecord,
+  uploadMediaDraft, cacheRecordProofs, createMediaAccessUrl, proxyObjectUrl,
+  listMyRecords, apiErrorText, ApiError,
+} from "../api.js";
 
 const MAX_DESCRIPTION = 200;
 const MAX_REMARK = 200;
@@ -742,12 +748,23 @@ function persist(app, session) {
   saveSession(accountId(app), session);
 }
 
+function apiFailureDialog(app, error, title) {
+  app.showDialog({
+    title: title || tx("操作失败", "Action failed"),
+    body: apiErrorText(error),
+    buttons: [{ label: tx("我知道了", "Got it"), action: "dialog.close" }],
+  });
+}
+
 function finishSession(app, session, { auto }) {
   const ui = checkinState(app);
   const duration = sessionDurationMs(session);
   if (duration < SESSION_MIN_CREDIT_MILLIS && !auto) {
     // <1h: no credit and the timer resets, but local drafts are KEPT so the
     // student can start again within today's open hours (v6.1 §4.6/§5.3).
+    if (app.isApiMode() && session.serverId) {
+      cancelServerSession(session.serverId, session.serverVersion, "under one hour, not credited").catch(() => {});
+    }
     clearSession(accountId(app));
     app.showDialog({
       title: tx("运动提示", "Exercise notice"),
@@ -759,16 +776,27 @@ function finishSession(app, session, { auto }) {
     });
     return;
   }
-  const paused = session.phase === "active" ? pauseSession(session) : session;
-  const finished = {
-    ...paused,
-    phase: "finished",
-    endedAt: Date.now(),
-    activeDurationMillis: Math.min(paused.accumulatedMs, SESSION_MAX_MILLIS),
+  const complete = (serverSession) => {
+    const paused = session.phase === "active" ? pauseSession(session) : session;
+    const finished = {
+      ...paused,
+      phase: "finished",
+      endedAt: Date.now(),
+      activeDurationMillis: Math.min(paused.accumulatedMs, SESSION_MAX_MILLIS),
+      serverVersion: serverSession ? serverSession.version : paused.serverVersion,
+      serverActualDurationSeconds: serverSession ? serverSession.actualDurationSeconds : null,
+    };
+    ui.finish = { confirmed: false, submitting: false };
+    persist(app, finished);
+    app.render();
   };
-  ui.finish = { confirmed: false, submitting: false };
-  persist(app, finished);
-  app.render();
+  if (app.isApiMode() && session.serverId) {
+    finishServerSession(session.serverId, session.serverVersion).then(complete, (error) => {
+      apiFailureDialog(app, error, tx("结束运动失败", "Could not end the session"));
+    });
+  } else {
+    complete(null);
+  }
 }
 
 function pickCaptureInput(app, kind) {
@@ -813,6 +841,7 @@ async function addDraftFromFile(app, file, type, replaceId = null) {
     byteCount: file.size,
     durationSeconds,
     url,
+    blob: file,
     selected: true,
   };
   const index = replaceId ? ui.drafts.findIndex((d) => d.id === replaceId) : -1;
@@ -848,6 +877,10 @@ function submitCheckIn(app, session) {
   }
   ui.finish.submitting = true;
   app.render();
+  if (app.isApiMode() && session.serverId) {
+    submitCheckInApi(app, session, selected);
+    return;
+  }
   setTimeout(() => {
     ui.finish.submitting = false;
     const credited = creditedHours(session.activeDurationMillis);
@@ -913,6 +946,66 @@ function submitCheckIn(app, session) {
   }, 900);
 }
 
+/** Real submission: record draft → media upload/confirm/bind → submit. */
+async function submitCheckInApi(app, session, selected) {
+  const ui = checkinState(app);
+  const details = session.details;
+  try {
+    // A retried submission finds its daily draft already created — reuse it.
+    let record = (await listMyRecords()).find(
+      (r) => r.status === "DRAFT" && r.sessionId === session.serverId
+    ) || null;
+    if (!record) {
+      record = await createRecordDraft({
+        sessionId: session.serverId,
+        creditType: details.creditType,
+        sportType: details.sportType,
+        sportName: details.customSportName || null,
+        description: (details.description || "").trim() || sportLabel(details),
+        studentRemark: (details.remark || "").trim() || null,
+      });
+    }
+    const uploaded = [];
+    for (const draft of selected) {
+      const blob = draft.blob || (await fetch(draft.url).then((r) => r.blob()));
+      const { mediaId } = await uploadMediaDraft(session.serverId, draft, blob);
+      uploaded.push({
+        mediaId,
+        type: draft.type,
+        fileName: draft.fileName,
+        byteCount: draft.byteCount,
+        durationSeconds: draft.durationSeconds,
+      });
+    }
+    const submittedRecord = await submitRecord(record.id, uploaded.map((u) => u.mediaId), record.version);
+    cacheRecordProofs(record.id, uploaded);
+    ui.finish.submitting = false;
+    const credited = (submittedRecord.creditedDurationSeconds || 0) / 3600 || creditedHours(session.activeDurationMillis);
+    const submitted = {
+      phase: "submitted",
+      summary: {
+        date: formatDateOnly(session.startedAt),
+        startTime: formatTimeOnly(session.startedAt),
+        endTime: formatTimeOnly(session.endedAt),
+        duration: formatTimer(session.activeDurationMillis),
+        creditedHours: credited,
+        creditType: creditTypeLabel(details.creditType),
+        sportType: sportLabel(details),
+        proofCount: uploaded.length,
+      },
+    };
+    persist(app, submitted);
+    for (const draft of ui.drafts) if (draft.url?.startsWith("blob:")) URL.revokeObjectURL(draft.url);
+    ui.drafts = [];
+    app.render();
+    app.reloadApiWorkspace();
+  } catch (error) {
+    ui.finish.submitting = false;
+    apiFailureDialog(app, error, tx("提交失败", "Submission failed"));
+    app.render();
+  }
+}
+
 // 1 Hz heartbeat: refresh timer text in place; auto end at the 2h cap.
 export function checkinTick(app) {
   if (!app.state.authenticated) return;
@@ -925,6 +1018,16 @@ export function checkinTick(app) {
       const paused = pauseSession(session);
       const finished = { ...paused, phase: "finished", endedAt: Date.now(), activeDurationMillis: Math.min(paused.accumulatedMs, SESSION_MAX_MILLIS) };
       ui.finish = { confirmed: false, submitting: false };
+      if (app.isApiMode() && finished.serverId) {
+        finishServerSession(finished.serverId, finished.serverVersion)
+          .then((serverSession) => {
+            const current = loadSession(accountId(app));
+            if (current?.serverId === finished.serverId) {
+              persist(app, { ...current, serverVersion: serverSession.version, serverActualDurationSeconds: serverSession.actualDurationSeconds });
+            }
+          })
+          .catch(() => { /* the submit step surfaces any leftover state errors */ });
+      }
       persist(app, finished);
       app.showDialog({
         title: tx("今日运动已达 2 小时上限", "Daily exercise limit reached"),
@@ -995,8 +1098,14 @@ export const checkinActions = {
       description: "",
       remark: "",
     };
-    const begin = () => {
-      persist(app, startSession(details));
+    const afterStart = (serverSession) => {
+      const local = startSession(details);
+      if (serverSession) {
+        local.serverId = serverSession.id;
+        local.serverVersion = serverSession.version;
+        local.enrollmentId = serverSession.enrollmentId;
+      }
+      persist(app, local);
       // Drafts kept from an under-1h attempt stay available (v6.1 §5.3);
       // submission and explicit discard are the only clearing points.
       ui.locationStatus = "acquiring";
@@ -1011,6 +1120,30 @@ export const checkinActions = {
       } else {
         ui.locationStatus = "unavailable";
       }
+    };
+    const begin = () => {
+      if (!app.isApiMode()) { afterStart(null); return; }
+      const enrollmentId = currentCourse?.enrollmentId
+        || workspace.courses.find((c) => c.enrollmentId)?.enrollmentId;
+      if (!enrollmentId) {
+        apiFailureDialog(app, new ApiError(400, { code: "NO_ENROLLMENT", message: "" }), tx("无法开始运动", "Cannot start"));
+        return;
+      }
+      const startOnServer = () => startServerSession(enrollmentId).then(afterStart);
+      startOnServer().catch((error) => {
+        // A stray active server session (e.g. cleared local storage) blocks new
+        // starts — cancel it once and retry.
+        if (error instanceof ApiError && error.status === 409) {
+          return getActiveSession().then((active) => {
+            if (!active) throw error;
+            return cancelServerSession(active.id, active.version, "orphaned session cleanup")
+              .then(startOnServer);
+          });
+        }
+        throw error;
+      }).catch((error) => {
+        apiFailureDialog(app, error, tx("无法开始运动", "Cannot start"));
+      });
     };
     if (!healthAcknowledged(app)) {
       // First-time health and safety reminder ("我知道了" only).
@@ -1032,16 +1165,32 @@ export const checkinActions = {
   },
   "checkin.pause": (app) => {
     const session = loadSession(accountId(app));
-    if (session?.phase === "active") {
-      persist(app, pauseSession(session));
+    if (session?.phase !== "active") return;
+    const apply = (serverSession) => {
+      const paused = pauseSession(session);
+      if (serverSession) paused.serverVersion = serverSession.version;
+      persist(app, paused);
       app.render();
+    };
+    if (app.isApiMode() && session.serverId) {
+      pauseServerSession(session.serverId, session.serverVersion).then(apply, (error) => apiFailureDialog(app, error, tx("暂停失败", "Pause failed")));
+    } else {
+      apply(null);
     }
   },
   "checkin.resume": (app) => {
     const session = loadSession(accountId(app));
-    if (session?.phase === "paused") {
-      persist(app, resumeSession(session));
+    if (session?.phase !== "paused") return;
+    const apply = (serverSession) => {
+      const resumed = resumeSession(session);
+      if (serverSession) resumed.serverVersion = serverSession.version;
+      persist(app, resumed);
       app.render();
+    };
+    if (app.isApiMode() && session.serverId) {
+      resumeServerSession(session.serverId, session.serverVersion).then(apply, (error) => apiFailureDialog(app, error, tx("继续失败", "Resume failed")));
+    } else {
+      apply(null);
     }
   },
   "checkin.requestFinish": (app) => {
@@ -1183,6 +1332,10 @@ export const checkinActions = {
   },
   "checkin.abandonConfirm": (app) => {
     const ui = checkinState(app);
+    const session = loadSession(accountId(app));
+    if (app.isApiMode() && session?.serverId && session.phase !== "finished") {
+      cancelServerSession(session.serverId, session.serverVersion, "student discarded").catch(() => {});
+    }
     for (const draft of ui.drafts) if (draft.url?.startsWith("blob:")) URL.revokeObjectURL(draft.url);
     ui.drafts = [];
     clearSession(accountId(app));
@@ -1214,6 +1367,18 @@ export const checkinActions = {
   "checkin.openProof": (app, el) => {
     const ui = checkinState(app);
     const source = el.dataset.source || "";
+    if (source.startsWith("media:")) {
+      // Real backend media: exchange the id for a short-lived access URL.
+      createMediaAccessUrl(source.slice(6)).then(
+        (access) => { globalThis.open(proxyObjectUrl(access.accessUrl), "_blank", "noopener"); },
+        (error) => {
+          ui.recordOpenError = apiErrorText(error);
+          app.render();
+        }
+      );
+      ui.recordOpenError = null;
+      return;
+    }
     if (/^(https?:\/\/|blob:|data:)/.test(source)) {
       globalThis.open(source, "_blank", "noopener");
       ui.recordOpenError = null;

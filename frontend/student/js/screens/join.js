@@ -7,44 +7,69 @@ import { tx } from "../i18n.js";
 import { icon } from "../icons.js";
 import { esc, spinner, sectionTitle, statusBadge, validationPanel, actionButton } from "../ui.js";
 import { MOCK_INVITES } from "../data.js";
+import { previewInvite, joinWithInvite, storeJoinContext, apiErrorText, ApiError } from "../api.js";
 
-const INVITE_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]{2,127}$/;
+// Real backend invite tokens are "<id>.<secret>" — dots/underscores allowed.
+const INVITE_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~-]{2,200}$/;
 const isInviteCode = (value) => INVITE_CODE_PATTERN.test(value.trim());
 const MAX_NAME = 64;
 const MAX_STUDENT_NUMBER = 32;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** Extracts an invite code only from the expected HTTPS /join/{code} QR URL. */
+/** Extracts an invite code from the HTTPS /join/{code} QR URL, or accepts a
+ *  bare backend invite token rendered directly as QR content. */
 function inviteCodeFromQr(rawValue) {
+  const raw = rawValue.trim();
   try {
-    const uri = new URL(rawValue.trim());
+    const uri = new URL(raw);
     if (uri.protocol !== "https:" || !uri.host) return null;
     const segments = uri.pathname.split("/").filter(Boolean);
     if (segments.length !== 2 || segments[0] !== "join") return null;
     return isInviteCode(segments[1]) ? segments[1] : null;
   } catch {
-    return null;
+    return raw.includes(".") && isInviteCode(raw) ? raw : null;
   }
 }
 
-/** Shared mock lookup mirroring GET /api/v1/course-invites/{code} semantics. */
+/** Invite lookup: demo codes stay mock, anything else hits the real backend. */
 function lookupInvite(code, { onResolved, onUnavailable, onError }) {
-  setTimeout(() => {
-    if (Object.prototype.hasOwnProperty.call(MOCK_INVITES, code)) {
+  if (Object.prototype.hasOwnProperty.call(MOCK_INVITES, code)) {
+    setTimeout(() => {
       const course = MOCK_INVITES[code];
-      if (course === null) {
-        onUnavailable();
-      } else {
-        onResolved(code, course);
-      }
-    } else {
-      onError(tx("网络连接失败，请检查网络后重试", "Network connection failed. Check your connection and try again."));
+      if (course === null) onUnavailable();
+      else onResolved(code, course);
+    }, 700);
+    return;
+  }
+  previewInvite(code).then(
+    (preview) => {
+      if (!preview.enrollmentOpen) { onUnavailable(); return; }
+      onResolved(code, {
+        name: preview.courseName,
+        courseNumber: preview.courseCode,
+        section: preview.displayName,
+        teacher: preview.teacherDisplayName,
+        semester: preview.semesterDisplayName,
+        classSectionId: preview.classSectionId,
+        real: true,
+      });
+    },
+    (error) => {
+      if (error instanceof ApiError && (error.status === 404 || error.status === 410)) onUnavailable();
+      else onError(apiErrorText(error));
     }
-  }, 700);
+  );
 }
 
 const inviteExpiredMessage = () =>
   tx("该邀请已过期或已被撤销，请联系教师获取新二维码或邀请码", "This invitation has expired or was revoked. Contact the teacher for a new QR code or invitation code.");
+
+/** Demo codes are case-insensitive; real backend tokens are case-sensitive. */
+function normalizeInviteInput(value) {
+  const trimmed = value.trim();
+  const upper = trimmed.toUpperCase();
+  return Object.prototype.hasOwnProperty.call(MOCK_INVITES, upper) ? upper : trimmed;
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  #9 Scan to join
@@ -125,7 +150,7 @@ export function renderScanJoin(app, { preLogin = false } = {}) {
 }
 
 function renderManualInviteDialog(app, ui) {
-  const normalized = ui.manualCode.trim().toUpperCase();
+  const normalized = normalizeInviteInput(ui.manualCode);
   const showFormatError = ui.manualCode.trim() !== "" && !isInviteCode(normalized);
   return `<div class="dialog-scrim" data-action="scan.dialogScrim">
     <div class="dialog" role="dialog" aria-modal="true">
@@ -134,7 +159,7 @@ function renderManualInviteDialog(app, ui) {
         <div>${tx("请输入老师提供的邀请码，下一步将核对课程信息。", "Enter the invitation code from your teacher. You will review the course details next.")}</div>
         <div style="height:20px"></div>
         <label class="field-label" for="manual-invite-code">${tx("邀请码", "Invitation code")}</label>
-        <input id="manual-invite-code" class="text-field${showFormatError ? " error" : ""}" style="border-radius:12px;text-transform:uppercase" type="text"
+        <input id="manual-invite-code" class="text-field${showFormatError ? " error" : ""}" style="border-radius:12px" type="text"
           value="${esc(ui.manualCode)}" placeholder="例如 BNBU-7K3P9Q" data-input="scan.manualCode" autocomplete="off" spellcheck="false" />
         ${showFormatError ? `<div class="field-supporting error">${tx("请输入有效的邀请码", "Enter a valid invitation code.")}</div>` : ""}
       </div>
@@ -300,7 +325,7 @@ function enterCodeState(app) {
 
 export function renderEnterInviteCode(app) {
   const ui = enterCodeState(app);
-  const normalized = ui.code.trim().toUpperCase();
+  const normalized = normalizeInviteInput(ui.code);
   const hasFormatError = ui.code.trim() !== "" && !isInviteCode(normalized);
   return `<div class="screen enter-code-screen" style="background:transparent">
     <div class="screen-scroll" data-scroll-key="enter-code">
@@ -314,7 +339,7 @@ export function renderEnterInviteCode(app) {
         <div style="height:8px"></div>
         <div class="col">
           <label class="field-label" for="enter-invite-code">${tx("邀请码", "Invitation code")}</label>
-          <input id="enter-invite-code" class="text-field${hasFormatError ? " error" : ""}" style="text-transform:uppercase" type="text" value="${esc(ui.code)}"
+          <input id="enter-invite-code" class="text-field${hasFormatError ? " error" : ""}" type="text" value="${esc(ui.code)}"
             placeholder="${tx("例如 BNBU-7K3P9Q", "For example: BNBU-7K3P9Q")}" data-input="enterCode.input" ${ui.resolving ? "disabled" : ""} autocomplete="off" spellcheck="false" />
           ${hasFormatError ? `<div class="field-supporting error">${tx("请输入有效的邀请码，格式如 BNBU-7K3P9Q。", "Enter a valid invitation code, such as BNBU-7K3P9Q.")}</div>` : ""}
         </div>
@@ -338,6 +363,8 @@ function joinConfirmState(app, params) {
       name: request ? request.studentName : "",
       studentNumber: request ? request.studentNumber : "",
       email: request ? request.email : "",
+      gender: "",
+      gradeYear: "",
       submitting: false,
       submitted: false,
       error: null,
@@ -345,6 +372,29 @@ function joinConfirmState(app, params) {
   }
   return app.ui.joinConfirm;
 }
+
+function joinSelect({ id, label, value, options, disabled }) {
+  return `<div class="col">
+    <label class="field-label" for="join-${id}">${esc(label)}</label>
+    <select id="join-${id}" class="text-field" data-change="joinConfirm.select" data-field="${id}" ${disabled ? "disabled" : ""}>
+      <option value="" ${value === "" ? "selected" : ""}>${tx("请选择", "Select")}</option>
+      ${options.map((o) => `<option value="${esc(o.value)}" ${value === o.value ? "selected" : ""}>${esc(o.label)}</option>`).join("")}
+    </select>
+  </div>`;
+}
+
+const GENDER_OPTIONS = () => [
+  { value: "FEMALE", label: tx("女", "Female") },
+  { value: "MALE", label: tx("男", "Male") },
+  { value: "OTHER", label: tx("其他", "Other") },
+];
+
+const GRADE_YEAR_OPTIONS = () => {
+  const current = new Date().getFullYear();
+  const years = [];
+  for (let y = current + 1; y >= current - 6; y--) years.push({ value: String(y), label: tx(`${y} 级`, `Class of ${y}`) });
+  return years;
+};
 
 function joinFact(label, value) {
   return `<div class="col" style="gap:3px">
@@ -387,7 +437,10 @@ export function renderCourseJoinConfirm(app, params) {
         ${ui.error ? validationPanel(ui.error) : ""}
         ${joinField({ id: "name", label: tx("姓名（必填）", "Name (required)"), value: ui.name, supporting: `${ui.name.length} / ${MAX_NAME}`, disabled: !formEnabled, maxlength: MAX_NAME })}
         ${joinField({ id: "studentNumber", label: tx("学号（必填）", "Student ID (required)"), value: ui.studentNumber, supporting: `${ui.studentNumber.length} / ${MAX_STUDENT_NUMBER}`, disabled: ui.submitting || !writeEnabled, maxlength: MAX_STUDENT_NUMBER })}
-        ${joinField({ id: "email", label: tx("邮箱（选填）", "Email (optional)"), value: ui.email, disabled: ui.submitting || !writeEnabled, inputMode: "email" })}
+        ${course && course.real
+          ? joinSelect({ id: "gender", label: tx("性别（必填）", "Gender (required)"), value: ui.gender, options: GENDER_OPTIONS(), disabled: ui.submitting || !writeEnabled })
+            + joinSelect({ id: "gradeYear", label: tx("入学年份（必填）", "Admission year (required)"), value: ui.gradeYear, options: GRADE_YEAR_OPTIONS(), disabled: ui.submitting || !writeEnabled })
+          : joinField({ id: "email", label: tx("邮箱（选填）", "Email (optional)"), value: ui.email, disabled: ui.submitting || !writeEnabled, inputMode: "email" })}
         <div style="height:2px"></div>
         <button class="primary-btn pressable" data-action="joinConfirm.submit" ${!ui.submitting && writeEnabled ? "" : "disabled"}>
           ${ui.submitting ? spinner(18, "on-primary") : icon("send", 18)}
@@ -555,7 +608,7 @@ export const joinActions = {
   "scan.manualCode": (app, el) => {
     const ui = scanState(app);
     ui.manualCode = el.value;
-    const normalized = ui.manualCode.trim().toUpperCase();
+    const normalized = normalizeInviteInput(ui.manualCode);
     const submit = app._viewport?.querySelector('[data-action="scan.dialogSubmit"]');
     if (submit) submit.disabled = !isInviteCode(normalized) || ui.resolving;
     el.classList.toggle("error", ui.manualCode.trim() !== "" && !isInviteCode(normalized));
@@ -577,7 +630,7 @@ export const joinActions = {
   },
   "scan.dialogSubmit": (app) => {
     const ui = scanState(app);
-    const normalized = ui.manualCode.trim().toUpperCase();
+    const normalized = normalizeInviteInput(ui.manualCode);
     if (!isInviteCode(normalized) || ui.resolving) return;
     ui.showManualInput = false;
     resolveCode(app, normalized);
@@ -592,7 +645,7 @@ export const joinActions = {
     const ui = enterCodeState(app);
     ui.code = el.value;
     ui.error = null;
-    const normalized = ui.code.trim().toUpperCase();
+    const normalized = normalizeInviteInput(ui.code);
     const submit = app._viewport?.querySelector('[data-action="enterCode.submit"]');
     if (submit) submit.disabled = ui.resolving || !isInviteCode(normalized);
     el.classList.toggle("error", ui.code.trim() !== "" && !isInviteCode(normalized));
@@ -600,7 +653,7 @@ export const joinActions = {
   "enterCode.submit": (app) => {
     const ui = enterCodeState(app);
     if (ui.resolving) return;
-    const normalized = ui.code.trim().toUpperCase();
+    const normalized = normalizeInviteInput(ui.code);
     if (!isInviteCode(normalized)) {
       ui.error = tx("请输入有效的邀请码，格式如 BNBU-7K3P9Q。", "Enter a valid invitation code, such as BNBU-7K3P9Q.");
       app.render();
@@ -657,6 +710,11 @@ export const joinActions = {
     const counter = app._viewport?.querySelector(`[data-join-counter="${field}"]`);
     if (counter) counter.textContent = `${value.length} / ${field === "name" ? MAX_NAME : MAX_STUDENT_NUMBER}`;
   },
+  "joinConfirm.select": (app, el) => {
+    const ui = app.ui.joinConfirm;
+    if (!ui) return;
+    ui[el.dataset.field] = el.value;
+  },
   "joinConfirm.submit": (app) => {
     const ui = app.ui.joinConfirm;
     const params = app.state.authenticated
@@ -673,6 +731,7 @@ export const joinActions = {
     const name = ui.name.trim();
     const studentNumber = ui.studentNumber.trim();
     const email = ui.email.trim();
+    const realJoin = !params.correctionRequest && params.course?.real;
     ui.error = !name
       ? tx("请填写姓名。", "Enter your name.")
       : name.length > MAX_NAME
@@ -681,15 +740,53 @@ export const joinActions = {
           ? tx("请填写学号。", "Enter your student ID.")
           : studentNumber.length > MAX_STUDENT_NUMBER
             ? tx(`学号不能超过 ${MAX_STUDENT_NUMBER} 个字符。`, `Student ID cannot exceed ${MAX_STUDENT_NUMBER} characters.`)
-            : email && !EMAIL_PATTERN.test(email)
-              ? tx("请输入有效的邮箱地址。", "Enter a valid email address.")
-              : null;
+            : realJoin && !ui.gender
+              ? tx("请选择性别。", "Select your gender.")
+              : realJoin && !ui.gradeYear
+                ? tx("请选择入学年份。", "Select your admission year.")
+                : !realJoin && email && !EMAIL_PATTERN.test(email)
+                  ? tx("请输入有效的邮箱地址。", "Enter a valid email address.")
+                  : null;
     if (ui.error) {
       app.render();
       return;
     }
     ui.submitting = true;
     app.render();
+    if (realJoin) {
+      // Real backend join: capability + atomic join establishes the student
+      // session directly — no teacher approval step (v6.1 direct join).
+      const course = params.course;
+      joinWithInvite(params.inviteCode, {
+        fullName: name,
+        studentNumber,
+        gender: ui.gender,
+        gradeYear: Number(ui.gradeYear),
+      }).then((joined) => {
+        storeJoinContext({
+          classSectionId: course.classSectionId,
+          courseName: course.name,
+          courseCode: course.courseNumber,
+          teacherDisplayName: course.teacher,
+          semesterDisplayName: course.semester,
+        });
+        app.ui.joinConfirm = null;
+        app.state.pendingInvite = null;
+        app.state.showScanJoin = false;
+        app.state.subScreen = null;
+        app.state.subParams = {};
+        return app.completeApiLogin(joined);
+      }).catch((error) => {
+        ui.submitting = false;
+        if (error instanceof ApiError && error.status === 410) {
+          ui.error = inviteExpiredMessage();
+        } else {
+          ui.error = apiErrorText(error);
+        }
+        app.render();
+      });
+      return;
+    }
     setTimeout(() => {
       ui.submitting = false;
       const course = params.correctionRequest

@@ -6,6 +6,7 @@
 import { t } from "../i18n.js";
 import { icon } from "../icons.js";
 import { brandMark, esc, spinner } from "../ui.js";
+import { requestStudentSignInCode, apiErrorText, ApiError } from "../api.js";
 
 const CODE_LENGTH = 6;
 const RESEND_COOLDOWN = 60;
@@ -191,14 +192,31 @@ export const verificationActions = {
     m.info = null;
     m.sending = true;
     app.render();
-    // Demo backend: the send request resolves successfully after a short delay.
-    setTimeout(() => {
-      m.sending = false;
-      m.info = t(isPhone ? "login_verification_phone_code_sent" : "login_verification_email_code_sent");
-      startCooldown(app, m);
-      app.render();
-      app._viewport?.querySelector("#vlogin-code")?.focus();
-    }, 700);
+    // The unified backend ships this operation as contract-complete but
+    // business-closed (SYSTEM_MODE_UNSUPPORTED) — report that honestly, and
+    // only fall back to the offline demo flow when the backend is unreachable.
+    requestStudentSignInCode(m.contact.trim()).then(
+      () => {
+        m.sending = false;
+        m.info = t(isPhone ? "login_verification_phone_code_sent" : "login_verification_email_code_sent");
+        startCooldown(app, m);
+        app.render();
+        app._viewport?.querySelector("#vlogin-code")?.focus();
+      },
+      (error) => {
+        m.sending = false;
+        if (error instanceof ApiError) {
+          m.error = apiErrorText(error);
+          app.render();
+        } else {
+          // Backend offline — keep the original demo behaviour (code 123456).
+          m.info = t(isPhone ? "login_verification_phone_code_sent" : "login_verification_email_code_sent");
+          startCooldown(app, m);
+          app.render();
+          app._viewport?.querySelector("#vlogin-code")?.focus();
+        }
+      }
+    );
   },
   "verification.submit": (app) => {
     const isPhone = app.state.showPhoneLogin;

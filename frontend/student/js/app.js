@@ -7,6 +7,7 @@
 import { t, tx, setLanguage, getLanguage } from "./i18n.js";
 import { localStore, BUILD } from "./store.js";
 import { createMockWorkspace, emptyWorkspace } from "./data.js";
+import { hasApiSession, clearApiSession, logoutApi, loadApiWorkspace, apiErrorText } from "./api.js";
 import { icon } from "./icons.js";
 import { renderStartupSplash, renderMaintenancePage, renderReadOnlyBanner, renderPlannedMaintenanceBanner, renderSyncStatusBanner } from "./screens/startup.js";
 import { renderPrivacyConsent, renderPrivacyPolicy, consentActions, loadPolicyMarkdown } from "./screens/consent.js";
@@ -137,7 +138,46 @@ export const app = {
     this.navDirection = "forward";
     this.render();
   },
+  /** True when the signed-in session talks to the real backend. */
+  isApiMode() {
+    return localStore.getSession()?.kind === "api";
+  },
+  /** Establishes the authenticated shell after a successful invite join. */
+  completeApiLogin(joined) {
+    const accountId = joined.studentProfile.studentNumber;
+    localStore.setSession({ accountId, kind: "api", signedInAt: new Date().toISOString() });
+    this.state.authenticated = true;
+    this.state.requiresContactBinding = false;
+    this.state.postEnrollmentGuideCompleted = localStore.hasCompletedPostEnrollmentGuide(accountId);
+    this.navDirection = "forward";
+    return this.reloadApiWorkspace();
+  },
+  /** Loads/refreshes the live workspace; keeps the shell usable on failure. */
+  async reloadApiWorkspace() {
+    this.state.isLoading = true;
+    this.render();
+    try {
+      const { workspace } = await loadApiWorkspace();
+      this.state.workspace = workspace;
+      this.state.lastError = null;
+      this.state.isShowingCachedData = false;
+    } catch (error) {
+      this.state.lastError = apiErrorText(error);
+      this.state.isShowingCachedData = true;
+      if (error?.status === 401) {
+        // Session is unrecoverable — return to the login flow.
+        clearApiSession();
+        localStore.clearSession();
+        this.state.authenticated = false;
+      }
+    } finally {
+      this.state.isLoading = false;
+      this.render();
+    }
+  },
   logout() {
+    if (this.isApiMode()) logoutApi();
+    else clearApiSession();
     localStore.clearSession();
     // Release per-screen transient state, mirroring the Android controller's
     // clearAccount on sign-out (media draft blobs would otherwise leak).
@@ -530,7 +570,18 @@ export const app = {
       this.state.needsPrivacyConsent = !privacyAccepted;
       this.state.loginPrivacyAccepted = privacyAccepted;
       this.state.privacyConsentChecked = true;
-      if (session) {
+      if (session?.kind === "api" && hasApiSession()) {
+        this.state.authenticated = true;
+        this.state.postEnrollmentGuideCompleted = localStore.hasCompletedPostEnrollmentGuide(session.accountId);
+        this.state.isRestoringSession = false;
+        this.navDirection = "forward";
+        this.reloadApiWorkspace();
+        return;
+      }
+      if (session?.kind === "api") {
+        // Tokens are gone (cleared storage) — force a fresh join sign-in.
+        localStore.clearSession();
+      } else if (session) {
         this.state.authenticated = true;
         this.state.workspace = this.applyOverlay(createMockWorkspace());
         this.state.postEnrollmentGuideCompleted = localStore.hasCompletedPostEnrollmentGuide(session.accountId);
