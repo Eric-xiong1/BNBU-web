@@ -6,11 +6,17 @@
 
 ```text
 bnbuSystem/
-├── frontend/     前端展示层 — 登录、管理员/负责人、教师端、学生端
-├── backend/      业务逻辑层 — Express API、OpenAPI、联调文档
-├── database/     数据存储层 — MySQL DDL、种子脚本
-└── docs/         交付、验收与设计文档
+├── frontend/             前端展示层 — 学生端（✅ 已接统一后端）；根 SPA 与 teacher/ 为旧版，已弃用
+├── portal-teacher-admin/ 教师端 + 管理员端门户（chchaiai/BNBU-Sports-Web-Teacher-and-Admin 镜像，
+│                         含 feat/api-base 底座：app/api-client.ts + 真实登录）
+├── handoff/              联调交接包 — 一键装环境脚本、造测试数据脚本、api-base 补丁、任务分工文档
+├── backend/              旧业务逻辑层（Express Mock，已被 BNBU-Sports-Backend 统一后端取代）
+├── database/             旧数据存储层 — MySQL DDL、种子脚本
+└── docs/                 交付、验收与设计文档
 ```
+
+> 当前权威后端是独立仓库 [chchaiai/BNBU-Sports-Backend](https://github.com/chchaiai/BNBU-Sports-Backend)（NestJS + PostgreSQL，`/api/v1`）。
+> 学生端已接通并全流程验证；教师端/管理员端接入任务与环境搭建见 [handoff/联调环境与任务分工.md](handoff/联调环境与任务分工.md)。
 
 ## 快速启动
 

@@ -1,0 +1,380 @@
+From e6e6d3f23286bfece7136024b659a3cb09e6fd18 Mon Sep 17 00:00:00 2001
+From: Eric-xiong1 <eric-xiong@outlook.com>
+Date: Wed, 5 Aug 2026 21:28:46 -0700
+Subject: [PATCH] =?UTF-8?q?=E5=AD=98=E6=A1=A3:=202026-08-05=2021:40?=
+ =?UTF-8?q?=EF=BD=9C=E6=96=B0=E5=A2=9E:=20app/api-client.ts=20=E7=BB=9F?=
+ =?UTF-8?q?=E4=B8=80=E5=90=8E=E7=AB=AF=20API=20=E5=AE=A2=E6=88=B7=E7=AB=AF?=
+ =?UTF-8?q?=EF=BC=88=E4=BF=A1=E5=B0=81=E8=A7=A3=E6=9E=90=E3=80=81Bearer=20?=
+ =?UTF-8?q?=E4=BB=A4=E7=89=8C=E4=B8=8E=E8=87=AA=E5=8A=A8=E5=88=B7=E6=96=B0?=
+ =?UTF-8?q?=E3=80=81=E5=B9=82=E7=AD=89=E9=94=AE=E3=80=81SYSTEM=5FMODE=5FUN?=
+ =?UTF-8?q?SUPPORTED=20=E4=B8=8E=E9=94=99=E8=AF=AF=E4=B8=AD=E6=96=87?=
+ =?UTF-8?q?=E6=98=A0=E5=B0=84=EF=BC=89=EF=BC=9B=E4=BF=AE=E6=94=B9:=20porta?=
+ =?UTF-8?q?l-app.tsx=20=E7=99=BB=E5=BD=95=E8=A1=A8=E5=8D=95=E6=8E=A5?=
+ =?UTF-8?q?=E5=85=A5=E7=9C=9F=E5=AE=9E=20/auth/password-login=20=E5=B9=B6?=
+ =?UTF-8?q?=E6=8C=89=E8=BF=94=E5=9B=9E=E8=A7=92=E8=89=B2=E5=88=86=E6=B5=81?=
+ =?UTF-8?q?=E5=B7=A5=E4=BD=9C=E5=8F=B0=EF=BC=88=E6=BC=94=E7=A4=BA=E6=A8=A1?=
+ =?UTF-8?q?=E5=BC=8F=E4=BF=9D=E7=95=99=EF=BC=89=E3=80=81=E9=80=80=E5=87=BA?=
+ =?UTF-8?q?=E8=B0=83=E7=94=A8=20/auth/logout=EF=BC=8Clanguage.tsx=20?=
+ =?UTF-8?q?=E7=99=BB=E8=AE=B0=E6=96=B0=E5=A2=9E=E7=95=8C=E9=9D=A2=E6=96=87?=
+ =?UTF-8?q?=E6=A1=88=EF=BC=9B=E5=88=A0=E9=99=A4:=20=E6=97=A0?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+教师端与管理员端共用此底座：页面代码只需 import { request } from "./api-client" 调用后端。
+已验证：typecheck 通过、25/25 测试通过、真实教师/管理员账号浏览器登录进入对应工作台、错误密码显示中文提示。
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+---
+ app/api-client.ts  | 224 +++++++++++++++++++++++++++++++++++++++++++++
+ app/language.tsx   |  10 ++
+ app/portal-app.tsx |  49 ++++++++--
+ 3 files changed, 273 insertions(+), 10 deletions(-)
+ create mode 100644 app/api-client.ts
+
+diff --git a/app/api-client.ts b/app/api-client.ts
+new file mode 100644
+index 0000000..6c2e1a3
+--- /dev/null
++++ b/app/api-client.ts
+@@ -0,0 +1,224 @@
++// Shared API client for the unified BNBU Sports backend (OpenAPI 1.1, /api/v1).
++// Teacher and admin workspaces both build on this module; keep it UI-free.
++//
++// Contract rules baked in here so pages never re-implement them:
++//   - success envelope {data, meta}; error envelope {code, message, details, requestId, timestamp}
++//   - Authorization: Bearer <accessToken>; automatic refresh once on 401
++//   - every write carries an Idempotency-Key header
++//   - SYSTEM_MODE_UNSUPPORTED means "feature not yet opened", never a bug
++
++const STORAGE_KEY = "bnbu-portal-tokens-v1";
++const BASE_KEY = "bnbu-portal-api-base";
++const DEFAULT_BASE = "http://127.0.0.1:3000/api/v1";
++
++export type ApiRole = "STUDENT" | "TEACHER" | "ADMIN";
++
++export interface ApiUser {
++  id: string;
++  role: ApiRole;
++  status: string;
++  primaryEmail?: string | null;
++  [key: string]: unknown;
++}
++
++export interface AuthSessionData {
++  sessionId: string;
++  accessToken: string;
++  refreshToken: string;
++  tokenType: "Bearer";
++  accessTokenExpiresAt: string;
++  refreshTokenExpiresAt: string;
++  user: ApiUser;
++}
++
++export interface CurrentUserData {
++  user: ApiUser;
++  studentProfile: Record<string, unknown> | null;
++  teacherProfile: Record<string, unknown> | null;
++  adminProfile: Record<string, unknown> | null;
++}
++
++type StoredTokens = {
++  accessToken: string;
++  refreshToken: string;
++  accessTokenExpiresAt: string;
++  userId: string | null;
++  role: ApiRole | null;
++};
++
++export class ApiError extends Error {
++  status: number;
++  code: string;
++  details: Record<string, unknown>;
++  requestId: string | null;
++
++  constructor(status: number, body: { code?: string; message?: string; details?: Record<string, unknown>; requestId?: string } | null) {
++    super(body?.message || `HTTP ${status}`);
++    this.status = status;
++    this.code = body?.code || "UNKNOWN";
++    this.details = body?.details || {};
++    this.requestId = body?.requestId || null;
++  }
++}
++
++export const isUnsupported = (error: unknown): boolean =>
++  error instanceof ApiError && error.code === "SYSTEM_MODE_UNSUPPORTED";
++
++/** Human-readable Chinese message for any thrown error. */
++export function apiErrorText(error: unknown): string {
++  if (!(error instanceof ApiError)) {
++    return "网络连接失败，请确认本机后端已启动（start-dev.ps1）。";
++  }
++  if (isUnsupported(error)) return "该功能后端暂未开放。";
++  const known: Record<string, string> = {
++    VALIDATION_FAILED: "提交的内容格式不正确，请检查后重试。",
++    AUTH_CREDENTIAL_INVALID: "账号或密码不正确。",
++    UNAUTHORIZED: "登录状态已失效，请重新登录。",
++    FORBIDDEN: "没有权限执行该操作。",
++    NOT_FOUND: "资源不存在或已被移除。",
++    CONFLICT_VERSION_MISMATCH: "数据已在别处更新，请刷新后重试。",
++    RATE_LIMITED: "操作过于频繁，请稍后再试。",
++  };
++  return known[error.code] || error.message;
++}
++
++function readTokens(): StoredTokens | null {
++  try {
++    const raw = window.localStorage.getItem(STORAGE_KEY);
++    return raw ? (JSON.parse(raw) as StoredTokens) : null;
++  } catch {
++    return null;
++  }
++}
++
++function writeTokens(tokens: StoredTokens | null) {
++  try {
++    if (tokens) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));
++    else window.localStorage.removeItem(STORAGE_KEY);
++  } catch {
++    /* storage unavailable — session-only */
++  }
++}
++
++export function apiBaseUrl(): string {
++  try {
++    return (window.localStorage.getItem(BASE_KEY) || DEFAULT_BASE).replace(/\/$/, "");
++  } catch {
++    return DEFAULT_BASE;
++  }
++}
++
++export const hasApiSession = (): boolean => readTokens() !== null;
++export const apiSessionRole = (): ApiRole | null => readTokens()?.role ?? null;
++export function clearApiSession() {
++  writeTokens(null);
++}
++
++export function uuid(): string {
++  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
++  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
++}
++
++function storeAuthSession(session: AuthSessionData) {
++  writeTokens({
++    accessToken: session.accessToken,
++    refreshToken: session.refreshToken,
++    accessTokenExpiresAt: session.accessTokenExpiresAt,
++    userId: session.user?.id ?? null,
++    role: session.user?.role ?? null,
++  });
++}
++
++type RequestOptions = {
++  method?: string;
++  body?: unknown;
++  auth?: boolean;
++  headers?: Record<string, string>;
++};
++
++async function rawRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
++  const { method = "GET", body, auth = true, headers = {} } = options;
++  const requestHeaders: Record<string, string> = { ...headers };
++  if (body !== undefined) requestHeaders["Content-Type"] = "application/json";
++  if (method !== "GET" && !requestHeaders["Idempotency-Key"]) requestHeaders["Idempotency-Key"] = uuid();
++  const tokens = readTokens();
++  if (auth && tokens?.accessToken) requestHeaders["Authorization"] = `Bearer ${tokens.accessToken}`;
++  const response = await fetch(`${apiBaseUrl()}${path}`, {
++    method,
++    headers: requestHeaders,
++    body: body !== undefined ? JSON.stringify(body) : undefined,
++  });
++  let parsed: { data?: T; code?: string; message?: string; details?: Record<string, unknown>; requestId?: string } | null = null;
++  try {
++    parsed = await response.json();
++  } catch {
++    /* empty body */
++  }
++  if (!response.ok) throw new ApiError(response.status, parsed);
++  return parsed?.data as T;
++}
++
++let refreshInFlight: Promise<void> | null = null;
++
++async function refreshSession(): Promise<void> {
++  const tokens = readTokens();
++  if (!tokens?.refreshToken) throw new ApiError(401, { code: "UNAUTHORIZED", message: "no refresh token" });
++  const session = await rawRequest<AuthSessionData>("/auth/refresh", {
++    method: "POST",
++    auth: false,
++    body: { refreshToken: tokens.refreshToken },
++  });
++  storeAuthSession(session);
++}
++
++/**
++ * The one entry point pages should use.
++ *   request<Course[]>("/courses")
++ *   request<ClassSection>("/class-sections", { method: "POST", body: {...} })
++ * Handles the envelope, bearer token, idempotency key, and a single automatic
++ * refresh-and-retry when the access token expired.
++ */
++export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
++  try {
++    return await rawRequest<T>(path, options);
++  } catch (error) {
++    const canRefresh = options.auth !== false && readTokens() !== null;
++    if (error instanceof ApiError && error.status === 401 && canRefresh) {
++      if (!refreshInFlight) {
++        refreshInFlight = refreshSession().finally(() => {
++          refreshInFlight = null;
++        });
++      }
++      try {
++        await refreshInFlight;
++      } catch (refreshError) {
++        clearApiSession();
++        throw refreshError;
++      }
++      return rawRequest<T>(path, options);
++    }
++    throw error;
++  }
++}
++
++// ── Auth ─────────────────────────────────────────────────────────
++export async function passwordLogin(account: string, password: string): Promise<AuthSessionData> {
++  const session = await rawRequest<AuthSessionData>("/auth/password-login", {
++    method: "POST",
++    auth: false,
++    body: { account, password },
++  });
++  storeAuthSession(session);
++  return session;
++}
++
++export async function logoutApi(): Promise<void> {
++  try {
++    await request<null>("/auth/logout", { method: "POST" });
++  } catch {
++    /* best effort */
++  }
++  clearApiSession();
++}
++
++export const getMe = () => request<CurrentUserData>("/me");
+diff --git a/app/language.tsx b/app/language.tsx
+index 3fd82c5..7b7bd4c 100644
+--- a/app/language.tsx
++++ b/app/language.tsx
+@@ -91,6 +91,16 @@ const englishText: Record<string, string> = {
+   "管理员工作台": "Administrator workspace",
+   "隐私政策 · 使用帮助": "Privacy · Help",
+   "请输入账号与密码后继续。": "Enter your account and password to continue.",
++  "该账号不是教师或管理员，无法登录本平台。": "This account is not a teacher or administrator and cannot sign in to this platform.",
++  "网络连接失败，请确认本机后端已启动（start-dev.ps1）。": "Network connection failed. Make sure the local backend is running (start-dev.ps1).",
++  "该功能后端暂未开放。": "This feature is not yet enabled on the backend.",
++  "提交的内容格式不正确，请检查后重试。": "Some submitted fields are invalid. Check and try again.",
++  "账号或密码不正确。": "Incorrect account or password.",
++  "登录状态已失效，请重新登录。": "Your session has expired. Sign in again.",
++  "没有权限执行该操作。": "You do not have permission for this action.",
++  "资源不存在或已被移除。": "The resource does not exist or was removed.",
++  "数据已在别处更新，请刷新后重试。": "The data changed elsewhere. Refresh and try again.",
++  "操作过于频繁，请稍后再试。": "Too many attempts. Try again later.",
+   "请联系管理员完成身份核验与账号恢复。": "Contact an administrator to verify your identity and restore your account.",
+   "课程管理": "Course Management",
+   "学生管理": "Student Management",
+diff --git a/app/portal-app.tsx b/app/portal-app.tsx
+index f2f22c1..2bd11ca 100644
+--- a/app/portal-app.tsx
++++ b/app/portal-app.tsx
+@@ -30,6 +30,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
+ import { flushSync } from "react-dom";
+ import { AdminWorkspace } from "./admin-workspace";
+ import { ADMIN_SESSION_KEY } from "./admin-domain";
++import { apiErrorText, clearApiSession, hasApiSession, logoutApi, passwordLogin } from "./api-client";
+ import { adminCopy, adminLabel } from "./admin-i18n";
+ import { LanguageToggle, LocalizedContent, type Locale } from "./language";
+ import {
+@@ -285,12 +286,7 @@ export function PortalApp() {
+     };
+   }, [active, role, tabScrollTop]);
+ 
+-  const authenticate = (forcedRole?: Role) => {
+-    const resolvedRole = forcedRole ?? (/admin|sys|^a\d+/i.test(account.trim()) ? "admin" : "teacher");
+-    if (!forcedRole && (!account.trim() || !password.trim())) {
+-      setLoginError("请输入账号与密码后继续。");
+-      return false;
+-    }
++  const enterWorkspace = (resolvedRole: Role) => {
+     workspaceScrollPositions.current[resolvedRole] = {};
+     setTabDirection("forward");
+     setTabTransitionVersion(0);
+@@ -306,16 +302,49 @@ export function PortalApp() {
+       updateAdminHash("overview");
+     }
+     setLoginError("");
++  };
++
++  // Demo entry keeps working fully offline; the account/password form goes
++  // through the real backend (see submitLogin).
++  const authenticate = (forcedRole?: Role) => {
++    if (forcedRole) {
++      enterWorkspace(forcedRole);
++      return true;
++    }
++    if (!account.trim() || !password.trim()) {
++      setLoginError("请输入账号与密码后继续。");
++      return false;
++    }
++    enterWorkspace(/admin|sys|^a\d+/i.test(account.trim()) ? "admin" : "teacher");
+     return true;
+   };
+ 
+-  const submitLogin = () => {
++  const submitLogin = async () => {
+     if (isSubmitting) return;
++    const trimmedAccount = account.trim();
++    if (!trimmedAccount || !password.trim()) {
++      setLoginError("请输入账号与密码后继续。");
++      return;
++    }
+     setIsSubmitting(true);
+-    if (!authenticate()) setIsSubmitting(false);
++    try {
++      const session = await passwordLogin(trimmedAccount, password);
++      const apiRole = session.user?.role;
++      if (apiRole !== "TEACHER" && apiRole !== "ADMIN") {
++        clearApiSession();
++        setLoginError("该账号不是教师或管理员，无法登录本平台。");
++        return;
++      }
++      enterWorkspace(apiRole === "ADMIN" ? "admin" : "teacher");
++    } catch (error) {
++      setLoginError(apiErrorText(error));
++    } finally {
++      setIsSubmitting(false);
++    }
+   };
+ 
+   const logout = () => {
++    if (hasApiSession()) void logoutApi();
+     if (role === "admin") {
+       try { window.localStorage.removeItem(ADMIN_SESSION_KEY); } catch { /* Ignore restricted storage. */ }
+       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+@@ -401,11 +430,11 @@ export function PortalApp() {
+                 <p>使用学校分配的教师或管理员账号登录。</p>
+               </div>
+               <form
+-                onSubmit={(event) => { event.preventDefault(); submitLogin(); }}
++                onSubmit={(event) => { event.preventDefault(); void submitLogin(); }}
+                 onKeyDown={(event) => {
+                   if (event.key !== "Enter" || event.nativeEvent.isComposing || !(event.target instanceof HTMLInputElement)) return;
+                   event.preventDefault();
+-                  submitLogin();
++                  void submitLogin();
+                 }}
+               >
+                 <label>
+-- 
+2.50.1.windows.1
+
