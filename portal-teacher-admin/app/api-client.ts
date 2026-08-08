@@ -1,4 +1,4 @@
-// Shared API client for the unified BNBU Sports backend (OpenAPI 1.1, /api/v1).
+// Shared API client for the unified BNBU Sports backend (Contract 1.4, /api/v1).
 // Teacher and admin workspaces both build on this module; keep it UI-free.
 //
 // Contract rules baked in here so pages never re-implement them:
@@ -38,6 +38,23 @@ export interface CurrentUserData {
   adminProfile: Record<string, unknown> | null;
 }
 
+export type ApiPaginationMeta = {
+  nextCursor: string | null;
+  hasMore: boolean;
+  limit: number;
+};
+
+export type ApiSuccessMeta = {
+  requestId?: string;
+  pagination?: ApiPaginationMeta;
+  [key: string]: unknown;
+};
+
+export type ApiSuccessEnvelope<T> = {
+  data: T;
+  meta: ApiSuccessMeta;
+};
+
 type StoredTokens = {
   accessToken: string;
   refreshToken: string;
@@ -73,11 +90,21 @@ export function apiErrorText(error: unknown): string {
   const known: Record<string, string> = {
     VALIDATION_FAILED: "提交的内容格式不正确，请检查后重试。",
     AUTH_CREDENTIAL_INVALID: "账号或密码不正确。",
-    UNAUTHORIZED: "登录状态已失效，请重新登录。",
-    FORBIDDEN: "没有权限执行该操作。",
-    NOT_FOUND: "资源不存在或已被移除。",
+    AUTH_REQUIRED: "请先登录后再继续操作。",
+    AUTH_TOKEN_INVALID: "登录凭证无效，请重新登录。",
+    AUTH_TOKEN_EXPIRED: "登录状态已过期，请重新登录。",
+    AUTH_SESSION_REVOKED: "当前登录会话已失效，请重新登录。",
+    AUTH_RATE_LIMITED: "操作过于频繁，请稍后再试。",
+    PERMISSION_DENIED: "没有权限执行该操作。",
+    PERMISSION_RESOURCE_NOT_FOUND: "资源不存在或无权访问。",
+    USER_NOT_FOUND: "用户不存在或已被移除。",
+    COURSE_NOT_FOUND: "课程不存在或已被移除。",
     CONFLICT_VERSION_MISMATCH: "数据已在别处更新，请刷新后重试。",
-    RATE_LIMITED: "操作过于频繁，请稍后再试。",
+    // Contract 1.4 documents the full 503 SystemMode family.
+    SYSTEM_READ_ONLY: "系统当前为只读模式，暂时无法保存修改。",
+    SYSTEM_MAINTENANCE: "系统正在维护中，请稍后再试。",
+    SYSTEM_SERVICE_UNAVAILABLE: "依赖服务暂时不可用，请稍后再试。",
+    SYSTEM_DEPENDENCY_TIMEOUT: "依赖服务响应超时，请稍后再试。",
   };
   return known[error.code] || error.message;
 }
@@ -136,7 +163,7 @@ type RequestOptions = {
   headers?: Record<string, string>;
 };
 
-async function rawRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function rawEnvelopeRequest<T>(path: string, options: RequestOptions = {}): Promise<ApiSuccessEnvelope<T>> {
   const { method = "GET", body, auth = true, headers = {} } = options;
   const requestHeaders: Record<string, string> = { ...headers };
   if (body !== undefined) requestHeaders["Content-Type"] = "application/json";
@@ -148,21 +175,25 @@ async function rawRequest<T>(path: string, options: RequestOptions = {}): Promis
     headers: requestHeaders,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  let parsed: { data?: T; code?: string; message?: string; details?: Record<string, unknown>; requestId?: string } | null = null;
+  let parsed: { data?: T; meta?: ApiSuccessMeta; code?: string; message?: string; details?: Record<string, unknown>; requestId?: string } | null = null;
   try {
     parsed = await response.json();
   } catch {
     /* empty body */
   }
   if (!response.ok) throw new ApiError(response.status, parsed);
-  return parsed?.data as T;
+  return { data: parsed?.data as T, meta: parsed?.meta ?? {} };
+}
+
+async function rawRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return (await rawEnvelopeRequest<T>(path, options)).data;
 }
 
 let refreshInFlight: Promise<void> | null = null;
 
 async function refreshSession(): Promise<void> {
   const tokens = readTokens();
-  if (!tokens?.refreshToken) throw new ApiError(401, { code: "UNAUTHORIZED", message: "no refresh token" });
+  if (!tokens?.refreshToken) throw new ApiError(401, { code: "AUTH_REQUIRED", message: "no refresh token" });
   const session = await rawRequest<AuthSessionData>("/auth/refresh", {
     method: "POST",
     auth: false,
@@ -178,9 +209,9 @@ async function refreshSession(): Promise<void> {
  * Handles the envelope, bearer token, idempotency key, and a single automatic
  * refresh-and-retry when the access token expired.
  */
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function requestWithRefresh<T>(operation: () => Promise<T>, options: RequestOptions): Promise<T> {
   try {
-    return await rawRequest<T>(path, options);
+    return await operation();
   } catch (error) {
     const canRefresh = options.auth !== false && readTokens() !== null;
     if (error instanceof ApiError && error.status === 401 && canRefresh) {
@@ -195,10 +226,19 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
         clearApiSession();
         throw refreshError;
       }
-      return rawRequest<T>(path, options);
+      return operation();
     }
     throw error;
   }
+}
+
+export function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  return requestWithRefresh(() => rawRequest<T>(path, options), options);
+}
+
+/** Use for cursor-paginated endpoints that need success-envelope metadata. */
+export function requestWithMeta<T>(path: string, options: RequestOptions = {}): Promise<ApiSuccessEnvelope<T>> {
+  return requestWithRefresh(() => rawEnvelopeRequest<T>(path, options), options);
 }
 
 // ── Auth ─────────────────────────────────────────────────────────
@@ -213,8 +253,14 @@ export async function passwordLogin(account: string, password: string): Promise<
 }
 
 export async function logoutApi(): Promise<void> {
+  const refreshToken = readTokens()?.refreshToken;
   try {
-    await request<null>("/auth/logout", { method: "POST" });
+    if (refreshToken) {
+      await request<null>("/auth/logout", {
+        method: "POST",
+        body: { refreshToken },
+      });
+    }
   } catch {
     /* best effort */
   }

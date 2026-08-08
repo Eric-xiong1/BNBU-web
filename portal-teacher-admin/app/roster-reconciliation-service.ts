@@ -36,7 +36,6 @@ type MockRosterState = {
 };
 
 const STORAGE_KEY = "bnbu-teacher-roster-reconciliation-mock-v1";
-const MANAGED_COURSE_IDS = new Set(["1", "2", "3", "4"]);
 const contextsByCourse = new Map<string, ReconciliationContext>();
 let memoryState: MockRosterState | null = null;
 
@@ -72,7 +71,9 @@ function persistState(state: MockRosterState) {
 }
 
 function assertPermission(courseId: string) {
-  if (!MANAGED_COURSE_IDS.has(courseId)) throw new RosterServiceError("FORBIDDEN");
+  // Local mock only: allow any teaching-class id (including backend OpaqueId).
+  // Real roster API wiring is out of scope for this phase.
+  if (!courseId.trim()) throw new RosterServiceError("FORBIDDEN");
 }
 
 async function waitForMock(delay = 220) {

@@ -38,6 +38,14 @@ yarn-error.log*
 next-env.d.ts
 *.tsbuildinfo
 /dist/
+
+# local联调 artifacts（本机保留，不进远程）
+/public/.dev-record-media.json
+/scripts/patch-workspace-*.mjs
+/api-base.patch
+/make-test-record.ps1
+/teammate-setup.ps1
+/联调环境与任务分工.md
 /.wrangler/
 /outputs/
 /work/

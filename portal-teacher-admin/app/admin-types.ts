@@ -18,6 +18,7 @@ export type Gender = "male" | "female";
 export type GradeLevel = "freshman" | "sophomore" | "junior" | "senior";
 export type RecoveryStatus = "pending" | "approved" | "rejected";
 export type SystemMode = "NORMAL" | "READ_ONLY" | "MAINTENANCE";
+export type ApiRecordStatus = "ACTIVE" | "INACTIVE";
 export type MaintenanceKind = "planned" | "emergency" | "recovery";
 export type WindowMode = "available" | "unavailable";
 export type GradeGroup = "freshman_sophomore" | "junior_senior";
@@ -233,6 +234,110 @@ export type AdminState = {
   gradeCorrections: GradeCorrectionRequest[];
   notifications: AdminNotification[];
   health: AdminHealth;
+};
+
+// Contract-backed administrator projections. Keep these separate from the
+// legacy demo state above so unsupported backend fields are never invented.
+export type AdminCourse = {
+  id: string;
+  organizationId: string;
+  courseCode: string;
+  courseName: string;
+  description?: string | null;
+  status: ApiRecordStatus;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  version: number;
+};
+
+export type StudentProfileProjection = {
+  id: string;
+  organizationId: string;
+  userId: string;
+  studentNumber: string;
+  fullName: string;
+  gender: string;
+  gradeYear: number;
+  collegeName: string | null;
+  majorName: string | null;
+  administrativeClassName: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  version: number;
+};
+
+export type TeacherProfileProjection = {
+  id: string;
+  organizationId: string;
+  userId: string;
+  employeeNumber: string;
+  fullName: string;
+  collegeName?: string | null;
+  departmentName?: string | null;
+  title?: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+  version: number;
+};
+
+export type AuditLogProjection = {
+  id: string;
+  organizationId: string;
+  actorUserId: string | null;
+  actorRoleSnapshot: string | null;
+  permissionId: string;
+  actionType: string;
+  targetType: string;
+  targetId: string | null;
+  requestId: string;
+  idempotencyKeyReference: string | null;
+  outcome: string;
+  reasonCode: string | null;
+  safeMetadata: Record<string, unknown>;
+  sourceIpHash: string | null;
+  deviceFingerprintHash: string | null;
+  occurredAt: string;
+};
+
+export type SystemModeProjection = {
+  mode: SystemMode;
+  policyVersion: number;
+  updatedAt: string;
+};
+
+export type CurrentSemesterProjection = {
+  id: string;
+  organizationId: string;
+  academicYear: string;
+  termCode: string;
+  displayName: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  isCurrent: boolean;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+};
+
+export type CreateAdminCourseInput = {
+  courseCode: string;
+  courseName: string;
+  description?: string;
+};
+
+export type UpdateAdminCourseInput = {
+  courseName?: string;
+  description?: string | null;
+  status?: ApiRecordStatus;
+  expectedVersion: number;
 };
 
 export type CreateSemesterInput = Omit<Semester, "id" | "status" | "courseCount" | "studentCount" | "updatedAt">;

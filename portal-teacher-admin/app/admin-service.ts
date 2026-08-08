@@ -18,12 +18,17 @@ import {
   validateUserInput,
 } from "./admin-domain";
 import { createInitialAdminState } from "./admin-mock-data";
+import { apiErrorText, isUnsupported, request, requestWithMeta } from "./api-client";
 import {
   AdminServiceError,
+  type AdminCourse,
   type AdminPermission,
   type AdminState,
   type AdminUser,
+  type AuditLogProjection,
+  type CreateAdminCourseInput,
   type CreateSemesterInput,
+  type CurrentSemesterProjection,
   type EnduranceRuleInput,
   type GradeCorrectionStatus,
   type HelpArticleInput,
@@ -32,9 +37,13 @@ import {
   type PurgeAllBusinessDataResult,
   type RecoveryReviewInput,
   type SupportTicket,
+  type StudentProfileProjection,
+  type SystemModeProjection,
   type SystemMode,
+  type TeacherProfileProjection,
   type TicketStatus,
   type UpdateSemesterInput,
+  type UpdateAdminCourseInput,
   type UserInput,
   type UserRole,
 } from "./admin-types";
@@ -625,3 +634,109 @@ export function validateStoredEnduranceTable(state: AdminState, tableKey: string
 }
 
 export type TicketMutationInput = Pick<SupportTicket, "id" | "status"> & { reply: string };
+
+// ---------------------------------------------------------------------------
+// Unified backend API: administrator contract-backed capabilities.
+// These functions intentionally do not use or update the legacy localStorage
+// demo state. Unsupported capabilities remain explicit in the UI.
+
+export const adminApiErrorText = (error: unknown) => apiErrorText(error);
+export const isAdminApiUnsupported = (error: unknown) => isUnsupported(error);
+
+async function listAllCursorPages<T>(path: string): Promise<T[]> {
+  const items: T[] = [];
+  const visitedCursors = new Set<string>();
+  let cursor: string | null = null;
+
+  do {
+    const query = new URLSearchParams({ limit: "100" });
+    if (cursor) query.set("cursor", cursor);
+    const response = await requestWithMeta<T[]>(`${path}?${query.toString()}`);
+    items.push(...response.data);
+    const pagination = response.meta.pagination;
+    const nextCursor = pagination?.hasMore ? pagination.nextCursor : null;
+    if (!nextCursor || visitedCursors.has(nextCursor)) break;
+    visitedCursors.add(nextCursor);
+    cursor = nextCursor;
+  } while (cursor);
+
+  return items;
+}
+
+export function listAdminCourses() {
+  return listAllCursorPages<AdminCourse>("/courses");
+}
+
+export function createAdminCourse(input: CreateAdminCourseInput) {
+  return request<AdminCourse>("/courses", {
+    method: "POST",
+    body: {
+      courseCode: input.courseCode.trim(),
+      courseName: input.courseName.trim(),
+      ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+    },
+  });
+}
+
+export function updateAdminCourse(courseId: string, input: UpdateAdminCourseInput) {
+  return request<AdminCourse>(`/courses/${encodeURIComponent(courseId)}`, {
+    method: "PATCH",
+    body: input,
+  });
+}
+
+export function listStudentProfiles() {
+  return listAllCursorPages<StudentProfileProjection>("/students");
+}
+
+export function getStudentProfile(studentId: string) {
+  return request<StudentProfileProjection>(`/students/${encodeURIComponent(studentId)}`);
+}
+
+export function getTeacherProfile(teacherId: string) {
+  return request<TeacherProfileProjection>(`/teachers/${encodeURIComponent(teacherId)}`);
+}
+
+type ClassSectionTeacherReference = { teacherId: string };
+
+export async function listAssociatedTeacherProfiles() {
+  const teacherIds = new Set<string>();
+  const sections = await listAllCursorPages<ClassSectionTeacherReference>("/class-sections");
+  sections.forEach((section) => {
+    if (section.teacherId) teacherIds.add(section.teacherId);
+  });
+
+  const teachers = await Promise.all([...teacherIds].map((teacherId) => getTeacherProfile(teacherId)));
+  return teachers.sort((left, right) => left.employeeNumber.localeCompare(right.employeeNumber));
+}
+
+export type AuditLogCursorPage = {
+  items: AuditLogProjection[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  limit: number;
+};
+
+export async function listAuditLogProjections(cursor: string | null = null): Promise<AuditLogCursorPage> {
+  const query = new URLSearchParams({ limit: "50", sort: "-occurredAt" });
+  if (cursor) query.set("cursor", cursor);
+  const response = await requestWithMeta<AuditLogProjection[]>(`/audit-logs?${query.toString()}`);
+  return {
+    items: response.data,
+    nextCursor: response.meta.pagination?.nextCursor ?? null,
+    hasMore: response.meta.pagination?.hasMore ?? false,
+    limit: response.meta.pagination?.limit ?? 50,
+  };
+}
+
+export function getAuditLogProjection(auditLogId: string) {
+  return request<AuditLogProjection>(`/audit-logs/${encodeURIComponent(auditLogId)}`);
+}
+
+export function getSystemModeProjection() {
+  return request<SystemModeProjection>("/system-mode");
+}
+
+export function getCurrentSemesterProjection() {
+  return request<CurrentSemesterProjection>("/semesters/current");
+}

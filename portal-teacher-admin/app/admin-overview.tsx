@@ -9,9 +9,11 @@ import { AdminBadge, AdminSectionHeading, formatAdminDate } from "./admin-compon
 export function AdminOverview({
   locale,
   onNavigate,
+  onOpenCourses,
 }: {
   locale: AdminLocale;
   onNavigate: (route: AdminRoute) => void;
+  onOpenCourses: () => void;
 }) {
   const { state, busyKey, run } = useAdminStore();
   if (!state) return null;
@@ -36,6 +38,13 @@ export function AdminOverview({
 
   return (
     <div className="admin-page-stack">
+      <section className="admin-surface">
+        <AdminSectionHeading
+          title={adminCopy(locale, "course_catalog")}
+          description={adminCopy(locale, "course_catalog_hint")}
+          action={<button className="primary-button" type="button" onClick={onOpenCourses}>{adminCopy(locale, "open_course_catalog")} →</button>}
+        />
+      </section>
       <section className="admin-summary-grid" aria-label={adminCopy(locale, "overview_metrics")}>
         <button type="button" onClick={() => onNavigate("semesters")}><span>{adminCopy(locale, "current_semester")}</span><b>{current?.name ?? adminCopy(locale, "no_current_semester")}</b><small>{current ? `${formatAdminDate(locale, current.startDate)} – ${formatAdminDate(locale, current.endDate)}` : adminCopy(locale, "not_available")}</small></button>
         <button type="button" onClick={() => onNavigate("accounts")}><span>{adminCopy(locale, "total_users")}</span><b>{state.users.length}</b><small>{state.users.filter((user) => user.role === "teacher").length} {adminLabel(locale, "userRole", "teacher")} · {state.users.filter((user) => user.role === "student").length} {adminLabel(locale, "userRole", "student")}</small></button>

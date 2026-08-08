@@ -10,7 +10,8 @@ type CourseInviteState = {
 const ANDROID_COURSE_JOIN_QR_ORIGIN = "https://sports.example.com";
 
 export function normalizeInviteCode(value: string) {
-  return value.trim().toUpperCase().replace(/\s+/g, "");
+  // Real invite tokens are case-sensitive; do not force uppercase.
+  return value.trim().replace(/\s+/g, "");
 }
 
 export function createAndroidInviteQrPayload(code: string) {

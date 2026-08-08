@@ -38,6 +38,21 @@ import {
 import { TabPageTransition, type TabTransitionDirection } from "./teacher-tab-page-transition";
 import { RosterReconciliationPage } from "./roster-reconciliation";
 import type { PlatformCourseMember, RosterCourseReference } from "./roster-reconciliation-types";
+import {
+  apiErrorText,
+  createClassSection,
+  createCourseInvite,
+  INVALID_REASON_TO_CODE,
+  isUnsupported,
+  loadSubmittedCheckins,
+  loadTeacherCourses,
+  loadTeacherGrades,
+  loadTeacherStudents,
+  openTeacherMedia,
+  submitExerciseReviewWithRetry,
+  updateClassSectionWindow,
+} from "./teacher-data";
+import type { CourseCatalog, Semester } from "./teacher-api-types";
 
 type TeacherWorkspaceProps = {
   active: string;
@@ -72,26 +87,31 @@ type CheckinWindow = {
 };
 
 type Course = {
-  id: number;
+  id: string;
   code: string;
   section: string;
   name: string;
   semester: string;
+  semesterId?: string;
+  courseId?: string;
   status: CourseStatus;
   courseTarget: number;
   otherTarget: number;
+  version?: number;
   checkinWindow: CheckinWindow;
   invite?: Invite;
 };
 
 type Student = {
-  id: number;
+  id: string;
   name: string;
   number: string;
   email: string;
   gender: "男" | "女" | "其他";
   grade: string;
-  courseId: number;
+  courseId: string;
+  enrollmentId?: string;
+  version?: number;
   status: MembershipStatus;
   joinedAt: string;
   joinMethod: "qr" | "manual_import";
@@ -102,9 +122,10 @@ type Student = {
 };
 
 type CheckinRecord = {
-  id: number;
-  studentId: number;
-  courseId: number;
+  id: string;
+  studentId: string;
+  courseId: string;
+  enrollmentId?: string;
   creditType: "课程相关" | "其他运动" | "系统抵扣";
   sport: string;
   startAt: string;
@@ -119,6 +140,7 @@ type CheckinRecord = {
   risk: "低风险" | "需关注" | "凭证模糊";
   confidence: number;
   proof: string[];
+  mediaIds?: string[];
   locationExpired: boolean;
   reviewComment?: string;
   internalNote?: string;
@@ -126,12 +148,15 @@ type CheckinRecord = {
   auditStatus: AuditStatus;
   invalidReason?: string;
   auditRemark?: string;
+  version?: number;
+  reviewVersion?: number;
 };
 
 type Grade = {
-  id: number;
-  studentId: number;
-  courseId: number;
+  id: string;
+  studentId: string;
+  courseId: string;
+  enrollmentId?: string;
   gender: "男" | "女";
   gradeGroup: "大一/大二" | "大三/大四";
   enduranceStatus: GradeStatus;
@@ -139,12 +164,13 @@ type Grade = {
   seconds?: number;
   physicalScore?: number;
   published: boolean;
+  version?: number;
 };
 
 type Exemption = {
   id: number;
-  studentId: number;
-  courseId: number;
+  studentId: string;
+  courseId: string;
   kind: "耐力跑免测" | "校队认证" | "社团认证";
   organization?: string;
   reason: string;
@@ -165,16 +191,16 @@ type MaterialPreview = {
 
 type DialogState =
   | { type: "course-new" }
-  | { type: "course-manage"; courseId: number }
-  | { type: "invite"; courseId: number }
-  | { type: "invite-revoke"; courseId: number }
-  | { type: "student-action"; studentId: number; action: "remove" | "supplement" | "waiver" }
+  | { type: "course-manage"; courseId: string }
+  | { type: "invite"; courseId: string }
+  | { type: "invite-revoke"; courseId: string }
+  | { type: "student-action"; studentId: string; action: "remove" | "supplement" | "waiver" }
   | { type: "supplement" }
-  | { type: "checkin"; recordId: number }
-  | { type: "checkin-invalid"; recordId: number }
-  | { type: "checkin-complete"; studentId: number }
-  | { type: "grade"; gradeId: number }
-  | { type: "publish-grades"; courseId: number }
+  | { type: "checkin"; recordId: string }
+  | { type: "checkin-invalid"; recordId: string }
+  | { type: "checkin-complete"; studentId: string }
+  | { type: "grade"; gradeId: string }
+  | { type: "publish-grades"; courseId: string }
   | { type: "exemption"; exemptionId: number }
   | null;
 
@@ -200,84 +226,24 @@ const defaultCheckinWindow: CheckinWindow = {
   semesterDeadline: "2026-07-31",
 };
 
-const initialCourses: Course[] = [
-  {
-    id: 1,
-    code: "PE101",
-    section: "01班",
-    name: "大学体育（一）",
-    semester: semesterCurrent,
-    status: "ACTIVE",
-    courseTarget: 10,
-    otherTarget: 10,
-    checkinWindow: { ...defaultCheckinWindow, excludedDates: [{ date: "2026-05-01", reason: "劳动节假期" }] },
-    invite: { code: "PE01-7K2Q", expiresAt: "2026-08-05T18:00:00+08:00", status: "active" },
-  },
-  {
-    id: 2,
-    code: "PE203",
-    section: "03班",
-    name: "羽毛球",
-    semester: semesterCurrent,
-    status: "ACTIVE",
-    courseTarget: 12,
-    otherTarget: 8,
-    checkinWindow: { ...defaultCheckinWindow, dailyStartTime: "07:00", dailyEndTime: "21:30", excludedDates: [{ date: "2026-06-19", reason: "期末考试安排" }] },
-  },
-  {
-    id: 3,
-    code: "PE208",
-    section: "02班",
-    name: "篮球",
-    semester: semesterCurrent,
-    status: "ACTIVE",
-    courseTarget: 10,
-    otherTarget: 10,
-    checkinWindow: { ...defaultCheckinWindow },
-  },
-  {
-    id: 4,
-    code: "PE101",
-    section: "02班",
-    name: "大学体育（一）",
-    semester: "2025–2026 第一学期",
-    status: "ENDED",
-    courseTarget: 10,
-    otherTarget: 10,
-    checkinWindow: { ...defaultCheckinWindow, dateRangeStart: "2025-09-08", dateRangeEnd: "2026-01-16", semesterDeadline: "2026-01-16" },
-  },
+const initialCourses: Course[] = [];
+
+const demoExemptionStudents: Student[] = [
+  { id: "demo-s7", name: "吴雨菲", number: "2024110401", email: "yufei.wu@mail.bnbu.edu.cn", gender: "女", grade: "2024级", courseId: "demo-c3", status: "active", joinedAt: "2026-02-25 11:26", joinMethod: "qr", courseHours: 5, otherHours: 4 },
+  { id: "demo-s5", name: "郭思远", number: "2023110724", email: "siyuan.guo@mail.bnbu.edu.cn", gender: "男", grade: "2023级", courseId: "demo-c2", status: "active", joinedAt: "2026-02-24 10:08", joinMethod: "qr", courseHours: 6, otherHours: 7 },
+  { id: "demo-s6", name: "高嘉雯", number: "2024110158", email: "jiawen.gao@mail.bnbu.edu.cn", gender: "女", grade: "2024级", courseId: "demo-c2", status: "active", joinedAt: "2026-02-24 10:17", joinMethod: "qr", courseHours: 8, otherHours: 5 },
 ];
 
-const initialStudents: Student[] = [
-  { id: 1, name: "赵可心", number: "2024110261", email: "kexin.zhao@mail.bnbu.edu.cn", gender: "女", grade: "2024级", courseId: 1, status: "active", joinedAt: "2026-02-23 08:35", joinMethod: "qr", courseHours: 8, otherHours: 6 },
-  { id: 2, name: "陈昊然", number: "2024110618", email: "haoran.chen@mail.bnbu.edu.cn", gender: "男", grade: "2024级", courseId: 1, status: "active", joinedAt: "2026-02-23 08:41", joinMethod: "qr", courseHours: 10, otherHours: 10 },
-  { id: 3, name: "何雨桐", number: "2024110335", email: "yutong.he@mail.bnbu.edu.cn", gender: "女", grade: "2024级", courseId: 1, status: "active", joinedAt: "2026-02-23 09:02", joinMethod: "qr", courseHours: 7, otherHours: 4 },
-  { id: 4, name: "许嘉宁", number: "2024110772", email: "jianing.xu@mail.bnbu.edu.cn", gender: "男", grade: "2024级", courseId: 1, status: "active", joinedAt: "2026-02-23 09:16", joinMethod: "manual_import", courseHours: 9, otherHours: 8 },
-  { id: 5, name: "郭思远", number: "2023110724", email: "siyuan.guo@mail.bnbu.edu.cn", gender: "男", grade: "2023级", courseId: 2, status: "active", joinedAt: "2026-02-24 10:08", joinMethod: "qr", courseHours: 6, otherHours: 7 },
-  { id: 6, name: "高嘉雯", number: "2024110158", email: "jiawen.gao@mail.bnbu.edu.cn", gender: "女", grade: "2024级", courseId: 2, status: "active", joinedAt: "2026-02-24 10:17", joinMethod: "qr", courseHours: 8, otherHours: 5 },
-  { id: 7, name: "吴雨菲", number: "2024110401", email: "yufei.wu@mail.bnbu.edu.cn", gender: "女", grade: "2024级", courseId: 3, status: "active", joinedAt: "2026-02-25 11:26", joinMethod: "qr", courseHours: 5, otherHours: 4 },
-  { id: 8, name: "李欣然", number: "2024110247", email: "xinran.li@mail.bnbu.edu.cn", gender: "女", grade: "2024级", courseId: 1, status: "active", joinedAt: "2026-08-02 09:42", joinMethod: "qr", courseHours: 0, otherHours: 0 },
-];
+const initialStudents: Student[] = [];
 
-const initialRecords: CheckinRecord[] = [
-  { id: 1, studentId: 1, courseId: 1, creditType: "课程相关", sport: "校园跑", startAt: "2026-07-27 18:02", endAt: "2026-07-27 20:03", durationMinutes: 121, creditedMinutes: 120, originalHours: 2, approvedHours: 2, description: "按校园外圈完成连续跑步。", submittedAt: "2026-07-27", status: "有效", risk: "需关注", confidence: 0.62, proof: ["跑步轨迹.jpg", "结束视频.mp4"], locationExpired: false, source: "student", auditStatus: "pending" },
-  { id: 2, studentId: 2, courseId: 1, creditType: "其他运动", sport: "游泳", startAt: "2026-07-26 16:00", endAt: "2026-07-26 18:00", durationMinutes: 120, creditedMinutes: 120, originalHours: 2, approvedHours: 2, description: "完成自由泳与蛙泳练习。", submittedAt: "2026-07-26", status: "有效", risk: "低风险", confidence: 0.94, proof: ["泳池凭证.jpg"], locationExpired: false, source: "student", auditStatus: "pending" },
-  { id: 3, studentId: 3, courseId: 1, creditType: "课程相关", sport: "核心力量训练", startAt: "2026-07-26 08:10", endAt: "2026-07-26 09:10", durationMinutes: 60, creditedMinutes: 60, originalHours: 1, approvedHours: 1, description: "完成一小时核心力量训练。", submittedAt: "2026-07-26", status: "有效", risk: "凭证模糊", confidence: 0.48, proof: ["训练照片.heic"], locationExpired: true, source: "student", auditStatus: "pending" },
-  { id: 4, studentId: 4, courseId: 1, creditType: "其他运动", sport: "骑行", startAt: "2026-07-25 19:00", endAt: "2026-07-25 21:00", durationMinutes: 120, creditedMinutes: 120, originalHours: 2, approvedHours: 2, description: "绿道往返骑行。", submittedAt: "2026-07-25", status: "有效", risk: "低风险", confidence: 0.91, proof: ["骑行记录.png"], locationExpired: false, source: "student", auditStatus: "pending" },
-];
+const initialRecords: CheckinRecord[] = [];
 
-const initialGrades: Grade[] = [
-  { id: 1, studentId: 1, courseId: 1, gender: "女", gradeGroup: "大一/大二", enduranceStatus: "Recorded", minutes: 4, seconds: 4, physicalScore: 87, published: false },
-  { id: 2, studentId: 2, courseId: 1, gender: "男", gradeGroup: "大一/大二", enduranceStatus: "Recorded", minutes: 3, seconds: 34, physicalScore: 92, published: false },
-  { id: 3, studentId: 3, courseId: 1, gender: "女", gradeGroup: "大一/大二", enduranceStatus: "Exempt", physicalScore: 85, published: false },
-  { id: 4, studentId: 4, courseId: 1, gender: "男", gradeGroup: "大一/大二", enduranceStatus: "NotRecorded", published: false },
-  { id: 5, studentId: 5, courseId: 2, gender: "男", gradeGroup: "大三/大四", enduranceStatus: "Recorded", minutes: 3, seconds: 45, physicalScore: 88, published: false },
-];
+const initialGrades: Grade[] = [];
 
 const initialExemptions: Exemption[] = [
-  { id: 1, studentId: 7, courseId: 3, kind: "耐力跑免测", reason: "右膝半月板术后恢复期", material: ["医学诊断证明.jpg", "康复建议.png"], submittedAt: "2 小时前", status: "pending" },
-  { id: 2, studentId: 5, courseId: 2, kind: "校队认证", organization: "BNBU 男子篮球校队", reason: "本学期参加校队常规训练", material: ["在队证明.pdf"], submittedAt: "5 小时前", status: "pending" },
-  { id: 3, studentId: 6, courseId: 2, kind: "社团认证", organization: "悦跑社", reason: "日常训练成员", material: ["社团证明.jpg", "训练计划.pdf"], submittedAt: "昨天", status: "pending" },
+  { id: 1, studentId: "demo-s7", courseId: "demo-c3", kind: "耐力跑免测", reason: "右膝半月板术后恢复期", material: ["医学诊断证明.jpg", "康复建议.png"], submittedAt: "2 小时前", status: "pending" },
+  { id: 2, studentId: "demo-s5", courseId: "demo-c2", kind: "校队认证", organization: "BNBU 男子篮球校队", reason: "本学期参加校队常规训练", material: ["在队证明.pdf"], submittedAt: "5 小时前", status: "pending" },
+  { id: 3, studentId: "demo-s6", courseId: "demo-c2", kind: "社团认证", organization: "悦跑社", reason: "日常训练成员", material: ["社团证明.jpg", "训练计划.pdf"], submittedAt: "昨天", status: "pending" },
 ];
 
 function toneForStatus(status: string) {
@@ -672,25 +638,79 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
   const [formError, setFormError] = useState("");
   const [courseFilter, setCourseFilter] = useState("all");
   const [courseView, setCourseView] = useState<"all" | "active" | "ended">("all");
-  const [reconciliationCourseId, setReconciliationCourseId] = useState<number | null>(null);
+  const [reconciliationCourseId, setReconciliationCourseId] = useState<string | null>(null);
   const [rosterView, setRosterView] = useState<RosterView>("all");
   const [rosterSearch, setRosterSearch] = useState("");
   const [rosterSort, setRosterSort] = useState<"attention" | "progress" | "name">("attention");
-  const [checkinStudentId, setCheckinStudentId] = useState<number | null>(null);
+  const [checkinStudentId, setCheckinStudentId] = useState<string | null>(null);
   const [checkinDetailView, setCheckinDetailView] = useState<CheckinDetailView>("list");
   const [checkinReviewFilter, setCheckinReviewFilter] = useState<CheckinReviewFilter>("all");
   const [checkinAuditFilter, setCheckinAuditFilter] = useState<CheckinAuditFilter>("all");
-  const [checkinAuditCompleted, setCheckinAuditCompleted] = useState<Record<number, boolean>>({});
-  const [pendingRecordFocusId, setPendingRecordFocusId] = useState<number | null>(null);
-  const [gradeCourseId, setGradeCourseId] = useState(1);
+  const [checkinAuditCompleted, setCheckinAuditCompleted] = useState<Record<string, boolean>>({});
+  const [pendingRecordFocusId, setPendingRecordFocusId] = useState<string | null>(null);
+  const [gradeCourseId, setGradeCourseId] = useState("");
   const [gradeView, setGradeView] = useState<"all" | "recorded" | "pending" | "exception">("all");
   const [exemptionFilter, setExemptionFilter] = useState<ExemptionFilter>("pending");
   const [exemptionSearch, setExemptionSearch] = useState("");
   const [exemptionKind, setExemptionKind] = useState<"all" | Exemption["kind"]>("all");
   const [inviteClock, setInviteClock] = useState(() => Date.now());
   const [inviteQr, setInviteQr] = useState<{ code: string; dataUrl: string } | null>(null);
+  const [courseCatalog, setCourseCatalog] = useState<CourseCatalog[]>([]);
+  const [currentSemester, setCurrentSemester] = useState<Semester | null>(null);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [mediaUrlCache, setMediaUrlCache] = useState<Record<string, string>>({});
   const invitePresentationRef = useRef<HTMLDivElement>(null);
   const handleInviteQrReady = useCallback((code: string, dataUrl: string) => setInviteQr({ code, dataUrl }), []);
+
+  const refreshTeacherData = useCallback(async () => {
+    setDataLoading(true);
+    try {
+      const { courses: nextCourses, catalog, semester } = await loadTeacherCourses();
+      setCourses(nextCourses);
+      setCourseCatalog(catalog);
+      setCurrentSemester(semester);
+      const sectionIds = nextCourses.map((course) => course.id);
+      const nextStudents = sectionIds.length ? await loadTeacherStudents(sectionIds) : [];
+      const nextRecords = await loadSubmittedCheckins();
+      const knownIds = new Set(nextStudents.map((student) => student.id));
+      for (const record of nextRecords) {
+        if (knownIds.has(record.studentId)) continue;
+        knownIds.add(record.studentId);
+        nextStudents.push({
+          id: record.studentId,
+          enrollmentId: record.enrollmentId,
+          name: `学生 ${record.studentId.slice(-8)}`,
+          number: record.studentId.slice(-8),
+          email: "",
+          gender: "其他",
+          grade: "—",
+          courseId: record.courseId,
+          status: "active",
+          joinedAt: record.submittedAt,
+          joinMethod: "qr",
+          courseHours: 0,
+          otherHours: 0,
+          version: 1,
+        });
+      }
+      setStudents(nextStudents);
+      setRecords(nextRecords);
+      const nextGrades = await loadTeacherGrades(nextStudents);
+      setGrades(nextGrades);
+      setGradeCourseId((current) => {
+        if (current && nextCourses.some((course) => course.id === current)) return current;
+        return nextCourses.find((course) => course.status === "ACTIVE")?.id ?? nextCourses[0]?.id ?? "";
+      });
+    } catch (error) {
+      showToast(apiErrorText(error));
+    } finally {
+      setDataLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => {
+    void refreshTeacherData();
+  }, [refreshTeacherData]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setInviteClock(Date.now()), 60_000);
@@ -871,11 +891,11 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
     if (formError) setFormError("");
   };
 
-  const markStudentAuditInProgress = (studentId: number) => {
+  const markStudentAuditInProgress = (studentId: string) => {
     setCheckinAuditCompleted((current) => current[studentId] ? { ...current, [studentId]: false } : current);
   };
 
-  const selectRecordAuditStatus = (record: CheckinRecord, status: AuditStatus) => {
+  const selectRecordAuditStatus = async (record: CheckinRecord, status: AuditStatus) => {
     if (status === "invalid") {
       openDialog(
         { type: "checkin-invalid", recordId: record.id },
@@ -883,18 +903,26 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
       );
       return;
     }
+    if (status !== "valid") return;
     if (record.auditStatus === status) return;
-    setRecords((current) => current.map((item) => item.id === record.id ? {
-      ...item,
-      auditStatus: status,
-      invalidReason: undefined,
-      auditRemark: undefined,
-    } : item));
-    markStudentAuditInProgress(record.studentId);
-    showToast(status === "valid" ? "已标记为有效，汇总有效时长已更新。" : "已恢复为待审核。");
+    try {
+      await submitExerciseReviewWithRetry(record.id, (fresh) => ({
+        result: "VALID",
+        publicComment: form.auditRemark?.trim() || "有效",
+        reasonCode: null,
+        reason: null,
+        expectedReviewVersion: 1,
+        expectedVersion: fresh.version,
+      }));
+      setRecords((current) => current.filter((item) => item.id !== record.id));
+      markStudentAuditInProgress(record.studentId);
+      showToast("已标记为有效，汇总有效时长已更新。");
+    } catch (error) {
+      showToast(isUnsupported(error) ? "该功能后端暂未开放。" : apiErrorText(error));
+    }
   };
 
-  const confirmInvalidAttendance = (recordId: number) => {
+  const confirmInvalidAttendance = async (recordId: string) => {
     const record = records.find((item) => item.id === recordId);
     const invalidReason = form.invalidReason?.trim();
     const auditRemark = form.auditRemark?.trim();
@@ -906,18 +934,26 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
       setFormError("选择“其他”时，请填写备注。");
       return;
     }
-    setRecords((current) => current.map((item) => item.id === recordId ? {
-      ...item,
-      auditStatus: "invalid",
-      invalidReason,
-      auditRemark: invalidReason === "其他" ? auditRemark : undefined,
-    } : item));
-    markStudentAuditInProgress(record.studentId);
-    showToast("已标记为无效，汇总有效时长已更新。");
-    closeDialog();
+    const reasonCode = INVALID_REASON_TO_CODE[invalidReason] ?? "OTHER";
+    try {
+      await submitExerciseReviewWithRetry(recordId, (fresh) => ({
+        result: "INVALID",
+        publicComment: auditRemark || invalidReason,
+        reasonCode,
+        reason: reasonCode === "OTHER" ? auditRemark : invalidReason,
+        expectedReviewVersion: 1,
+        expectedVersion: fresh.version,
+      }));
+      setRecords((current) => current.filter((item) => item.id !== recordId));
+      markStudentAuditInProgress(record.studentId);
+      showToast("已标记为无效，汇总有效时长已更新。");
+      closeDialog();
+    } catch (error) {
+      setFormError(isUnsupported(error) ? "该功能后端暂未开放。" : apiErrorText(error));
+    }
   };
 
-  const openCheckinStudentRecords = (studentId: number) => {
+  const openCheckinStudentRecords = (studentId: string) => {
     setCheckinStudentId(studentId);
     setCheckinDetailView("list");
     setCheckinAuditFilter("all");
@@ -939,7 +975,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
     openDialog({ type: "checkin-complete", studentId: selectedCheckinStudent.id });
   };
 
-  const confirmCheckinAuditCompletion = (studentId: number) => {
+  const confirmCheckinAuditCompletion = (studentId: string) => {
     const studentRecords = records.filter((record) => record.studentId === studentId);
     const student = students.find((item) => item.id === studentId);
     const course = courses.find((item) => item.id === student?.courseId);
@@ -960,38 +996,34 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
     showToast(`${message}${forced ? "；已自动发送不可静默的学生通知。" : "；学生通知已自动生成。"}`);
   };
 
-  const addCourse = () => {
-    const code = form.code?.trim().toUpperCase();
-    const section = form.section?.trim();
-    const name = form.name?.trim();
-    if (!code || !section || !name) {
+  const addCourse = async () => {
+    const courseId = form.courseId?.trim();
+    const classCode = form.section?.trim() || form.classCode?.trim();
+    const displayName = form.name?.trim() || form.displayName?.trim();
+    const semesterId = currentSemester?.id;
+    if (!courseId || !classCode || !displayName || !semesterId) {
       setFormError("课程代码、教学班号和课程名称均为必填项。");
       return;
     }
-    if (courses.some((course) => course.semester === semesterCurrent && course.code === code && course.section === section)) {
-      setFormError("当前学期已存在相同课程代码和教学班号。");
-      return;
+    try {
+      await createClassSection({
+        courseId,
+        semesterId,
+        classCode,
+        displayName,
+        isEnrollmentOpen: true,
+      });
+      await refreshTeacherData();
+      showToast(`已创建 ${displayName} · ${classCode}，并自动关联当前教师与当前学期。`);
+      closeDialog();
+    } catch (error) {
+      setFormError(isUnsupported(error) ? "该功能后端暂未开放。" : apiErrorText(error));
     }
-    const nextId = Math.max(...courses.map((course) => course.id)) + 1;
-    setCourses((current) => [
-      ...current,
-      {
-        id: nextId,
-        code,
-        section,
-        name,
-        semester: semesterCurrent,
-        status: "ACTIVE",
-        courseTarget: 10,
-        otherTarget: 10,
-        checkinWindow: { ...defaultCheckinWindow, excludedDates: [] },
-      },
-    ]);
-    showToast(`已创建 ${name} · ${section}，并自动关联当前教师与当前学期。`);
-    closeDialog();
   };
 
-  const saveCourseSettings = (courseId: number) => {
+  const saveCourseSettings = async (courseId: string) => {
+    // The check-in window is persisted through PATCH /class-sections/{id}.
+    // Hour targets belong to ScoreRule, which is not open yet, so they stay local.
     const courseTarget = Number(form.courseTarget);
     const otherTarget = Number(form.otherTarget);
     if (!Number.isFinite(courseTarget) || !Number.isFinite(otherTarget) || courseTarget < 0 || otherTarget < 0) {
@@ -1037,26 +1069,58 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
       return;
     }
     const checkinWindow: CheckinWindow = { windowMode, dateRangeStart, dateRangeEnd, dailyStartTime, dailyEndTime, excludedDates, semesterDeadline };
+    const target = courses.find((course) => course.id === courseId);
+    if (!target) {
+      setFormError("找不到该教学班，请刷新后重试。");
+      return;
+    }
+    // Demo rows carry no contract version and must never be PATCHed.
+    if (typeof target.version !== "number") {
+      setFormError("该教学班不是后端真实数据（演示模式），无法保存到服务器。");
+      return;
+    }
+    try {
+      await updateClassSectionWindow(courseId, {
+        checkInWindowMode: windowMode === "unavailable" ? "UNAVAILABLE" : "AVAILABLE",
+        checkInStartDate: dateRangeStart,
+        checkInEndDate: dateRangeEnd,
+        // Contract 1.4 accepts organization-local wall clock, which is exactly
+        // what <input type="time"> produces.
+        dailyStartTime,
+        dailyEndTime,
+        // The contract stores a deadline instant; the form edits a date, so the
+        // day is submitted as its final local second.
+        submissionDeadlineAt: new Date(`${semesterDeadline}T23:59:59`).toISOString(),
+        // Only the dates are contract fields; the local reason text is kept for display.
+        excludedDates: excludedDates.map((item) => item.date),
+        expectedVersion: target.version,
+      });
+    } catch (error) {
+      setFormError(isUnsupported(error) ? "该功能后端暂未开放。" : apiErrorText(error));
+      return;
+    }
+    // Hour targets have no contract field yet, so they remain client-side only.
     setCourses((current) => current.map((course) => course.id === courseId ? { ...course, courseTarget, otherTarget, checkinWindow } : course));
-    showToast("课程设置已保存，学生端将按本教学班的目标和打卡时间窗执行。");
+    await refreshTeacherData();
+    showToast("打卡时间窗已保存到后端，学生端立即生效；学时目标暂存本地，等成绩规则接口开放后再同步。");
     closeDialog();
   };
 
-  const generateInvite = (courseId: number) => {
-    const randomValue = globalThis.crypto?.getRandomValues
-      ? globalThis.crypto.getRandomValues(new Uint32Array(1))[0].toString(36)
-      : Math.random().toString(36);
-    const code = `PE${String(courseId).padStart(2, "0")}-${randomValue.slice(-5).toUpperCase().padStart(5, "0")}`;
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    setCourses((current) => current.map((course) => course.id === courseId ? {
-      ...course,
-      invite: { code, expiresAt, status: "active" },
-    } : course));
-    setInviteQr(null);
-    showToast("已生成新的课程邀请，二维码将在几秒内可扫码。有效期为 7 天。");
+  const generateInvite = async (courseId: string) => {
+    try {
+      const invite = await createCourseInvite(courseId);
+      setCourses((current) => current.map((course) => course.id === courseId ? {
+        ...course,
+        invite: { code: invite.inviteToken, expiresAt: invite.expiresAt, status: "active" },
+      } : course));
+      setInviteQr(null);
+      showToast("已生成新的课程邀请，二维码将在几秒内可扫码。有效期为 7 天。");
+    } catch (error) {
+      showToast(isUnsupported(error) ? "该功能后端暂未开放。" : apiErrorText(error));
+    }
   };
 
-  const revokeInvite = (courseId: number) => {
+  const revokeInvite = (courseId: string) => {
     setCourses((current) => current.map((course) => course.id === courseId && course.invite ? {
       ...course,
       invite: { ...course.invite, status: "revoked" },
@@ -1112,7 +1176,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
     void target.requestFullscreen().catch(() => showToast("无法进入全屏展示，请检查浏览器权限。"));
   };
 
-  const runStudentAction = (studentId: number, action: "remove" | "supplement" | "waiver") => {
+  const runStudentAction = (studentId: string, action: "remove" | "supplement" | "waiver") => {
     const student = students.find((item) => item.id === studentId);
     const reason = form.reason?.trim();
     if (!student) return;
@@ -1155,7 +1219,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
         return;
       }
       const nextRecord: CheckinRecord = {
-        id: Math.max(0, ...records.map((record) => record.id)) + 1,
+        id: `local-supplement-${Date.now()}`,
         studentId,
         courseId: student.courseId,
         creditType: form.creditType as "课程相关" | "其他运动",
@@ -1188,7 +1252,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
     closeDialog();
   };
 
-  const saveCheckinReview = (recordId: number) => {
+  const saveCheckinReview = (recordId: string) => {
     const currentRecord = records.find((record) => record.id === recordId);
     const approvedHours = Number(form.approvedHours);
     const reviewComment = form.reviewComment?.trim();
@@ -1217,7 +1281,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
     closeDialog();
   };
 
-  const saveGrade = (gradeId: number) => {
+  const saveGrade = (gradeId: string) => {
     const grade = grades.find((item) => item.id === gradeId);
     if (!grade) return;
     const status = form.enduranceStatus as GradeStatus;
@@ -1258,7 +1322,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
     closeDialog();
   };
 
-  const publishGrades = (courseId: number) => {
+  const publishGrades = (courseId: string) => {
     setGrades((current) => current.map((grade) => grade.courseId === courseId ? { ...grade, published: true } : grade));
     notify("全班成绩已发布", true);
     closeDialog();
@@ -1431,7 +1495,8 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
             );
           })}
         </div>
-        {filteredCourses.length === 0 && <EmptyState title="没有符合条件的课程" description="切换课程状态后可查看其他教学班。" />}
+        {dataLoading && <EmptyState title="没有符合条件的课程" description="切换课程状态后可查看其他教学班。" />}
+        {!dataLoading && filteredCourses.length === 0 && <EmptyState title="没有符合条件的课程" description="切换课程状态后可查看其他教学班。" />}
       </CourseOverviewLayout>
     );
   };
@@ -1450,7 +1515,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
         if (rosterView === "inactive") return item.student.status !== "active";
         return true;
       })
-      .filter(({ student }) => courseFilter === "all" || student.courseId === Number(courseFilter))
+      .filter(({ student }) => courseFilter === "all" || student.courseId === courseFilter)
       .filter(({ student }) => !searchTerm || [student.name, student.number, student.email, student.gender, student.grade, joinMethodLabel(student.joinMethod)].some((value) => value.toLocaleLowerCase().includes(searchTerm)))
       .sort((left, right) => {
         if (rosterSort === "name") return left.student.name.localeCompare(right.student.name, "zh-CN");
@@ -1549,14 +1614,37 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
     });
   };
 
+  const resolveCheckinMediaId = (record: CheckinRecord, proofIndex: number) => {
+    const mediaIds = record.mediaIds ?? [];
+    return mediaIds[proofIndex] ?? mediaIds[0] ?? null;
+  };
+
+  const openCheckinMedia = async (record: CheckinRecord, proofIndex = 0) => {
+    const mediaId = resolveCheckinMediaId(record, proofIndex);
+    if (!mediaId) {
+      showToast("该记录未附带照片或视频。");
+      return;
+    }
+    try {
+      const cached = mediaUrlCache[mediaId];
+      const accessUrl = cached ?? await openTeacherMedia(mediaId);
+      if (!cached) setMediaUrlCache((current) => ({ ...current, [mediaId]: accessUrl }));
+      window.open(accessUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      showToast(isUnsupported(error) ? "该功能后端暂未开放。" : apiErrorText(error));
+    }
+  };
+
   const downloadCheckinProof = (proof: string) => {
-    const anchor = document.createElement("a");
-    anchor.href = CHECKIN_EVIDENCE_PREVIEW;
-    anchor.download = `${proof.replace(/\.[^.]+$/, "")}-审核原件.svg`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    showToast(`已开始下载 ${proof} 的原件。`);
+    void (async () => {
+      const record = selectedRecord ?? records.find((item) => (item.proof ?? []).includes(proof) || (item.mediaIds ?? []).length > 0);
+      if (!record) {
+        showToast("该记录未附带照片或视频。");
+        return;
+      }
+      const index = Math.max(0, (record.proof ?? []).indexOf(proof));
+      await openCheckinMedia(record, index >= 0 ? index : 0);
+    })();
   };
 
   const renderCheckins = () => {
@@ -1700,7 +1788,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
                   </div>
                   <div className="record-proof-links">
                     {record.proof.length ? record.proof.map((proof, index) => (
-                      <button type="button" key={proof} onClick={() => openCheckinDetail(record, index)}>
+                      <button type="button" key={proof} onClick={() => void openCheckinMedia(record, index)}>
                         <span>{proof.match(/mp4|mov/i) ? "▶" : "图"}</span>{proof || `凭证 ${index + 1}`}
                       </button>
                     )) : <span className="confidence-empty">无凭证</span>}
@@ -1725,14 +1813,14 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
                       <div className="checkin-album-date"><b>{checkinDayLabel(record)}</b><small>{record.startAt.slice(11, 16)}</small></div>
                       <div className="proof-cluster">
                         {record.proof.length ? record.proof.map((proof, index) => (
-                          <button type="button" className={`proof-thumbnail proof-thumbnail-${(record.id + index) % 5}`} key={proof} title={`查看 ${proof}`} onClick={() => openCheckinDetail(record, index)}>
+                          <button type="button" className={`proof-thumbnail proof-thumbnail-${(record.id.length + index) % 5}`} key={proof} title={`查看 ${proof}`} onClick={() => void openCheckinMedia(record, index)}>
                             <span>{proof.match(/mp4|mov/i) ? "▶" : "图"}</span><small>{proof}</small>
                           </button>
                         )) : (
-                          <button type="button" className="proof-thumbnail proof-thumbnail-empty" onClick={() => openCheckinDetail(record)}><span>—</span><small>无凭证</small></button>
+                          <button type="button" className="proof-thumbnail proof-thumbnail-empty" onClick={() => { void openCheckinMedia(record); openCheckinDetail(record); }}><span>—</span><small>无凭证</small></button>
                         )}
                       </div>
-                      <button type="button" className="album-record-summary" onClick={() => openCheckinDetail(record)}>
+                      <button type="button" className="album-record-summary" onClick={() => { void openCheckinMedia(record); openCheckinDetail(record); }}>
                         <b>{record.sport}</b>
                         <span>实际运动：{actualDurationLabel(record)}</span>
                         <span>可计入时长：{attendanceHoursLabel(record.creditedMinutes)} 小时</span>
@@ -1792,7 +1880,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
               label="当前课程"
               value={gradeCourseId}
               options={teacherCourses.map((course) => ({ value: course.id, label: courseLabel(course) }))}
-              onChange={(nextValue) => nextValue !== null && setGradeCourseId(Number(nextValue))}
+              onChange={(nextValue) => nextValue !== null && setGradeCourseId(String(nextValue))}
             />
             <button className="primary-button page-primary-action" type="button" onClick={() => openDialog({ type: "publish-grades", courseId: gradeCourseId })}>{published ? "成绩已发布" : "发布成绩"}</button>
           </div>
@@ -1840,7 +1928,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
               </tr>;
             })}</tbody>
           </DataTable>
-          {visibleGrades.length === 0 && <EmptyState title="当前状态没有成绩记录" description="切换成绩状态查看其他学生。" />}
+          {!dataLoading && visibleGrades.length === 0 && <EmptyState title="当前状态没有成绩记录" description="切换成绩状态查看其他学生。" />}
         </section>
       </ManagementTableLayout>
     );
@@ -1850,10 +1938,10 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
     const searchTerm = exemptionSearch.trim().toLocaleLowerCase();
     const statusCount = (status: ExemptionStatus) => exemptions.filter((item) => item.status === status).length;
     const visible = exemptions.filter((item) => {
-      const student = students.find((candidate) => candidate.id === item.studentId);
+      const student = [...students, ...demoExemptionStudents].find((candidate) => candidate.id === item.studentId);
       return (exemptionFilter === "all" || item.status === exemptionFilter)
         && (exemptionKind === "all" || item.kind === exemptionKind)
-        && (courseFilter === "all" || item.courseId === Number(courseFilter))
+        && (courseFilter === "all" || item.courseId === courseFilter)
         && (!searchTerm || [student?.name ?? "", student?.number ?? "", item.reason, item.organization ?? ""].some((value) => value.toLocaleLowerCase().includes(searchTerm)));
     });
     return (
@@ -1906,7 +1994,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
           <DataTable className="exemption-table" minWidth={980}>
             <thead><tr><th>学生</th><th>申请类型</th><th>申请说明</th><th>材料</th><th>提交时间</th><th className="action-column">操作</th></tr></thead>
             <tbody>{visible.map((item) => {
-              const student = students.find((candidate) => candidate.id === item.studentId);
+              const student = [...students, ...demoExemptionStudents].find((candidate) => candidate.id === item.studentId);
               return <tr key={item.id}>
                 <td>{student && studentIdentity(student, [
                   {
@@ -1949,8 +2037,27 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
     <>
       <TabPageTransition activeKey={active} direction={direction} renderPage={renderPage} />
 
-      {dialog?.type === "course-new" && <Dialog title="新建教学班" description="教师只能在当前学期创建课程，创建后自动成为授课教师。" close={closeDialog} footer={<><button className="secondary-button" type="button" onClick={closeDialog}>取消</button><button className="primary-button" type="button" onClick={addCourse}>创建教学班</button></>}>
-        <div className="form-grid two-columns"><Field label="学期"><input value={semesterCurrent} disabled /></Field><Field label="授课教师"><input value="陈若宁 · T2024007" disabled /></Field><Field label="课程代码" required><input value={form.code ?? ""} onChange={(event) => updateForm("code", event.target.value)} placeholder="如 PE101" /></Field><Field label="教学班号" required><input value={form.section ?? ""} onChange={(event) => updateForm("section", event.target.value)} placeholder="如 04班" /></Field><Field label="课程名称" required><input value={form.name ?? ""} onChange={(event) => updateForm("name", event.target.value)} placeholder="如 大学体育（一）" /></Field></div><FormError message={formError} />
+      {dialog?.type === "course-new" && <Dialog title="新建教学班" description="教师只能在当前学期创建课程，创建后自动成为授课教师。" close={closeDialog} footer={<><button className="secondary-button" type="button" onClick={closeDialog}>取消</button><button className="primary-button" type="button" onClick={() => void addCourse()}>创建教学班</button></>}>
+        <div className="form-grid two-columns">
+          <Field label="学期"><input value={currentSemester?.displayName ?? currentSemester?.name ?? semesterCurrent} disabled /></Field>
+          <Field label="课程代码" required>
+            <AppSelect
+              label="课程代码"
+              value={form.courseId ?? ""}
+              options={[
+                { value: "", label: "请选择" },
+                ...courseCatalog.map((course) => ({
+                  value: course.id,
+                  label: `${course.courseCode} · ${course.courseName}`,
+                })),
+              ]}
+              onChange={(nextValue) => updateForm("courseId", nextValue === null ? "" : String(nextValue))}
+            />
+          </Field>
+          <Field label="教学班号" required><input value={form.section ?? ""} onChange={(event) => updateForm("section", event.target.value)} placeholder="如 04班" /></Field>
+          <Field label="课程名称" required><input value={form.name ?? ""} onChange={(event) => updateForm("name", event.target.value)} placeholder="如 大学体育（一）" /></Field>
+        </div>
+        <FormError message={formError} />
       </Dialog>}
 
       {dialog?.type === "course-manage" && selectedCourse && <Dialog
@@ -1968,7 +2075,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
         )}
         description={<><span>调整当前课程的学时目标和打卡时间窗。</span><span>保存后仅影响本教学班，不影响其他课程。</span></>}
         close={closeDialog}
-        footer={<><button className="secondary-button course-target-cancel" type="button" onClick={closeDialog}>取消</button><button className="primary-button course-target-save" type="button" onClick={() => saveCourseSettings(selectedCourse.id)}>保存设置</button></>}
+        footer={<><button className="secondary-button course-target-cancel" type="button" onClick={closeDialog}>取消</button><button className="primary-button course-target-save" type="button" onClick={() => void saveCourseSettings(selectedCourse.id)}>保存设置</button></>}
       >
         <section className="course-target-section" aria-labelledby="course-target-overview-title">
           <div className="course-target-section-head">
@@ -2053,7 +2160,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
             {isActiveInvite && invite && <>
               <button className="danger-button" type="button" onClick={() => openDialog({ type: "invite-revoke", courseId: selectedCourse.id })}>撤销邀请码</button>
             </>}
-            {!isActiveInvite && <button className="primary-button" type="button" onClick={() => generateInvite(selectedCourse.id)}><QrCode size={15} aria-hidden="true" />生成新邀请码</button>}
+            {!isActiveInvite && <button className="primary-button" type="button" onClick={() => void generateInvite(selectedCourse.id)}><QrCode size={15} aria-hidden="true" />生成新邀请码</button>}
           </>}
         >
           {isActiveInvite && invite ? <div className="course-invite-print-sheet" ref={invitePresentationRef}>
@@ -2097,7 +2204,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
 
       {(dialog?.type === "student-action" || dialog?.type === "supplement") && (() => {
         const action = dialog.type === "supplement" ? "supplement" : dialog.action;
-        const student = dialog.type === "supplement" ? students.find((item) => item.id === Number(form.studentId)) : selectedStudent;
+        const student = dialog.type === "supplement" ? students.find((item) => item.id === form.studentId) : selectedStudent;
         const course = student ? courses.find((item) => item.id === student.courseId) : undefined;
         const waiverType = form.creditType ?? "课程相关";
         const manualWaiver = student ? waiverType === "课程相关" ? student.courseWaiverHours ?? 0 : student.otherWaiverHours ?? 0 : 0;
@@ -2278,7 +2385,7 @@ export function TeacherWorkspace({ active, direction, showToast }: TeacherWorksp
       </Dialog>}
 
       {dialog?.type === "exemption" && selectedExemption && (() => {
-        const student = students.find((item) => item.id === selectedExemption.studentId);
+        const student = [...students, ...demoExemptionStudents].find((item) => item.id === selectedExemption.studentId);
         return <Dialog drawer wide title={`审核 ${student?.name} 的${selectedExemption.kind}`} description="审核意见会展示给学生；社团负责人不参与系统审核。" close={closeDialog} footer={<><button className="secondary-button" type="button" onClick={closeDialog}>取消</button><button className="primary-button" type="button" onClick={() => reviewExemption(selectedExemption.id)}>确认审核</button></>}>
           <div className="detail-card">{student ? studentIdentity(student) : <strong>未知学生</strong>}<p>{selectedExemption.organization ?? selectedExemption.reason}</p><p>{selectedExemption.reason}</p><EvidenceMaterials files={selectedExemption.material} onPreview={(file) => openMaterialPreview(file, student?.name ?? "该学生", selectedExemption.kind)} /></div>
           <div className="form-grid">
