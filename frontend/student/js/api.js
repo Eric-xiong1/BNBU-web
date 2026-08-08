@@ -88,13 +88,59 @@ export function apiErrorText(error) {
     return tx("网络连接失败，请确认后端服务已启动。", "Network connection failed. Make sure the backend service is running.");
   }
   if (isUnsupported(error)) return tx("该功能暂未开放。", "This feature is not yet available.");
+  // Keys are the backend's real Contract 1.4 error codes.
   const known = {
+    // Auth / session
+    AUTH_REQUIRED: tx("请先登录后再继续操作。", "Sign in before continuing."),
+    AUTH_TOKEN_INVALID: tx("登录凭证无效，请重新加入课程登录。", "Your credential is invalid. Join the course again to sign in."),
+    AUTH_TOKEN_EXPIRED: tx("登录状态已过期，请重新加入课程登录。", "Your session expired. Join the course again to sign in."),
+    AUTH_SESSION_REVOKED: tx("当前登录会话已失效，请重新登录。", "This session was revoked. Sign in again."),
+    AUTH_ACCOUNT_DISABLED: tx("账号已被停用，请联系管理员。", "This account is disabled. Contact an administrator."),
+    AUTH_RATE_LIMITED: tx("操作过于频繁，请稍后再试。", "Too many attempts. Try again later."),
+    USER_IDENTITY_CONFLICT: tx("身份信息与已有账号冲突，请联系教师核对。", "Your identity conflicts with an existing account. Ask your teacher to check."),
+    // Permission
+    PERMISSION_DENIED: tx("没有权限执行该操作。", "You do not have permission for this action."),
+    PERMISSION_RESOURCE_NOT_FOUND: tx("资源不存在或无权访问。", "The resource does not exist or is not accessible."),
+    PERMISSION_RESOURCE_SCOPE_DENIED: tx("无权访问该资源。", "You cannot access this resource."),
+    // Validation / concurrency
     VALIDATION_FAILED: tx("提交的资料格式不正确，请检查后重试。", "Some fields are invalid. Check and try again."),
-    UNAUTHORIZED: tx("登录状态已失效，请重新加入课程登录。", "Your session has expired. Join the course again to sign in."),
-    FORBIDDEN: tx("没有权限执行该操作。", "You do not have permission for this action."),
-    NOT_FOUND: tx("资源不存在或已被移除。", "The resource does not exist or was removed."),
+    VALIDATION_FIELD_REQUIRED: tx("有必填项未填写，请补充后重试。", "A required field is missing."),
+    VALIDATION_FORMAT_INVALID: tx("填写格式不正确，请检查后重试。", "The format is invalid. Check and try again."),
     CONFLICT_VERSION_MISMATCH: tx("数据已在别处更新，请刷新后重试。", "The data changed elsewhere. Refresh and try again."),
-    RATE_LIMITED: tx("操作过于频繁，请稍后再试。", "Too many attempts. Try again later."),
+    // Course invite / enrollment
+    COURSE_INVITE_INVALID: tx("邀请码无效，请向教师确认。", "This invitation code is invalid. Check with your teacher."),
+    COURSE_INVITE_EXPIRED: tx("邀请码已过期，请向教师索取新的邀请。", "This invitation expired. Ask your teacher for a new one."),
+    COURSE_INVITE_REVOKED: tx("邀请码已被撤销，请向教师索取新的邀请。", "This invitation was revoked. Ask your teacher for a new one."),
+    COURSE_CLASS_SECTION_NOT_JOINABLE: tx("该教学班当前不开放加入。", "This class section is not open for joining."),
+    AUTH_JOIN_CAPABILITY_EXPIRED: tx("加入凭证已过期，请重新扫码或输入邀请码。", "The join credential expired. Scan or enter the code again."),
+    AUTH_JOIN_CAPABILITY_ALREADY_USED: tx("该加入凭证已被使用，请重新获取。", "That join credential was already used. Request a new one."),
+    ENROLLMENT_ALREADY_ACTIVE: tx("你已加入该课程，无需重复加入。", "You have already joined this course."),
+    ENROLLMENT_SEMESTER_CONFLICT: tx("本学期已加入其他体育课程，不能重复选课。", "You already joined another PE course this term."),
+    ENROLLMENT_NOT_ACTIVE: tx("你的选课状态不是在读，无法执行该操作。", "Your enrollment is not active."),
+    // Exercise session
+    SESSION_OUTSIDE_TIME_WINDOW: tx("当前不在可打卡时段内。", "You are outside the check-in time window."),
+    SESSION_ALREADY_ACTIVE: tx("已有进行中的运动，请先结束当前运动。", "An exercise session is already running. Finish it first."),
+    SESSION_DURATION_CAP_REACHED: tx("本次运动已达时长上限。", "This session reached the duration cap."),
+    SESSION_ALREADY_USED: tx("该运动已用于提交打卡，无法重复使用。", "This session was already used for a submission."),
+    SESSION_NOT_COMPLETED: tx("请先结束运动再提交打卡。", "Finish the exercise before submitting."),
+    SESSION_TRANSITION_NOT_ALLOWED: tx("当前运动状态不支持该操作。", "This action is not allowed in the current session state."),
+    // Exercise record
+    EXERCISE_RECORD_DURATION_NOT_CREDITABLE: tx("本次运动时长不足，不能计入打卡。", "This session is too short to be credited."),
+    EXERCISE_RECORD_DAILY_LIMIT_REACHED: tx("今日打卡次数已达上限。", "You reached today's check-in limit."),
+    EXERCISE_RECORD_DUPLICATE_SUBMISSION: tx("该打卡已提交，请勿重复提交。", "This record was already submitted."),
+    EXERCISE_RECORD_MEDIA_INCOMPLETE: tx("凭证尚未处理完成，请稍后再提交。", "The proof is still processing. Try submitting again shortly."),
+    MEDIA_EVIDENCE_REQUIRED: tx("请至少上传一项打卡凭证。", "At least one proof item is required."),
+    // Media
+    MEDIA_NOT_AVAILABLE: tx("凭证仍在处理中，请稍候。", "The proof is still being processed."),
+    MEDIA_SIZE_EXCEEDED: tx("文件超过大小上限。", "The file exceeds the size limit."),
+    MEDIA_TYPE_NOT_ALLOWED: tx("不支持该文件格式。", "This file type is not supported."),
+    MEDIA_COUNT_LIMIT_EXCEEDED: tx("凭证数量超过上限。", "Too many proof items."),
+    MEDIA_UPLOAD_SESSION_EXPIRED: tx("上传已超时，请重新拍摄上传。", "The upload expired. Capture and upload again."),
+    // System mode (Contract 1.4 documents the full 503 family)
+    SYSTEM_READ_ONLY: tx("系统当前为只读模式，暂时无法提交。", "The system is read-only right now, so changes cannot be saved."),
+    SYSTEM_MAINTENANCE: tx("系统正在维护中，请稍后再试。", "The system is under maintenance. Try again later."),
+    SYSTEM_SERVICE_UNAVAILABLE: tx("依赖服务暂时不可用，请稍后再试。", "A required service is unavailable. Try again later."),
+    SYSTEM_DEPENDENCY_TIMEOUT: tx("服务响应超时，请稍后再试。", "The service timed out. Try again later."),
   };
   return known[error.code] || error.message;
 }
@@ -121,7 +167,7 @@ async function rawRequest(path, { method = "GET", body, headers = {}, auth = tru
 
 async function refreshSession() {
   const tokens = readTokens();
-  if (!tokens?.refreshToken) throw new ApiError(401, { code: "UNAUTHORIZED", message: "No refresh token" });
+  if (!tokens?.refreshToken) throw new ApiError(401, { code: "AUTH_REQUIRED", message: "No refresh token" });
   const data = await rawRequest("/auth/refresh", {
     method: "POST",
     auth: false,
