@@ -44,10 +44,6 @@ export function renderLogin(app) {
           <div class="login-divider"></div>
           <div class="label-large text-muted" style="font-weight:500;padding:28px 0 12px">${t("login_other_methods")}</div>
           ${loginMethodButton({ title: t("login_scan_button"), subtitle: t("login_scan_hint"), iconName: "qr-code-scanner", primary: false, enabled: accepted, action: "login.scan" })}
-          <div style="height:4px"></div>
-          <button class="text-btn pressable" data-action="login.mock" ${accepted ? "" : "disabled"} style="width:100%;min-height:48px;padding:10px 12px">
-            ${icon("person", 18)}<span class="label-large">${t("login_mock_button")}</span>
-          </button>
         </div>
         <div style="height:12px"></div>
         <button class="text-btn pressable" data-action="login.recovery" style="align-self:center;min-height:48px;padding:10px 4px;margin:0 auto;display:flex">
@@ -73,5 +69,4 @@ export const loginActions = {
   "login.phone": (app) => { app.state.showPhoneLogin = true; app.ui.verification = null; app.navDirection = "forward"; app.render(); },
   "login.scan": (app) => { app.state.showScanJoin = true; app.ui.scan = null; app.navDirection = "forward"; app.render(); },
   "login.recovery": (app) => { app.state.showRecoveryRequest = true; app.ui.recovery = null; app.navDirection = "forward"; app.render(); },
-  "login.mock": (app) => app.loginMockUser(),
 };

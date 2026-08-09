@@ -6,7 +6,7 @@
 
 import { t, tx, setLanguage, getLanguage } from "./i18n.js";
 import { localStore, BUILD } from "./store.js";
-import { createMockWorkspace, emptyWorkspace } from "./data.js";
+import { emptyWorkspace } from "./data.js";
 import { hasApiSession, clearApiSession, logoutApi, loadApiWorkspace, apiErrorText } from "./api.js";
 import { icon } from "./icons.js";
 import { renderStartupSplash, renderMaintenancePage, renderReadOnlyBanner, renderPlannedMaintenanceBanner, renderSyncStatusBanner } from "./screens/startup.js";
@@ -128,16 +128,6 @@ export const app = {
   },
 
   // ── Auth ─────────────────────────────────────────────────────
-  loginMockUser() {
-    const session = { accountId: "2024010836", kind: "mock", signedInAt: new Date().toISOString() };
-    localStore.setSession(session);
-    this.state.authenticated = true;
-    this.state.requiresContactBinding = false;
-    this.state.workspace = this.applyOverlay(createMockWorkspace());
-    this.state.postEnrollmentGuideCompleted = localStore.hasCompletedPostEnrollmentGuide(session.accountId);
-    this.navDirection = "forward";
-    this.render();
-  },
   /** True when the signed-in session talks to the real backend. */
   isApiMode() {
     return localStore.getSession()?.kind === "api";
@@ -578,13 +568,12 @@ export const app = {
         this.reloadApiWorkspace();
         return;
       }
-      if (session?.kind === "api") {
-        // Tokens are gone (cleared storage) — force a fresh join sign-in.
+      if (session) {
+        // Either the API tokens are gone (cleared storage) or this is a legacy
+        // demo session from the removed mock sign-in. Both must fall back to a
+        // fresh join sign-in so the app never shows non-backend data.
         localStore.clearSession();
-      } else if (session) {
-        this.state.authenticated = true;
-        this.state.workspace = this.applyOverlay(createMockWorkspace());
-        this.state.postEnrollmentGuideCompleted = localStore.hasCompletedPostEnrollmentGuide(session.accountId);
+        clearApiSession();
       }
       this.state.isRestoringSession = false;
       this.navDirection = "forward";
