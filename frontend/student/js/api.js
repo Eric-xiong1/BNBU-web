@@ -400,6 +400,10 @@ export const requestStudentSignInCode = (account) =>
 const pad2 = (n) => String(n).padStart(2, "0");
 function formatLocal(dateInput) {
   if (!dateInput) return "";
+  // A bare business date (YYYY-MM-DD) is a calendar day, not an instant:
+  // `new Date("2026-08-09")` parses as UTC midnight and would render as the
+  // previous day west of Greenwich. Pass it through untouched.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(dateInput))) return String(dateInput);
   const d = new Date(dateInput);
   if (Number.isNaN(d.getTime())) return String(dateInput);
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -503,11 +507,17 @@ export async function loadApiWorkspace() {
     };
   });
 
-  const mappedRecords = records.map((r) => mapServerRecord(r, { courseIdBySection }));
-  const validRecords = mappedRecords.filter((r) => r.serverStatus === "SUBMITTED" || r.serverStatus === "REVIEWED");
+  // Only submitted work counts as a check-in record. DRAFT (never submitted)
+  // and CANCELLED rows stay out of the list so the record page and the
+  // dashboard progress can never disagree.
+  const mappedRecords = records
+    .filter((r) => r.status === "SUBMITTED" || r.status === "REVIEWED")
+    .map((r) => mapServerRecord(r, { courseIdBySection }));
   const sum = (list) => list.reduce((total, r) => total + (Number(r.hours) || 0), 0);
-  const courseHours = sum(validRecords.filter((r) => r.creditType === "course" && r.reviewResult !== "INVALID"));
-  const generalHours = sum(validRecords.filter((r) => r.creditType === "general" && r.reviewResult !== "INVALID"));
+  // Rejected records are shown in the list but never counted toward hours.
+  const countable = mappedRecords.filter((r) => r.reviewResult !== "INVALID");
+  const courseHours = sum(countable.filter((r) => r.creditType === "course"));
+  const generalHours = sum(countable.filter((r) => r.creditType === "general"));
 
   // Check-in window from the first ACTIVE enrolled section.
   const activeSection = sections.find((s) => activeEnrollments.some((e) => e.classSectionId === s.id) && s.status === "ACTIVE");

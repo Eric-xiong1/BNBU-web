@@ -566,6 +566,13 @@ export const app = {
     // Session restore (StartupSplashScreen while isRestoringSession).
     this.render();
     loadPolicyMarkdown();
+    // Probed unconditionally: a session that later expires drops the user back
+    // on the login screen, which must still offer the demo entry point.
+    demoAccountInfo().then((student) => {
+      if (!student) return;
+      this.state.demoAccount = student;
+      this.render();
+    });
     setTimeout(() => {
       const session = localStore.getSession();
       const privacyAccepted = localStore.hasAgreedPrivacyPolicy(BUILD.PRIVACY_POLICY_VERSION);
@@ -590,12 +597,6 @@ export const app = {
       this.state.isRestoringSession = false;
       this.navDirection = "forward";
       this.render();
-      // Reveal the demo entry point only where one is actually provisioned.
-      demoAccountInfo().then((student) => {
-        if (!student) return;
-        this.state.demoAccount = student;
-        this.render();
-      });
     }, 900);
 
     // 1 Hz heartbeat for the exercise session timer.

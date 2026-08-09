@@ -72,6 +72,7 @@ const proxyTargets = [
 // through the refresh token instead. Rotation means the new token must be
 // persisted on every use — hence a server endpoint rather than page code.
 const demoCredentialsFile = path.join(root, ".demo-student.json");
+let demoRefreshInFlight = false;
 
 function readDemoCredentials() {
   try {
@@ -106,6 +107,17 @@ function handleDemoSession(request, response) {
     fail(405, "METHOD_NOT_ALLOWED", "仅支持 GET 与 POST。");
     return true;
   }
+  // Refresh tokens are single-use and the backend revokes the whole family on
+  // replay, so two concurrent sign-ins (e.g. a second browser tab) would
+  // otherwise kill the demo account. Serialise them.
+  if (demoRefreshInFlight) {
+    fail(429, "DEMO_SIGN_IN_BUSY", "演示账号正在登录中，请稍候重试。");
+    return true;
+  }
+  demoRefreshInFlight = true;
+  const releaseLock = () => { demoRefreshInFlight = false; };
+  response.on("close", releaseLock);
+  response.on("finish", releaseLock);
   const payload = JSON.stringify({ refreshToken: credentials.refreshToken });
   const upstream = http.request(
     {

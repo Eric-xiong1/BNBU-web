@@ -124,9 +124,23 @@ COMMIT;`);
     await new Promise((resolve) => setTimeout(resolve, 700));
   }
   const current = await api(`/exercise-records/${record.id}`, { token: studentToken });
-  const submitted = await api(`/exercise-records/${record.id}/submit`, {
-    method: "POST", token: studentToken, body: { mediaIds: [upload.mediaId], expectedVersion: current.version },
-  });
+  let submitted;
+  try {
+    submitted = await api(`/exercise-records/${record.id}/submit`, {
+      method: "POST", token: studentToken, body: { mediaIds: [upload.mediaId], expectedVersion: current.version },
+    });
+  } catch (error) {
+    // Never leave an unsubmitted draft behind: it would occupy the day's
+    // check-in slot and show up as a phantom record on the student portal.
+    const latest = await api(`/exercise-records/${record.id}`, { token: studentToken }).catch(() => null);
+    if (latest?.status === "DRAFT") {
+      await api(`/exercise-records/${record.id}/discard`, {
+        method: "POST", token: studentToken,
+        body: { expectedVersion: latest.version, reason: "demo setup rollback" },
+      }).catch(() => { /* leave it to the operator if discard is refused */ });
+    }
+    throw error;
+  }
   if (review) {
     await api(`/exercise-records/${record.id}/reviews`, {
       method: "POST", token: teacherToken,

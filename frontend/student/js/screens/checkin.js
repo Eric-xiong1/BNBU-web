@@ -576,7 +576,11 @@ function proofSummaryText(record) {
 
 function renderRecordsTab(app) {
   const records = app.state.workspace.records.filter((r) => r.creditType !== "offset");
-  const totalHours = records.reduce((sum, r) => sum + (Number(r.hours) || 0), 0);
+  // Same rule as the dashboard progress: rejected records are listed but do
+  // not add hours, so the two screens can never show different totals.
+  const totalHours = records
+    .filter((r) => r.reviewResult !== "INVALID")
+    .reduce((sum, r) => sum + (Number(r.hours) || 0), 0);
   const intro = `<div class="col" style="gap:18px">
     <div class="col" style="gap:6px">
       ${sectionTitle(tx("打卡记录", "Check-in records"))}
