@@ -16,3 +16,6 @@ coverage/
 .cache/
 .local/
 .worktrees/
+
+# Local demo student credentials (never commit)
+frontend/.demo-student.json

@@ -67,6 +67,94 @@ const proxyTargets = [
   { prefix: "/minio/", host: "127.0.0.1", port: Number(process.env.MINIO_PORT || 9000), strip: "/minio" },
 ];
 
+// Local-only demo sign-in support. The demo student is an ordinary backend
+// account, but an enrolled student cannot re-join, so its session is renewed
+// through the refresh token instead. Rotation means the new token must be
+// persisted on every use — hence a server endpoint rather than page code.
+const demoCredentialsFile = path.join(root, ".demo-student.json");
+
+function readDemoCredentials() {
+  try {
+    return JSON.parse(fs.readFileSync(demoCredentialsFile, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function handleDemoSession(request, response) {
+  if (request.url !== "/dev/demo-session") return false;
+  const credentials = readDemoCredentials();
+  const fail = (status, code, message) =>
+    send(response, status, JSON.stringify({ code, message }), {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+  if (!credentials?.refreshToken) {
+    fail(404, "DEMO_ACCOUNT_NOT_CONFIGURED", "尚未创建演示账号，请先运行 npm run demo:setup。");
+    return true;
+  }
+  // GET only reports availability so the page can hide the entry point; it
+  // must not rotate the refresh token.
+  if (request.method === "GET" || request.method === "HEAD") {
+    send(response, 200, JSON.stringify({ data: { configured: true, student: { fullName: credentials.fullName, studentNumber: credentials.studentNumber } } }), {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    });
+    return true;
+  }
+  if (request.method !== "POST") {
+    fail(405, "METHOD_NOT_ALLOWED", "仅支持 GET 与 POST。");
+    return true;
+  }
+  const payload = JSON.stringify({ refreshToken: credentials.refreshToken });
+  const upstream = http.request(
+    {
+      host: "127.0.0.1",
+      port: Number(process.env.API_PORT || 3000),
+      method: "POST",
+      path: "/api/v1/auth/refresh",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+        "Idempotency-Key": `demo-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      },
+    },
+    (upstreamResponse) => {
+      let raw = "";
+      upstreamResponse.on("data", (chunk) => { raw += chunk; });
+      upstreamResponse.on("end", () => {
+        if (upstreamResponse.statusCode !== 200) {
+          fail(409, "DEMO_ACCOUNT_EXPIRED", "演示账号登录状态已过期，请重新运行 npm run demo:setup。");
+          return;
+        }
+        let session;
+        try {
+          session = JSON.parse(raw).data;
+        } catch {
+          fail(502, "DEMO_REFRESH_INVALID", "刷新演示账号会话失败。");
+          return;
+        }
+        // Persist the rotated token so the next sign-in still works.
+        try {
+          fs.writeFileSync(
+            demoCredentialsFile,
+            JSON.stringify({ ...credentials, accessToken: session.accessToken, refreshToken: session.refreshToken, accessTokenExpiresAt: session.accessTokenExpiresAt }, null, 2)
+          );
+        } catch { /* read-only checkout: the session below still works once */ }
+        send(response, 200, JSON.stringify({
+          data: {
+            authSession: session,
+            student: { fullName: credentials.fullName, studentNumber: credentials.studentNumber },
+          },
+        }), { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      });
+    }
+  );
+  upstream.on("error", () => fail(502, "UPSTREAM_UNAVAILABLE", "后端服务不可达，请先启动后端。"));
+  upstream.end(payload);
+  return true;
+}
+
 function tryProxy(request, response) {
   const target = proxyTargets.find((t) => request.url.startsWith(t.prefix));
   if (!target) return false;
@@ -90,6 +178,8 @@ function tryProxy(request, response) {
 
 const server = http.createServer((request, response) => {
   if (tryProxy(request, response)) return;
+  // Handled before the read-only guard: POST here rotates the demo refresh token.
+  if (handleDemoSession(request, response)) return;
 
   if (!["GET", "HEAD"].includes(request.method)) {
     send(response, 405, "Method Not Allowed", {

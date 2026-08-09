@@ -212,6 +212,41 @@ export async function joinWithInvite(inviteToken, profile) {
   return joined;
 }
 
+/**
+ * Signs in as the local demo student. The account is an ordinary backend
+ * student — every screen it shows is real backend data; the preview server
+ * merely renews its session, because an enrolled student cannot re-join.
+ * Returns null when no demo account is configured (or outside the preview
+ * server), so the caller can hide the entry point.
+ */
+export async function demoSignIn() {
+  const response = await fetch("/dev/demo-session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (response.status === 404) return null;
+  const parsed = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new ApiError(response.status, {
+      code: parsed?.code || "DEMO_SIGN_IN_FAILED",
+      message: parsed?.message || "演示账号登录失败。",
+    });
+  }
+  storeAuthSession(parsed.data.authSession);
+  return parsed.data.student;
+}
+
+/** The configured demo student, or null when the entry point should stay hidden. */
+export async function demoAccountInfo() {
+  try {
+    const response = await fetch("/dev/demo-session", { method: "GET" });
+    if (!response.ok) return null;
+    return (await response.json()).data.student;
+  } catch {
+    return null;
+  }
+}
+
 export async function logoutApi() {
   try { await request("/auth/logout", { method: "POST", idempotent: true }); } catch { /* best effort */ }
   clearApiSession();

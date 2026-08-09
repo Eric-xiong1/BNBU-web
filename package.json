@@ -15,7 +15,8 @@
     "seed": "node database/run-seed.cjs",
     "build:teacher-demo": "node frontend/teacher/build-demo.cjs",
     "build:admin-demo": "node frontend/build-admin-demo.cjs",
-    "build:demos": "npm run build:teacher-demo && npm run build:admin-demo"
+    "build:demos": "npm run build:teacher-demo && npm run build:admin-demo",
+    "demo:setup": "node scripts/setup-demo-student.cjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.12",

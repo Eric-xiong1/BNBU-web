@@ -14,6 +14,7 @@ const STRINGS = {
   login_phone_hint: ["使用已绑定的手机号", "Use your linked mobile number"],
   login_scan_button: ["扫码加入课程", "Scan QR to Join Course"],
   login_scan_hint: ["直接打开课程邀请", "Open a course invitation directly"],
+  login_demo_button: ["体验账号登录", "Sign in with the demo account"],
   login_privacy_prefix: ["我已阅读并同意", "I have read and agree to the"],
   login_privacy_policy: ["《隐私政策》", "Privacy Policy"],
   login_privacy_required: ["请先阅读并同意隐私政策后继续", "Read and agree to the Privacy Policy to continue."],

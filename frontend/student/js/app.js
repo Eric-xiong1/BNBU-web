@@ -7,7 +7,7 @@
 import { t, tx, setLanguage, getLanguage } from "./i18n.js";
 import { localStore, BUILD } from "./store.js";
 import { emptyWorkspace } from "./data.js";
-import { hasApiSession, clearApiSession, logoutApi, loadApiWorkspace, apiErrorText } from "./api.js";
+import { hasApiSession, clearApiSession, logoutApi, loadApiWorkspace, apiErrorText, demoSignIn, demoAccountInfo, ApiError } from "./api.js";
 import { icon } from "./icons.js";
 import { renderStartupSplash, renderMaintenancePage, renderReadOnlyBanner, renderPlannedMaintenanceBanner, renderSyncStatusBanner } from "./screens/startup.js";
 import { renderPrivacyConsent, renderPrivacyPolicy, consentActions, loadPolicyMarkdown } from "./screens/consent.js";
@@ -40,6 +40,8 @@ export const app = {
     },
     isRestoringSession: true,
     privacyConsentChecked: false,
+    // Filled at startup when the preview server has a demo account (local only).
+    demoAccount: null,
     needsPrivacyConsent: false,
     authenticated: false,
     requiresContactBinding: false,
@@ -141,6 +143,16 @@ export const app = {
     this.state.postEnrollmentGuideCompleted = localStore.hasCompletedPostEnrollmentGuide(accountId);
     this.navDirection = "forward";
     return this.reloadApiWorkspace();
+  },
+  /**
+   * Signs in as the local demo student. It is a real backend account, so this
+   * lands on exactly the same authenticated path as an invite join — only the
+   * way the session is obtained differs.
+   */
+  async loginDemoUser() {
+    const student = await demoSignIn();
+    if (!student) throw new ApiError(404, { code: "DEMO_ACCOUNT_NOT_CONFIGURED", message: "尚未创建演示账号。" });
+    return this.completeApiLogin({ studentProfile: { studentNumber: student.studentNumber } });
   },
   /** Loads/refreshes the live workspace; keeps the shell usable on failure. */
   async reloadApiWorkspace() {
@@ -578,6 +590,12 @@ export const app = {
       this.state.isRestoringSession = false;
       this.navDirection = "forward";
       this.render();
+      // Reveal the demo entry point only where one is actually provisioned.
+      demoAccountInfo().then((student) => {
+        if (!student) return;
+        this.state.demoAccount = student;
+        this.render();
+      });
     }, 900);
 
     // 1 Hz heartbeat for the exercise session timer.
