@@ -1,4 +1,5 @@
 import { ApiError, apiErrorText, isUnsupported, request } from "./api-client";
+import { businessDateTime } from "./business-time";
 import type { AuditStatus } from "./checkin-audit";
 import type {
   ClassSection,
@@ -423,14 +424,18 @@ export function mapExerciseRecordToCheckin(record: ExerciseRecord): TeacherCheck
     enrollmentId: record.enrollmentId,
     creditType: record.creditType === "COURSE_RELATED" ? "课程相关" : "其他运动",
     sport: record.sportName || record.sportType || "运动",
-    startAt: record.submittedAt?.replace("T", " ").slice(0, 16) || record.businessDate,
-    endAt: record.submittedAt?.replace("T", " ").slice(0, 16) || record.businessDate,
+    // Slicing the raw ISO string would show UTC (8 hours behind Beijing);
+    // teachers must read the record in the organization's time.
+    startAt: businessDateTime(record.submittedAt) || record.businessDate,
+    endAt: businessDateTime(record.submittedAt) || record.businessDate,
     durationMinutes,
     creditedMinutes,
     originalHours: hoursFromSeconds(record.actualDurationSeconds) || 1,
     approvedHours: hoursFromSeconds(record.creditedDurationSeconds),
     description: record.description,
-    submittedAt: record.submittedAt?.slice(0, 10) || record.businessDate,
+    // The backend's business day is authoritative for "which day this counts
+    // as"; the UTC date of the timestamp can fall on the previous day.
+    submittedAt: record.businessDate || businessDateTime(record.submittedAt).slice(0, 10),
     status: auditStatus === "valid" ? "有效" : "已调整",
     risk: "低风险",
     confidence: 0.9,

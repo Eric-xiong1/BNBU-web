@@ -438,6 +438,11 @@ export function mapServerRecord(record, { courseIdBySection = {} } = {}) {
     taskTitle: record.description || tx("运动打卡", "Exercise check-in"),
     creditType: record.creditType === "COURSE_RELATED" ? "course" : "general",
     hours: credited > 0 ? credited : Math.round(actual * 10) / 10,
+    // The backend's business day (Beijing). Daily rules are evaluated against
+    // this, never against the device date.
+    businessDate: record.businessDate,
+    // Timestamps stay in the student's local time; only the daily rules and the
+    // teacher/admin portal are pinned to Beijing.
     submittedAt: formatLocal(record.submittedAt || record.businessDate),
     proofSummary: proofs.length ? "" : tx("凭证已提交", "Proof submitted"),
     proofPhotoCount: proofs.filter((p) => p.type === "image").length,

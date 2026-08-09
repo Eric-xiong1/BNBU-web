@@ -11,9 +11,15 @@ export const MAX_EXERCISE_DESCRIPTION_LENGTH = 200;
 export const OTHER_SPORT_TYPE = "other";
 
 // ── Shanghai business time ──
+// Every date and time the student sees is the organization's business time
+// (Asia/Shanghai, matching the backend's organization timezone), never the
+// device timezone — otherwise a student abroad would see a different "today"
+// than the backend uses to enforce the daily check-in rule.
+export const BUSINESS_TIME_ZONE = "Asia/Shanghai";
+
 export function shanghaiParts(date = new Date()) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
+    timeZone: BUSINESS_TIME_ZONE,
     year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit",
     hour12: false,
@@ -23,6 +29,47 @@ export function shanghaiParts(date = new Date()) {
     date: `${parts.year}-${parts.month}-${parts.day}`,
     time: `${parts.hour === "24" ? "00" : parts.hour}:${parts.minute}`,
   };
+}
+
+/** Today's business date (YYYY-MM-DD) in Beijing time. */
+export const businessToday = (now = new Date()) => shanghaiParts(now).date;
+
+/** Parses a value into a Date; returns null when it is not a usable instant. */
+function toInstant(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** "YYYY-MM-DD HH:mm" in Beijing time. */
+export function businessDateTime(value) {
+  const date = toInstant(value);
+  if (!date) return "";
+  const parts = shanghaiParts(date);
+  return `${parts.date} ${parts.time}`;
+}
+
+/** "YYYY-MM-DD" in Beijing time. */
+export function businessDate(value) {
+  const date = toInstant(value);
+  return date ? shanghaiParts(date).date : "";
+}
+
+/** "HH:mm" in Beijing time. */
+export function businessTime(value) {
+  const date = toInstant(value);
+  return date ? shanghaiParts(date).time : "";
+}
+
+/** Localised long form (e.g. 2026年8月9日 22:57) rendered in Beijing time. */
+export function businessDisplay(value, { locale = "zh", withTime = true } = {}) {
+  const date = toInstant(value);
+  if (!date) return "";
+  return new Intl.DateTimeFormat(locale === "en" ? "en-US" : "zh-CN", {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: "numeric", month: "short", day: "numeric",
+    ...(withTime ? { hour: "2-digit", minute: "2-digit", hour12: false } : {}),
+  }).format(date);
 }
 
 /** CheckInTimeWindow.canStartExercise — returns a blocked reason or null. */
@@ -69,12 +116,16 @@ export function canStartExercise(timeWindow, now = new Date()) {
   return null;
 }
 
-/** StudentAppState.hasSubmittedCheckInToday — local submission date. */
+/**
+ * StudentAppState.hasSubmittedCheckInToday.
+ * "Today" must be the business day (Beijing), because that is the day the
+ * backend enforces the one-check-in-per-day rule against. Using the device
+ * date would let a student abroad see a wrong daily state.
+ */
 export function hasSubmittedCheckInToday(workspace, now = new Date()) {
-  const pad = (n) => String(n).padStart(2, "0");
-  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const today = businessToday(now);
   return workspace.records.some(
-    (record) => record.creditType !== "offset" && record.submittedAt.slice(0, 10) === today
+    (record) => record.creditType !== "offset" && (record.businessDate || record.submittedAt || "").slice(0, 10) === today
   );
 }
 

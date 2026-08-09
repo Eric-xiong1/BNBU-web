@@ -13,7 +13,7 @@ import { validateProofFile } from "../proofs.js";
 import {
   canStartExercise, hasSubmittedCheckInToday, loadSession, saveSession, clearSession,
   startSession, pauseSession, resumeSession, sessionDurationMs, shouldAutoEnd,
-  creditedHours, formatTimer, SESSION_MIN_CREDIT_MILLIS, SESSION_MAX_MILLIS,
+  creditedHours, formatTimer, businessToday, SESSION_MIN_CREDIT_MILLIS, SESSION_MAX_MILLIS,
 } from "../session.js";
 import {
   startServerSession, pauseServerSession, resumeServerSession, finishServerSession,
@@ -222,11 +222,11 @@ function renderPreparation(app) {
     ? !!courseSport
     : sportType !== OTHER || (customSportName.trim() !== "" && customSportName.length <= 32);
   const hasSubmittedToday = hasSubmittedCheckInToday(workspace);
-  const pad = (n) => String(n).padStart(2, "0");
-  const now = new Date();
-  const todayKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  // "Today" follows the backend's business day (Beijing), matching the daily
+  // check-in rule; only display timestamps stay in the student's local time.
+  const todayKey = businessToday();
   const todayHours = workspace.records
-    .filter((r) => r.creditType !== "offset" && r.submittedAt.slice(0, 10) === todayKey)
+    .filter((r) => r.creditType !== "offset" && (r.businessDate || r.submittedAt || "").slice(0, 10) === todayKey)
     .reduce((sum, r) => sum + (Number(r.hours) || 0), 0);
 
   const sportOptions = isCourse

@@ -83,13 +83,17 @@ check("session timing: pause/resume, 2h cap, credited hours", () => {
   assert.equal(formatTimer(3_723_000), "01:02:03");
 });
 
-check("daily submission guard uses local submission date", () => {
-  const now = new Date(2026, 6, 29, 12, 0, 0);
+check("daily submission guard follows the Beijing business day", () => {
+  // The backend keys one check-in per enrollment per business date, so the
+  // guard must use Beijing's day rather than the device's — otherwise a
+  // student abroad is told they may check in and the submit is then rejected.
+  // This instant is still 2026-07-29 in the Americas, already 07-30 in Beijing.
+  const now = new Date("2026-07-29T16:00:00Z");
   const workspace = {
-    records: [{ creditType: "general", submittedAt: "2026-07-29 09:00" }],
+    records: [{ creditType: "general", businessDate: "2026-07-30" }],
   };
   assert.equal(hasSubmittedCheckInToday(workspace, now), true);
-  workspace.records[0].submittedAt = "2026-07-28 09:00";
+  workspace.records[0].businessDate = "2026-07-29";
   assert.equal(hasSubmittedCheckInToday(workspace, now), false);
 });
 

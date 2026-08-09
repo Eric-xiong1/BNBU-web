@@ -3,6 +3,7 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { adminCopy, adminErrorCopy } from "./admin-i18n";
 import type { AdminLocale } from "./admin-types";
+import { BUSINESS_TIME_ZONE } from "./business-time";
 
 export type AdminTone = "blue" | "green" | "orange" | "red" | "gray";
 
@@ -233,15 +234,24 @@ export function AdminSectionHeading({ title, description, action }: { title: str
   );
 }
 
+/**
+ * Staff always read records in the organization's time (Beijing), no matter
+ * where they open the portal — a record submitted at 22:57 Beijing must not
+ * appear as 07:57 to an administrator sitting in another timezone.
+ */
 export function formatAdminDate(locale: AdminLocale, value?: string, includeTime = false) {
   if (!value) return "—";
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
+  // A bare business date is already a calendar day; anchor it at Beijing noon
+  // so no timezone conversion can shift it to the neighbouring day.
+  const isBusinessDate = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const date = isBusinessDate ? new Date(`${value}T12:00:00+08:00`) : new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat(locale === "en" ? "en-US" : "zh-CN", {
+    timeZone: BUSINESS_TIME_ZONE,
     year: "numeric",
     month: "short",
     day: "numeric",
-    ...(includeTime ? { hour: "2-digit", minute: "2-digit" } : {}),
+    ...(includeTime && !isBusinessDate ? { hour: "2-digit", minute: "2-digit", hour12: false } : {}),
   }).format(date);
 }
 
