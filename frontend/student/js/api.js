@@ -83,6 +83,32 @@ export class ApiError extends Error {
 
 export const isUnsupported = (error) => error instanceof ApiError && error.code === "SYSTEM_MODE_UNSUPPORTED";
 
+// ── Backend business limits mirrored for client-side messaging ───
+// Keep in sync with docs/backend-contracts/04-business-rules.md.
+export const QUALIFYING_TOTAL_SECONDS = 72_000;   // 20 h — no new check-ins after this
+export const MAX_PROOF_VIDEO_SECONDS = 15;        // EXERCISE_RECORD video hard cap
+export const MAX_PROOF_IMAGES = 6;
+export const MAX_PROOF_VIDEOS = 1;
+export const CHECK_IN_WINDOW_START = "06:00";     // Beijing time, inclusive
+export const CHECK_IN_WINDOW_END = "22:00";       // Beijing time, inclusive
+
+/**
+ * True when starting an exercise was refused because the student already met
+ * the qualifying total. The backend reuses SESSION_ALREADY_COMPLETED for this
+ * and sends no distinguishing details, so the meaning comes from the operation:
+ * only `startExerciseSession` can fail this way for a qualified student.
+ */
+export const isQualificationReached = (error) =>
+  error instanceof ApiError && error.status === 409 && error.code === "SESSION_ALREADY_COMPLETED";
+
+/** Message for a failure raised while starting an exercise session. */
+export function sessionStartErrorText(error) {
+  if (isQualificationReached(error)) {
+    return tx("已达到合格打卡时长，无需继续打卡。", "You have reached the qualifying hours. No further check-ins are needed.");
+  }
+  return apiErrorText(error);
+}
+
 export function apiErrorText(error) {
   if (!(error instanceof ApiError)) {
     return tx("网络连接失败，请确认后端服务已启动。", "Network connection failed. Make sure the backend service is running.");
@@ -97,18 +123,37 @@ export function apiErrorText(error) {
     AUTH_SESSION_REVOKED: tx("当前登录会话已失效，请重新登录。", "This session was revoked. Sign in again."),
     AUTH_ACCOUNT_DISABLED: tx("账号已被停用，请联系管理员。", "This account is disabled. Contact an administrator."),
     AUTH_RATE_LIMITED: tx("操作过于频繁，请稍后再试。", "Too many attempts. Try again later."),
+    AUTH_CREDENTIAL_INVALID: tx("账号或凭证不正确。", "The account or credential is incorrect."),
+    AUTH_VERIFICATION_CODE_INVALID: tx("验证码不正确或已过期。", "The verification code is incorrect or expired."),
     USER_IDENTITY_CONFLICT: tx("身份信息与已有账号冲突，请联系教师核对。", "Your identity conflicts with an existing account. Ask your teacher to check."),
+    USER_NOT_FOUND: tx("账号不存在或已被移除。", "The account does not exist or was removed."),
+    USER_STATUS_NOT_ACTIVE: tx("账号状态不允许该操作。", "Your account status does not allow this action."),
     // Permission
     PERMISSION_DENIED: tx("没有权限执行该操作。", "You do not have permission for this action."),
     PERMISSION_RESOURCE_NOT_FOUND: tx("资源不存在或无权访问。", "The resource does not exist or is not accessible."),
     PERMISSION_RESOURCE_SCOPE_DENIED: tx("无权访问该资源。", "You cannot access this resource."),
+    PERMISSION_COURSE_SCOPE_DENIED: tx("无权访问该教学班。", "This class section is outside your scope."),
     // Validation / concurrency
     VALIDATION_FAILED: tx("提交的资料格式不正确，请检查后重试。", "Some fields are invalid. Check and try again."),
     VALIDATION_FIELD_REQUIRED: tx("有必填项未填写，请补充后重试。", "A required field is missing."),
     VALIDATION_FORMAT_INVALID: tx("填写格式不正确，请检查后重试。", "The format is invalid. Check and try again."),
+    VALIDATION_ENUM_UNSUPPORTED: tx("选择的选项不受支持，请重新选择。", "That option is not supported. Choose another."),
+    VALIDATION_DURATION_INVALID: tx("时长填写不正确。", "The duration is invalid."),
     CONFLICT_VERSION_MISMATCH: tx("数据已在别处更新，请刷新后重试。", "The data changed elsewhere. Refresh and try again."),
+    CONFLICT_REQUEST_IN_PROGRESS: tx("上一次操作仍在处理中，请稍候再试。", "The previous request is still processing. Try again shortly."),
+    CONFLICT_IDEMPOTENCY_KEY_REUSED: tx("请求重复，请刷新后重试。", "Duplicate request. Refresh and try again."),
+    CONFLICT_RESOURCE_ALREADY_EXISTS: tx("该资源已存在。", "This resource already exists."),
+    CONFLICT_STATE_TRANSITION: tx("当前状态不支持该操作。", "This action is not allowed in the current state."),
+    CONFLICT_UNSUPPORTED_RESOURCE_STATE: tx("当前状态不支持该操作。", "The resource is not in a supported state."),
     // Course invite / enrollment
     COURSE_INVITE_INVALID: tx("邀请码无效，请向教师确认。", "This invitation code is invalid. Check with your teacher."),
+    AUTH_JOIN_CAPABILITY_INVALID: tx("加入凭证无效，请重新扫码或输入邀请码。", "The join credential is invalid. Scan or enter the code again."),
+    COURSE_CLASS_SECTION_NOT_FOUND: tx("教学班不存在或已被移除。", "The class section does not exist or was removed."),
+    COURSE_CLASS_SECTION_NOT_WRITABLE: tx("该教学班当前不可写入。", "This class section is not writable."),
+    COURSE_CHECKIN_WINDOW_CLOSED: tx("该课程的打卡窗口已关闭。", "The check-in window for this course is closed."),
+    COURSE_DEADLINE_PASSED: tx("已超过课程提交截止时间。", "The course submission deadline has passed."),
+    COURSE_SEMESTER_ARCHIVED: tx("该学期已归档。", "This semester is archived."),
+    ENROLLMENT_NOT_FOUND: tx("选课记录不存在。", "The enrollment was not found."),
     COURSE_INVITE_EXPIRED: tx("邀请码已过期，请向教师索取新的邀请。", "This invitation expired. Ask your teacher for a new one."),
     COURSE_INVITE_REVOKED: tx("邀请码已被撤销，请向教师索取新的邀请。", "This invitation was revoked. Ask your teacher for a new one."),
     COURSE_CLASS_SECTION_NOT_JOINABLE: tx("该教学班当前不开放加入。", "This class section is not open for joining."),
@@ -117,25 +162,49 @@ export function apiErrorText(error) {
     ENROLLMENT_ALREADY_ACTIVE: tx("你已加入该课程，无需重复加入。", "You have already joined this course."),
     ENROLLMENT_SEMESTER_CONFLICT: tx("本学期已加入其他体育课程，不能重复选课。", "You already joined another PE course this term."),
     ENROLLMENT_NOT_ACTIVE: tx("你的选课状态不是在读，无法执行该操作。", "Your enrollment is not active."),
-    // Exercise session
-    SESSION_OUTSIDE_TIME_WINDOW: tx("当前不在可打卡时段内。", "You are outside the check-in time window."),
+    // Exercise session. Note: SESSION_ALREADY_COMPLETED means "qualification
+    // reached" when it comes back from starting a session — see
+    // sessionStartErrorText below.
+    SESSION_OUTSIDE_TIME_WINDOW: tx("当前不在可打卡时段内（北京时间 06:00–22:00）。", "Outside the check-in window (06:00–22:00 Beijing time)."),
     SESSION_ALREADY_ACTIVE: tx("已有进行中的运动，请先结束当前运动。", "An exercise session is already running. Finish it first."),
+    SESSION_ALREADY_COMPLETED: tx("本次运动已结束。", "This exercise session is already completed."),
     SESSION_DURATION_CAP_REACHED: tx("本次运动已达时长上限。", "This session reached the duration cap."),
     SESSION_ALREADY_USED: tx("该运动已用于提交打卡，无法重复使用。", "This session was already used for a submission."),
     SESSION_NOT_COMPLETED: tx("请先结束运动再提交打卡。", "Finish the exercise before submitting."),
+    SESSION_NOT_FOUND: tx("运动记录不存在或已结束。", "The exercise session was not found."),
     SESSION_TRANSITION_NOT_ALLOWED: tx("当前运动状态不支持该操作。", "This action is not allowed in the current session state."),
+    SESSION_RESUME_WINDOW_EXPIRED: tx("暂停时间过长，无法继续本次运动。", "This session can no longer be resumed."),
+    SESSION_RECONCILIATION_REQUIRED: tx("运动数据需要校准，请重新进入打卡页。", "This session needs reconciliation. Reopen the check-in page."),
+    SESSION_TIMELINE_INVALID: tx("运动时间数据异常，请重新开始。", "The session timeline is invalid. Start again."),
+    SESSION_EVENT_OUT_OF_ORDER: tx("操作顺序异常，请刷新后重试。", "The action arrived out of order. Refresh and try again."),
     // Exercise record
     EXERCISE_RECORD_DURATION_NOT_CREDITABLE: tx("本次运动时长不足，不能计入打卡。", "This session is too short to be credited."),
     EXERCISE_RECORD_DAILY_LIMIT_REACHED: tx("今日打卡次数已达上限。", "You reached today's check-in limit."),
     EXERCISE_RECORD_DUPLICATE_SUBMISSION: tx("该打卡已提交，请勿重复提交。", "This record was already submitted."),
     EXERCISE_RECORD_MEDIA_INCOMPLETE: tx("凭证尚未处理完成，请稍后再提交。", "The proof is still processing. Try submitting again shortly."),
+    EXERCISE_RECORD_NOT_FOUND: tx("打卡记录不存在。", "The check-in record was not found."),
+    EXERCISE_RECORD_ALREADY_EXISTS_FOR_SESSION: tx("本次运动已创建过打卡记录。", "A record already exists for this session."),
     MEDIA_EVIDENCE_REQUIRED: tx("请至少上传一项打卡凭证。", "At least one proof item is required."),
     // Media
     MEDIA_NOT_AVAILABLE: tx("凭证仍在处理中，请稍候。", "The proof is still being processed."),
     MEDIA_SIZE_EXCEEDED: tx("文件超过大小上限。", "The file exceeds the size limit."),
     MEDIA_TYPE_NOT_ALLOWED: tx("不支持该文件格式。", "This file type is not supported."),
-    MEDIA_COUNT_LIMIT_EXCEEDED: tx("凭证数量超过上限。", "Too many proof items."),
+    MEDIA_COUNT_LIMIT_EXCEEDED: tx(`凭证数量超过上限（最多 ${MAX_PROOF_IMAGES} 张照片、${MAX_PROOF_VIDEOS} 个视频）。`, `Too many proof items (up to ${MAX_PROOF_IMAGES} photos and ${MAX_PROOF_VIDEOS} video).`),
     MEDIA_UPLOAD_SESSION_EXPIRED: tx("上传已超时，请重新拍摄上传。", "The upload expired. Capture and upload again."),
+    // Media rules added by the backend's 15-second exercise-video update
+    MEDIA_VIDEO_DURATION_EXCEEDED: tx(`打卡视频最长 ${MAX_PROOF_VIDEO_SECONDS} 秒，请重新录制。`, `Check-in videos may be at most ${MAX_PROOF_VIDEO_SECONDS} seconds. Record again.`),
+    MEDIA_AUDIO_TRACK_REQUIRED: tx("打卡视频必须包含声音，请开启麦克风后重新录制。", "Check-in videos must contain sound. Enable the microphone and record again."),
+    MEDIA_CAPTURE_SOURCE_NOT_ALLOWED: tx("打卡凭证必须现场拍摄，不能从相册选择。", "Proof must be captured in the app, not chosen from the gallery."),
+    MEDIA_INTEGRITY_MISMATCH: tx("上传的文件与声明不一致，请重新上传。", "The uploaded file does not match its declaration. Upload again."),
+    MEDIA_OBJECT_NOT_FOUND: tx("凭证文件丢失，请重新上传。", "The proof file is missing. Upload again."),
+    MEDIA_ALREADY_BOUND: tx("该凭证已绑定到其他记录。", "This proof is already bound to another record."),
+    MEDIA_PURPOSE_MISMATCH: tx("凭证用途不匹配。", "The proof purpose does not match."),
+    MEDIA_ACCESS_DENIED: tx("无权查看该凭证。", "You are not allowed to view this proof."),
+    MEDIA_BIND_TARGET_INVALID: tx("凭证绑定目标无效，请重新提交。", "The proof binding target is invalid. Submit again."),
+    MEDIA_PROCESSING_INCOMPLETE: tx("凭证仍在处理中，请稍候再提交。", "The proof is still processing. Try again shortly."),
+    MEDIA_VERIFICATION_INCOMPLETE: tx("凭证校验尚未完成，请稍候。", "Proof verification is not finished yet."),
+    MEDIA_TRANSITION_NOT_ALLOWED: tx("凭证当前状态不支持该操作。", "This action is not allowed for the proof's current state."),
+    MEDIA_FAILURE_NOT_RETRYABLE: tx("该凭证上传失败且无法重试，请重新拍摄。", "This upload failed permanently. Capture it again."),
     // System mode (Contract 1.4 documents the full 503 family)
     SYSTEM_READ_ONLY: tx("系统当前为只读模式，暂时无法提交。", "The system is read-only right now, so changes cannot be saved."),
     SYSTEM_MAINTENANCE: tx("系统正在维护中，请稍后再试。", "The system is under maintenance. Try again later."),

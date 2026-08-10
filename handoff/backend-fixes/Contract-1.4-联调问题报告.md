@@ -1,9 +1,14 @@
 # Contract 1.4 Web 端联调问题报告
 
 > 提交方：Web 端（学生端 / 教师端 / 管理端）
-> 验证环境：本机 PostgreSQL 18.4 + MinIO + `main`（含 `1.4.0-contract`，commit `9dd0654`），迁移已跑到 `0013_production_rate_limits`
-> 验证日期：2026-08-08
-> 结论：合同对齐无问题（三端 59 个调用点全部合规），但运行时发现 **1 个阻断级缺陷**和 **1 个能力缺口**。
+> 验证环境：本机 PostgreSQL 18.4 + MinIO + `main` commit `c2aab4d`（含 20 小时达标、北京时间打卡窗、15 秒有声视频三项更新）
+> 首次提交：2026-08-08 ｜ 复核：2026-08-10
+> 结论：合同对齐无问题（三端 59 个调用点全部合规，新规则均已实测生效），但**问题一至今未修复**，问题二仍未决策。
+
+> ⚠️ **2026-08-10 复核结论：问题一（媒体上传 100% 失败）在 `c2aab4d` 上依旧存在。**
+> `s3-media-storage.adapter.ts` 的存储键正则自 1.1 起一行未改，而 `media.service.ts`
+> 已多加一段 businessPurpose。Web 端只能在本地打补丁才能继续联调，**请后端合入
+> 同目录下的 `fix-media-storage-key-pattern.patch`**（一行改动，已验证含安全用例）。
 
 ---
 
@@ -102,3 +107,30 @@ const STORAGE_KEY_PATTERN =
 5. 学生端刷新看到"1h/20h"学时进度与审核结果
 6. 管理员审计日志按资源 ID 查到完整轨迹：
    `EXERCISE_RECORD_DRAFT_CREATED`(STUDENT) → `EXERCISE_RECORD_SUBMITTED`(STUDENT) → `REVIEW_RESULT_CHANGED`(TEACHER)
+
+---
+
+## 2026-08-10 复核：三项新规则的实测结果（均已生效，Web 端已对齐）
+
+| 规则 | 实测 | Web 端处理 |
+|---|---|---|
+| 打卡视频最长 15 秒 | 15 秒 → 201 接受；16 秒 → 422 `MEDIA_VIDEO_DURATION_EXCEEDED`；缺 `durationSeconds` → 422 `VALIDATION_FAILED` | 录制后读取元数据先行校验，超时长即提示重录，不再浪费一次上传；两个新错误码已中文化 |
+| 打卡窗口北京时间 06:00–22:00 | 北京 23:14 开始运动 → 409 `SESSION_OUTSIDE_TIME_WINDOW`；教学班配置为 00:00–23:59 仍被拒，证明班级配置只能收窄 | 提示语标注「北京时间 06:00–22:00」；"今日是否已打卡"改用北京业务日判断 |
+| 累计 20 小时后停止打卡 | 植入 10 天 × 7200 秒有效记录后开始运动 → 409 `SESSION_ALREADY_COMPLETED` | 在"开始运动"接口上识别该码并提示「已达到合格打卡时长，无需继续打卡」 |
+
+### 一个接口设计上的建议（非阻断）
+
+达标拒绝复用了 `SESSION_ALREADY_COMPLETED`，且 `details` 为空对象，与
+"会话已完成"共用同一个码。客户端目前只能依据**发生在哪个接口**来区分：
+在 `startExerciseSession` 上收到该码即判定为达标。
+
+这可行但脆弱。建议二选一，便于各端稳定区分：
+
+1. 在 `details` 中给出判别字段，例如 `{ reason: "QUALIFICATION_REACHED", qualifiedSeconds: 72000 }`；
+2. 或为达标启用独立错误码（如 `ENROLLMENT_QUALIFICATION_REACHED`）。
+
+### 另一处便利性建议
+
+学生端目前无法展示"还差多少小时达标"，因为 `listStudentScores` 在成绩规则
+未发布时为空，没有可读的累计有效时长。若能在学生投影中给出该累计值，
+客户端就能在达标前给出进度提示，而不是等到开始运动被拒才知道。

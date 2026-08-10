@@ -20,12 +20,15 @@ import {
   cancelServerSession, getActiveSession, createRecordDraft, submitRecord,
   uploadMediaDraft, cacheRecordProofs, createMediaAccessUrl, proxyObjectUrl,
   listMyRecords, apiErrorText, ApiError,
+  isQualificationReached, sessionStartErrorText,
+  MAX_PROOF_VIDEO_SECONDS, MAX_PROOF_IMAGES, MAX_PROOF_VIDEOS,
 } from "../api.js";
 
 const MAX_DESCRIPTION = 200;
 const MAX_REMARK = 200;
-const MAX_IMAGES = 6;
-const MAX_VIDEOS = 1;
+// Mirrors the backend's MEDIA-001 limits (see api.js).
+const MAX_IMAGES = MAX_PROOF_IMAGES;
+const MAX_VIDEOS = MAX_PROOF_VIDEOS;
 const MAX_REQUEST_BYTES = 120_000_000;
 const OTHER = "other";
 
@@ -475,7 +478,7 @@ function renderFinished(app, session) {
       <div style="height:10px"></div>
       ${draftListHtml(app, { selectable: true })}
     </div>
-    <span class="body-small text-muted">${tx(`最多 ${MAX_IMAGES} 张照片和 ${MAX_VIDEOS} 个视频`, `Up to ${MAX_IMAGES} photos and ${MAX_VIDEOS} videos`)}</span>
+    <span class="body-small text-muted">${tx(`最多 ${MAX_IMAGES} 张照片和 ${MAX_VIDEOS} 个视频，视频不超过 ${MAX_PROOF_VIDEO_SECONDS} 秒且需有声音`, `Up to ${MAX_IMAGES} photos and ${MAX_VIDEOS} video; video must be at most ${MAX_PROOF_VIDEO_SECONDS}s with sound`)}</span>
     <div class="row" style="align-items:flex-end">
       <span class="title-large text-on-surface">${tx("提交确认", "Confirm submission")}</span>
       <span class="grow"></span>
@@ -811,20 +814,21 @@ function pickCaptureInput(app, kind) {
 async function addDraftFromFile(app, file, type, replaceId = null) {
   const ui = checkinState(app);
   ui.captureError = null;
-  // v6.1 §5.1/§9.7 — reject by named file with a concrete reason.
-  const verdict = validateProofFile(file, type);
-  if (!verdict.ok) {
-    const name = file.name || (type === "image" ? tx("图片文件", "image file") : tx("视频文件", "video file"));
-    if (verdict.error === "format") {
-      ui.captureError = type === "image"
-        ? tx(`「${name}」格式不支持：图片仅支持 JPG/PNG/WebP/HEIC/HEIF。`, `“${name}” is not a supported format. Images must be JPG/PNG/WebP/HEIC/HEIF.`)
-        : tx(`「${name}」格式不支持：视频仅支持 MP4/MOV。`, `“${name}” is not a supported format. Videos must be MP4/MOV.`);
-    } else {
-      ui.captureError = type === "image"
-        ? tx(`「${name}」超过单张图片 8MB 上限。`, `“${name}” exceeds the 8MB per-photo limit.`)
-        : tx(`「${name}」超过单个视频 100MB 上限。`, `“${name}” exceeds the 100MB per-video limit.`);
-    }
+  const name = file.name || (type === "image" ? tx("图片文件", "image file") : tx("视频文件", "video file"));
+  const rejectWith = (message) => {
+    ui.captureError = message;
     app.render();
+  };
+  // Format and size first; the duration cap needs the browser to read metadata.
+  const preVerdict = validateProofFile(file, type);
+  if (!preVerdict.ok) {
+    if (preVerdict.error === "format") {
+      rejectWith(tx(`「${name}」格式不支持：图片仅支持 JPG/PNG/WebP/HEIC/HEIF。`, `“${name}” is not a supported format. Images must be JPG/PNG/WebP/HEIC/HEIF.`));
+    } else {
+      rejectWith(type === "image"
+        ? tx(`「${name}」超过单张图片 8MB 上限。`, `“${name}” exceeds the 8MB per-photo limit.`)
+        : tx(`「${name}」文件过大，请重新录制。`, `“${name}” is too large. Record again.`));
+    }
     return;
   }
   const url = URL.createObjectURL(file);
@@ -837,7 +841,19 @@ async function addDraftFromFile(app, file, type, replaceId = null) {
       video.onerror = () => resolve(null);
       video.src = url;
     });
+    // The backend caps exercise videos at 15 recorded seconds; catching it here
+    // saves the student an upload that would be rejected anyway.
+    const verdict = validateProofFile(file, type, { durationSeconds });
+    if (!verdict.ok && verdict.error === "duration") {
+      URL.revokeObjectURL(url);
+      rejectWith(tx(
+        `「${name}」时长 ${Math.round(durationSeconds)} 秒，超过 ${MAX_PROOF_VIDEO_SECONDS} 秒上限，请重新录制。`,
+        `“${name}” is ${Math.round(durationSeconds)}s long, over the ${MAX_PROOF_VIDEO_SECONDS}s limit. Record again.`
+      ));
+      return;
+    }
   }
+  const verdict = preVerdict;
   const draft = {
     id: replaceId || `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     type,
@@ -1135,6 +1151,10 @@ export const checkinActions = {
       }
       const startOnServer = () => startServerSession(enrollmentId).then(afterStart);
       startOnServer().catch((error) => {
+        // The backend refuses a new session once the qualifying total is
+        // reached, reusing SESSION_ALREADY_COMPLETED. That is not a stray
+        // session, so it must not trigger the cleanup-and-retry below.
+        if (isQualificationReached(error)) throw error;
         // A stray active server session (e.g. cleared local storage) blocks new
         // starts — cancel it once and retry.
         if (error instanceof ApiError && error.status === 409) {
@@ -1146,6 +1166,14 @@ export const checkinActions = {
         }
         throw error;
       }).catch((error) => {
+        if (isQualificationReached(error)) {
+          app.showDialog({
+            title: tx("已达到合格时长", "Qualifying hours reached"),
+            body: sessionStartErrorText(error),
+            buttons: [{ label: tx("我知道了", "Got it"), action: "dialog.close" }],
+          });
+          return;
+        }
         apiFailureDialog(app, error, tx("无法开始运动", "Cannot start"));
       });
     };
@@ -1231,8 +1259,8 @@ export const checkinActions = {
     app.showDialog({
       title: tx("录像与声音说明", "Video and audio notice"),
       body: tx(
-        "继续后将打开设备的系统相机录制视频。本应用不申请或直接使用 RECORD_AUDIO（麦克风）权限；是否录入环境声音由系统相机及其设置决定。你可取消录制、在系统相机中关闭录音（如可用），或在提交前删除草稿。视频仅在你明确提交后才会上传。",
-        "Continuing opens your device's system camera to record video. This app does not request or directly use the RECORD_AUDIO (microphone) permission; whether ambient sound is recorded is controlled by the system camera and its settings. You can cancel, mute if that camera offers it, or remove the draft before submitting. The video is uploaded only after you explicitly submit it."
+        `继续后将打开设备的系统相机录制视频。按打卡规则，视频最长 ${MAX_PROOF_VIDEO_SECONDS} 秒且必须包含声音——请勿在系统相机中关闭录音，否则提交时会被退回并需要重录。视频仅在你明确提交后才会上传；提交前可随时删除草稿。`,
+        `Continuing opens your device's system camera. Check-in videos may be at most ${MAX_PROOF_VIDEO_SECONDS} seconds and must contain sound — do not mute the camera, or the submission will be rejected and you will need to record again. The video is uploaded only after you explicitly submit it, and you can remove the draft before then.`
       ),
       buttons: [
         { label: tx("取消", "Cancel"), action: "dialog.close" },

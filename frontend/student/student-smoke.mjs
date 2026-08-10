@@ -116,20 +116,29 @@ check("time window blocks excluded dates and passed deadlines", () => {
   assert.ok(pastDeadline && pastDeadline.includes("2026-07-28"));
 });
 
-check("proof rules (v6.1 §5.1): format whitelist and size caps", () => {
+check("proof rules: image whitelist, and the 15-second video cap", () => {
   // MIME match, including jpeg→jpg canonicalization.
   assert.deepEqual(validateProofFile({ name: "a.jpeg", type: "image/jpeg", size: 100 }, "image"), { ok: true, extension: "jpg" });
   assert.deepEqual(validateProofFile({ name: "b.png", type: "image/png", size: 100 }, "image"), { ok: true, extension: "png" });
   // Extension fallback when the browser reports no MIME type (HEIC on mobile).
   assert.deepEqual(validateProofFile({ name: "c.HEIC", type: "", size: 100 }, "image"), { ok: true, extension: "heic" });
   assert.deepEqual(validateProofFile({ name: "d.mov", type: "", size: 100 }, "video"), { ok: true, extension: "mov" });
-  // Rejected formats.
+  // Images keep their format whitelist and 8MB cap.
   assert.deepEqual(validateProofFile({ name: "e.gif", type: "image/gif", size: 100 }, "image"), { ok: false, error: "format" });
-  assert.deepEqual(validateProofFile({ name: "f.avi", type: "video/x-msvideo", size: 100 }, "video"), { ok: false, error: "format" });
-  // Size caps: 8MB images, 100MB videos.
   assert.deepEqual(validateProofFile({ name: "g.jpg", type: "image/jpeg", size: 8_000_001 }, "image"), { ok: false, error: "size" });
-  assert.deepEqual(validateProofFile({ name: "h.mp4", type: "video/mp4", size: 100_000_001 }, "video"), { ok: false, error: "size" });
-  assert.equal(validateProofFile({ name: "i.mp4", type: "video/mp4", size: 100_000_000 }, "video").ok, true);
+
+  // Backend MEDIA-001/002: exercise video format and size are device-defined
+  // and not business limits, so whatever the camera produces is accepted.
+  assert.equal(validateProofFile({ name: "f.webm", type: "video/webm", size: 100 }, "video").ok, true);
+  assert.equal(validateProofFile({ name: "h.mp4", type: "video/mp4", size: 100_000_001 }, "video").ok, true);
+
+  // The one hard video rule: at most 15 recorded seconds.
+  assert.equal(validateProofFile({ name: "i.mp4", type: "video/mp4", size: 100 }, "video", { durationSeconds: 15 }).ok, true);
+  assert.equal(validateProofFile({ name: "j.mp4", type: "video/mp4", size: 100 }, "video", { durationSeconds: 15.4 }).ok, true, "15.4s rounds to 15 and is accepted");
+  assert.deepEqual(validateProofFile({ name: "k.mp4", type: "video/mp4", size: 100 }, "video", { durationSeconds: 16 }), { ok: false, error: "duration" });
+  // Duration unknown (metadata unreadable) must not block the capture; the
+  // backend still enforces the cap on the verified duration.
+  assert.equal(validateProofFile({ name: "l.mp4", type: "video/mp4", size: 100 }, "video", { durationSeconds: null }).ok, true);
 });
 
 check("store self-heals corrupted keys and merges overlay defaults", () => {
