@@ -41,7 +41,13 @@ npm run test:student     # 学生端单元 + smoke
 npm run test:api         # 后端 API 测试
 ```
 
-### 启动完整后端 `npm run api`
+学生端正式网络链路统一使用权威 Backend `/api/v1`。本地 `npm run preview` 默认把
+同源 `/api/v1` 代理到 `http://127.0.0.1:3000`，也可通过 `API_V1_TARGET` 指定另一
+个本地联调地址。GitHub Pages 发布前必须在仓库 Variables 中配置
+`BNBU_API_BASE_URL=https://<官方域名>/api/v1`，并把 Pages 站点来源加入权威 Backend
+的 CORS allowlist；未配置时工作流会失败，避免发布无法登录的学生端。
+
+### 启动旧教师/管理 Backend `npm run api`
 
 需要 MySQL，并设置环境变量（PowerShell 示例）：
 
@@ -52,7 +58,8 @@ $env:DB_PASSWORD="你的密码"
 npm run api
 ```
 
-若暂无 MySQL，可先用 `npm run mock-api` 做前端联调。
+若暂无 MySQL，可先用 `npm run mock-api` 做教师/管理端联调。学生端邮箱认证、入课、
+运动会话和媒体链路必须连接独立的权威 Backend `/api/v1`，不能回退到该 Mock。
 
 ## 各层说明
 

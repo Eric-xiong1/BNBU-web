@@ -10,8 +10,8 @@ export const GRADE_WEIGHTS = { checkin: 0.25, exam: 0.30, performance: 0.20, phy
 export const uploadLimits = {
   images: 6,
   videos: 1,
-  imageBytes: 8 * 1024 * 1024,
-  videoBytes: 100 * 1024 * 1024,
+  imageBytes: 10 * 1024 * 1024,
+  videoDurationSeconds: 15,
 };
 
 export const SPORT_TYPES = [
@@ -20,6 +20,7 @@ export const SPORT_TYPES = [
   { value: "basketball", label: "篮球" },
   { value: "football", label: "足球" },
   { value: "badminton", label: "羽毛球" },
+  { value: "table_tennis", label: "乒乓球" },
   { value: "swimming", label: "游泳" },
   { value: "fitness", label: "健身" },
   { value: "cycling", label: "骑行" },

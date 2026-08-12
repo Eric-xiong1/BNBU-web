@@ -41,7 +41,9 @@ npm run preview
 | 教师端演示 | `http://127.0.0.1:4174/teacher/index.html?demo=1` |
 | 学生端 | `http://127.0.0.1:4174/student/` |
 
-老师真实登录后由主 SPA 跳转至 `teacher/`；学生端可演示登录或走同源 `/api/*`。
+老师真实登录后由主 SPA 跳转至 `teacher/`；学生端演示模式只用于展示，真实模式统一
+走权威 Backend `/api/v1`。本地预览会代理到 `API_V1_TARGET`（默认 `:3000`）；静态
+部署通过 `student/runtime-config.js` 使用构建时配置的 HTTPS Backend 地址。
 
 ```bash
 npm run test:web
@@ -59,6 +61,9 @@ npm run test:student
 
 ## 学生端
 
-默认进入「打卡」，支持演示模式与真实接口。演示可在登录页进入演示模式；真实模式使用学生账号并通过同源 `/api/*` 调用后端。
+默认进入「打卡」，支持演示模式与真实接口。演示可在登录页进入演示模式；真实模式
+使用邮箱验证码账号并调用 `/api/v1`，请求失败不会自动回退演示数据。
 
-图片 / 视频凭证限制：最多 6 张图片（每张 8MB）和 1 个视频（100MB）。验收说明见 [docs/STUDENT_WEB_ACCEPTANCE.md](../docs/STUDENT_WEB_ACCEPTANCE.md)。
+运动凭证只允许现场拍摄：最多 6 张 JPEG/PNG（每张 10MB）和 1 个最长 15 秒的有声
+MP4/MOV/3GP；保留的凭证全部提交，不支持从相册导入旧素材。验收说明见
+[docs/STUDENT_WEB_ACCEPTANCE.md](../docs/STUDENT_WEB_ACCEPTANCE.md)。

@@ -57,6 +57,15 @@ function normalizeProofFiles(value) {
   return [...new Set(urls.filter(isAllowedProofFile))].slice(0, MAX_PROOF_IMAGES);
 }
 
+function validateExerciseDescription(creditType, description) {
+  const normalizedType = String(creditType || '').trim().toUpperCase();
+  const normalizedDescription = String(description || '').trim();
+  const isGeneral = normalizedType === 'GENERAL' || normalizedType === '其他运动' || normalizedType === '自主运动';
+  if (isGeneral && !normalizedDescription) return { error: '自主运动必须填写运动说明' };
+  if (normalizedDescription.length > 200) return { error: '运动说明最多 200 个字符' };
+  return { value: normalizedDescription };
+}
+
 function removeUploadedFiles(files = []) {
   for (const file of files) {
     if (file?.path) fs.unlink(file.path, () => {});
@@ -1812,6 +1821,10 @@ app.post('/api/sport/records', requireAuth, async (req, res) => {
     if (hours < 0.5 || hours > 2) {
       return res.status(400).json({ code: 'VALIDATION', message: '小时数须在 0.5–2 之间' });
     }
+    const descriptionResult = validateExerciseDescription(creditType, description);
+    if (descriptionResult.error) {
+      return res.status(400).json({ code: 'VALIDATION', message: descriptionResult.error });
+    }
 
     if (taskId) {
       const [taskRows] = await pool.query('SELECT id, course_id, start_at, end_at, timezone FROM tasks WHERE id = ?', [taskId]);
@@ -1841,7 +1854,7 @@ app.post('/api/sport/records', requireAuth, async (req, res) => {
       await conn.query(
         `INSERT INTO sport_records (id, student_id, course_id, task_id, credit_type, hours, description, proof_files, sport_type, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '待审核')`,
-        [id, studentId, courseId || null, taskId || null, creditType, hours, description || '', JSON.stringify(normalizeProofFiles(proofFiles)), sportType || null]
+        [id, studentId, courseId || null, taskId || null, creditType, hours, descriptionResult.value, JSON.stringify(normalizeProofFiles(proofFiles)), sportType || null]
       );
 
       // Create linked review row for teacher visibility
@@ -3393,5 +3406,6 @@ module.exports = {
   buildGradeRows,
   collectTaskWindow,
   normalizeEnduranceSeconds,
+  validateExerciseDescription,
   taskWindowError,
 };

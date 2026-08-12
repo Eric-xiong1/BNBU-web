@@ -94,22 +94,12 @@ async function assertSolidNavIcon(page, route) {
     await capture(mobile.page, "mobile-home.png");
     await visit(mobile.page, "checkin", "运动打卡");
     await assertSolidNavIcon(mobile.page, "checkin");
-    const description = mobile.page.locator('[name="description"]');
-    await description.fill("保留这段尚未保存的运动说明");
-    await mobile.page.locator('[data-sport-type="running"]').click();
-    await mobile.page.getByRole("button", { name: "查看更多运动项目" }).click();
-    assert.equal(await description.inputValue(), "保留这段尚未保存的运动说明");
-    assert.equal(await mobile.page.locator('[name="sportType"]').inputValue(), "running");
-    await mobile.page.locator("#proof-picker").setInputFiles({ name: "proof.png", mimeType: "image/png", buffer: Buffer.from("proof") });
-    assert.equal(await description.inputValue(), "保留这段尚未保存的运动说明");
-    assert.equal(await mobile.page.locator(".proof-item").count(), 1);
-    await description.fill("选择凭证后继续编辑的说明");
-    await mobile.page.getByRole("button", { name: "删除" }).click();
-    assert.equal(await description.inputValue(), "选择凭证后继续编辑的说明");
+    assert.equal(await mobile.page.getByText("计时与有效时长以 Backend 为准；不足 1 小时不会创建有效打卡。").isVisible(), true);
+    assert.equal(await mobile.page.locator('input[type="file"]').count(), 0);
     await capture(mobile.page, "mobile-checkin.png");
     await mobile.page.getByRole("tab", { name: "记录" }).click();
     await capture(mobile.page, "mobile-records-refined.png");
-    for (const [route, text] of [["grades","成绩"],["course/gepe","大学体育 II"],["endurance","耐力跑成绩换算"],["exemptions","体育免测与免打卡申请"],["privacy","隐私政策"],["profile","我的"]]) {
+    for (const [route, text] of [["grades","成绩"],["course/gepe","大学体育 II"],["exemptions","体育免测与免打卡申请"],["privacy","隐私政策"],["profile","我的"]]) {
       await visit(mobile.page, route, text);
       if (["grades", "profile"].includes(route)) await assertSolidNavIcon(mobile.page, route);
     }

@@ -11,6 +11,10 @@ export function calculateGrade(components = {}) {
 }
 
 export function renderGrades(grades = {}) {
+  const backendScores = (grades.sources || []).filter((source) => source && typeof source === "object" && "totalValidDurationSeconds" in source);
+  if (backendScores.length) {
+    return `<section class="page-stack"><header><span class="eyebrow">BACKEND AUTHORITATIVE</span><h1 class="page-heading">成绩</h1><p class="page-caption">仅展示 Backend 返回的成绩、有效时长与发布状态，不提供学生端手动录入。</p></header><div class="grid grid-2">${backendScores.map((score) => `<article class="card"><div class="card-body page-stack"><div class="section-row"><span class="badge">${escapeHtml(score.status)}</span><strong>${score.finalScore == null ? "成绩暂未发布" : `${escapeHtml(score.finalScore)} 分`}</strong></div><div class="detail-facts"><div><span>课程运动</span><strong>${(Number(score.validCourseDurationSeconds || 0) / 3600).toFixed(1)}h</strong></div><div><span>自主运动</span><strong>${(Number(score.validGeneralDurationSeconds || 0) / 3600).toFixed(1)}h</strong></div><div><span>有效总时长</span><strong>${(Number(score.totalValidDurationSeconds || 0) / 3600).toFixed(1)}h</strong></div><div><span>达标状态</span><strong>${score.qualificationStatus === "QUALIFIED" ? "已达标" : "未达标"}</strong></div></div>${score.publishedAt ? `<p class="page-caption">发布时间 ${formatDate(score.publishedAt)}</p>` : '<p class="page-caption">成绩未发布时，Backend 不向学生端暴露未公开分数。</p>'}</div></article>`).join("")}</div></section>`;
+  }
   const result = calculateGrade(grades.components || {});
   return `<section class="page-stack"><header><h1 class="page-heading">成绩</h1><p class="page-caption">所有权重、公式和数据来源均可核验</p></header>
     <section class="grade-hero"><div><span>总分预估</span><strong>${result.total ?? "—"}</strong><small>${result.missing.length ? "存在缺失项，暂不形成完整预估" : "按当前已录入成绩计算"}</small></div></section>

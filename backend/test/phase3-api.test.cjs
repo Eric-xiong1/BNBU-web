@@ -19,7 +19,7 @@ test('student web backend contracts are present', () => {
 
 test('new backend rule helpers enforce the documented boundaries', () => {
   const { pool } = createFakeDb();
-  const { collectTaskWindow, taskWindowError, buildGradeRows, normalizeEnduranceSeconds } = loadServer(pool);
+  const { collectTaskWindow, taskWindowError, buildGradeRows, normalizeEnduranceSeconds, validateExerciseDescription } = loadServer(pool);
 
   const window = collectTaskWindow({ startAt: '2026-07-20T00:00:00Z', endAt: '2026-07-21T00:00:00Z' });
   assert.equal(window.error, undefined);
@@ -39,6 +39,9 @@ test('new backend rule helpers enforce the documented boundaries', () => {
 
   assert.deepEqual(normalizeEnduranceSeconds({ minutes: 3, seconds: 58 }), { seconds: 238, raw: { minutes: 3, seconds: 58 } });
   assert.match(normalizeEnduranceSeconds({ minutes: 3, seconds: 60 }).error, /0 到 59/);
+  assert.match(validateExerciseDescription('GENERAL', '').error, /自主运动必须填写/);
+  assert.equal(validateExerciseDescription('COURSE_RELATED', '').value, '');
+  assert.match(validateExerciseDescription('COURSE_RELATED', 'x'.repeat(201)).error, /最多 200/);
 });
 
 function createFakeDb() {

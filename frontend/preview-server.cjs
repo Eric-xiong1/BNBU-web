@@ -4,6 +4,7 @@ const path = require("path");
 
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 4174);
+const apiTarget = new URL(process.env.API_V1_TARGET || "http://127.0.0.1:3000");
 const root = __dirname;
 
 const contentTypes = {
@@ -32,7 +33,7 @@ const securityHeaders = {
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Cross-Origin-Opener-Policy": "same-origin",
-  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+  "Permissions-Policy": "camera=(self), microphone=(self), geolocation=(), payment=()",
   "Content-Security-Policy":
     "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:8080 http://localhost:8080 https:; form-action 'self'; worker-src 'none'",
 };
@@ -58,7 +59,30 @@ function resolveFile(requestUrl) {
   return filePath;
 }
 
+function proxyApiRequest(request, response) {
+  const headers = { ...request.headers, host: apiTarget.host };
+  delete headers.connection;
+  const upstream = http.request({
+    protocol: apiTarget.protocol,
+    hostname: apiTarget.hostname,
+    port: apiTarget.port,
+    method: request.method,
+    path: request.url,
+    headers,
+  }, (upstreamResponse) => {
+    response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers);
+    upstreamResponse.pipe(response);
+  });
+  upstream.setTimeout(30000, () => upstream.destroy(new Error("Backend request timed out")));
+  upstream.on("error", () => send(response, 502, JSON.stringify({ code: "BACKEND_UNAVAILABLE", message: "无法连接 Backend /api/v1" }), { "Content-Type": "application/json; charset=utf-8" }));
+  request.pipe(upstream);
+}
+
 const server = http.createServer((request, response) => {
+  if (request.url === "/api/v1" || request.url.startsWith("/api/v1/")) {
+    proxyApiRequest(request, response);
+    return;
+  }
   if (!["GET", "HEAD"].includes(request.method)) {
     send(response, 405, "Method Not Allowed", {
       Allow: "GET, HEAD",
@@ -104,6 +128,7 @@ server.maxHeadersCount = 64;
 
 server.listen(port, host, () => {
   console.log(`BNBU Web preview listening at http://${host}:${port}/index.html?fresh=quality-v1`);
+  console.log(`Student /api/v1 proxy target: ${apiTarget.origin}`);
 });
 
 server.on("error", (error) => {

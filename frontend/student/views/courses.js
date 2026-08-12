@@ -21,7 +21,7 @@ function courseCard(course, tasks, records) {
 export function renderCourses(courses = [], tasks = [], records = []) {
   const current = courses.filter((course) => course.semesterStatus !== "archived");
   const archived = courses.filter((course) => course.semesterStatus === "archived");
-  return `<section class="page-stack courses-page"><header><span class="eyebrow">COURSES</span><h1 class="page-heading">课程</h1><p class="page-caption">课程代码 + 四位 Section 是唯一课程标识</p></header>
+  return `<section class="page-stack courses-page"><header><span class="eyebrow">COURSES</span><h1 class="page-heading">课程</h1><p class="page-caption">课程代码 + 四位 Section 是唯一课程标识</p></header><button class="button button-primary" data-route="join">扫码或输入邀请码加入课程</button>
     <section class="page-stack"><div class="section-row"><div><span class="eyebrow">CURRENT</span><h2 class="section-heading">当前学期课程</h2></div><span class="badge">${current.length} 门</span></div>
       <div class="grid grid-2">${current.map((course) => courseCard(course, tasks, records)).join("") || '<div class="card"><div class="card-body muted">当前学期暂无课程</div></div>'}</div>
     </section>

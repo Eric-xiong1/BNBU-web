@@ -156,6 +156,14 @@ button { min-height: 44px; }
 .record-copy p { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .proof-detail { min-width: 0; overflow: hidden; border-radius: var(--radius-sm); background: var(--surface-variant); }
 .proof-detail .proof-preview, .proof-detail > video { display: block; width: 100%; min-height: 180px; max-height: 420px; object-fit: contain; background: #111827; }
+
+.auth-error { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 28%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.session-card { background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 12%, var(--surface)), var(--surface)); }
+.session-timer { display: block; font: 700 clamp(2.5rem, 10vw, 4.5rem)/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .04em; color: var(--primary); }
+.camera-panel { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 18px; background: #0f172a; color: #fff; }
+.camera-panel video { width: 100%; max-height: 520px; min-height: 240px; object-fit: cover; border-radius: 12px; background: #020617; }
+.camera-status { text-align: center; font-weight: 650; }
+.account-flow { max-width: 760px; margin-inline: auto; }
 .proof-detail .proof-preview img { display: block; width: 100%; min-height: 180px; max-height: 420px; object-fit: contain; background: #111827; }
 .section-heading { margin: 4px 0 8px; color: var(--text); font-size: 18px; }
 .hero-metric { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

@@ -25,6 +25,10 @@ jobs:
         uses: actions/checkout@v6
       - name: Configure Pages
         uses: actions/configure-pages@v5
+      - name: Configure authoritative Backend
+        env:
+          BNBU_API_BASE_URL: ${{ vars.BNBU_API_BASE_URL }}
+        run: node frontend/generate-student-runtime-config.cjs
       - name: Upload frontend artifact
         uses: actions/upload-pages-artifact@v4
         with:
