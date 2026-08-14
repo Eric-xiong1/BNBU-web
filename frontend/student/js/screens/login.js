@@ -43,8 +43,6 @@ export function renderLogin(app) {
           </div>
           <div style="height:24px"></div>
           ${loginMethodButton({ title: t("login_email_button"), subtitle: t("login_email_hint"), iconName: "email", primary: true, enabled: accepted, action: "login.email" })}
-          <div style="height:12px"></div>
-          ${loginMethodButton({ title: t("login_phone_button"), subtitle: t("login_phone_hint"), iconName: "smartphone", primary: false, enabled: accepted, action: "login.phone" })}
           <div class="login-divider"></div>
           <div class="label-large text-muted" style="font-weight:500;padding:28px 0 12px">${t("login_other_methods")}</div>
           ${loginMethodButton({ title: t("login_scan_button"), subtitle: t("login_scan_hint"), iconName: "qr-code-scanner", primary: false, enabled: accepted, action: "login.scan" })}
@@ -81,7 +79,6 @@ export const loginActions = {
     app.render();
   },
   "login.email": (app) => { app.state.showEmailLogin = true; app.ui.verification = null; app.navDirection = "forward"; app.render(); },
-  "login.phone": (app) => { app.state.showPhoneLogin = true; app.ui.verification = null; app.navDirection = "forward"; app.render(); },
   "login.scan": (app) => { app.state.showScanJoin = true; app.ui.scan = null; app.navDirection = "forward"; app.render(); },
   "login.recovery": (app) => { app.state.showRecoveryRequest = true; app.ui.recovery = null; app.navDirection = "forward"; app.render(); },
   "login.demo": async (app) => {

@@ -1,11 +1,12 @@
-// Real backend client for the unified BNBU Sports backend (OpenAPI 1.1,
+// Real backend client for the unified BNBU Sports backend (Contract 1.5,
 // NestJS `/api/v1`). Envelope: success `{data, meta}` / error
 // `{code, message, details, requestId, timestamp}`. Student sessions are
-// established only by the QR/invite join flow (joinClassSectionWithInvite);
-// password login stays TEACHER/ADMIN-only and the mock login button keeps
-// working entirely offline.
+// established by the student email challenge flow or by the QR/invite join
+// flow. Password login stays TEACHER/ADMIN-only. The optional local demo entry
+// still uses a real backend student session and never falls back to mock data.
 
-import { tx } from "./i18n.js";
+import { currentLocale, tx } from "./i18n.js";
+import { validateProofFile } from "./proofs.js";
 
 const NS = "bnbu.student.web.";
 
@@ -70,6 +71,26 @@ export function uuid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function contractLocale() { return currentLocale() === "en-US" ? "en" : "zh-CN"; }
+
+function organizationCode() {
+  const fromQuery = new URLSearchParams(globalThis.location?.search || "").get("org");
+  if (fromQuery) {
+    writeRaw("organizationCode", fromQuery.toUpperCase());
+    return fromQuery.toUpperCase();
+  }
+  return (readRaw("organizationCode") || "BNBU").toUpperCase();
+}
+
+function stableDeviceId() {
+  let value = readRaw("deviceId");
+  if (!value) {
+    value = `web-${uuid()}`.slice(0, 128);
+    writeRaw("deviceId", value);
+  }
+  return value;
+}
+
 // ── Errors ───────────────────────────────────────────────────────
 export class ApiError extends Error {
   constructor(status, body) {
@@ -114,7 +135,7 @@ export function apiErrorText(error) {
     return tx("网络连接失败，请确认后端服务已启动。", "Network connection failed. Make sure the backend service is running.");
   }
   if (isUnsupported(error)) return tx("该功能暂未开放。", "This feature is not yet available.");
-  // Keys are the backend's real Contract 1.4 error codes.
+  // Keys are the backend's stable Contract 1.5 error codes.
   const known = {
     // Auth / session
     AUTH_REQUIRED: tx("请先登录后再继续操作。", "Sign in before continuing."),
@@ -194,6 +215,7 @@ export function apiErrorText(error) {
     // Media rules added by the backend's 15-second exercise-video update
     MEDIA_VIDEO_DURATION_EXCEEDED: tx(`打卡视频最长 ${MAX_PROOF_VIDEO_SECONDS} 秒，请重新录制。`, `Check-in videos may be at most ${MAX_PROOF_VIDEO_SECONDS} seconds. Record again.`),
     MEDIA_AUDIO_TRACK_REQUIRED: tx("打卡视频必须包含声音，请开启麦克风后重新录制。", "Check-in videos must contain sound. Enable the microphone and record again."),
+    MEDIA_LOCATION_METADATA_NOT_ALLOWED: tx("凭证包含位置元数据，请重新拍摄或使用不含位置信息的文件。", "The proof contains location metadata. Capture it again or use a file without location data."),
     MEDIA_CAPTURE_SOURCE_NOT_ALLOWED: tx("打卡凭证必须现场拍摄，不能从相册选择。", "Proof must be captured in the app, not chosen from the gallery."),
     MEDIA_INTEGRITY_MISMATCH: tx("上传的文件与声明不一致，请重新上传。", "The uploaded file does not match its declaration. Upload again."),
     MEDIA_OBJECT_NOT_FOUND: tx("凭证文件丢失，请重新上传。", "The proof file is missing. Upload again."),
@@ -317,7 +339,10 @@ export async function demoAccountInfo() {
 }
 
 export async function logoutApi() {
-  try { await request("/auth/logout", { method: "POST", idempotent: true }); } catch { /* best effort */ }
+  const refreshToken = readTokens()?.refreshToken;
+  try {
+    if (refreshToken) await request("/auth/logout", { method: "POST", idempotent: true, body: { refreshToken } });
+  } catch { /* best effort */ }
   clearApiSession();
 }
 
@@ -367,7 +392,7 @@ const SPORT_TYPE_MAP = {
 };
 export const toServerSportType = (value) => SPORT_TYPE_MAP[value] || "OTHER";
 
-export const createRecordDraft = ({ sessionId, creditType, sportType, sportName, description, studentRemark }) =>
+export const createRecordDraft = ({ sessionId, creditType, sportType, sportName, description }) =>
   request("/exercise-records", {
     method: "POST", idempotent: true,
     body: {
@@ -376,7 +401,6 @@ export const createRecordDraft = ({ sessionId, creditType, sportType, sportName,
       sportType: toServerSportType(sportType),
       sportName: sportName || null,
       description,
-      studentRemark: studentRemark || null,
       clientRequestId: uuid(),
     },
   });
@@ -392,60 +416,116 @@ export const discardRecord = (recordId, expectedVersion) =>
   });
 
 // ── Media evidence ───────────────────────────────────────────────
+async function sha256Hex(blob) {
+  if (!globalThis.crypto?.subtle) {
+    throw new ApiError(0, {
+      code: "MEDIA_HASH_UNAVAILABLE",
+      message: tx("当前页面无法安全计算文件摘要，请使用 HTTPS 或本机地址后重试。", "This page cannot securely hash the file. Use HTTPS or a local address and try again."),
+    });
+  }
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export async function uploadMediaDraft(serverSessionId, draft, blob) {
   const isVideo = draft.type === "video";
-  const initiated = await request("/media-uploads", {
-    method: "POST", idempotent: true,
-    body: {
-      sessionId: serverSessionId,
-      businessPurpose: "EXERCISE_RECORD",
-      mediaType: isVideo ? "VIDEO" : "IMAGE",
-      mimeType: blob.type || (isVideo ? "video/mp4" : "image/jpeg"),
-      fileSizeBytes: blob.size,
-      captureSource: "IN_APP_CAMERA",
-      durationSeconds: isVideo ? Math.max(1, Math.round(draft.durationSeconds || 1)) : null,
-    },
-  });
-  const put = await fetch(proxyObjectUrl(initiated.uploadUrl), {
-    method: initiated.uploadMethod || "PUT",
-    headers: initiated.requiredHeaders || {},
-    body: blob,
-  });
-  if (!put.ok) throw new ApiError(put.status, { code: "MEDIA_UPLOAD_FAILED", message: `Object upload failed (${put.status})` });
-  const etag = (put.headers.get("ETag") || "").replaceAll('"', "") || "unknown";
-  await request(`/media-uploads/${initiated.uploadSessionId}/confirm`, {
-    method: "POST", idempotent: true, body: { etag },
-  });
-  const media = await request(`/media/${initiated.mediaId}/bind`, {
-    method: "POST", idempotent: true,
-    body: { sessionId: serverSessionId, expectedVersion: 1 },
-  }).catch(async (error) => {
-    // Bind checks the media row version; re-read once if the worker already bumped it.
-    if (error instanceof ApiError && error.code === "CONFLICT_VERSION_MISMATCH") {
-      const current = await request(`/media/${initiated.mediaId}`);
-      return request(`/media/${initiated.mediaId}/bind`, {
-        method: "POST", idempotent: true,
-        body: { sessionId: serverSessionId, expectedVersion: current.version },
+  const verdict = validateProofFile(blob, draft.type, { durationSeconds: draft.durationSeconds });
+  if (!verdict.ok) {
+    const code = verdict.error === "duration" ? "MEDIA_VIDEO_DURATION_EXCEEDED" : verdict.error === "size" ? "MEDIA_SIZE_EXCEEDED" : "MEDIA_TYPE_NOT_ALLOWED";
+    throw new ApiError(422, { code, message: "Media draft failed Contract 1.5 validation" });
+  }
+
+  const declaredContentSha256 = await sha256Hex(blob);
+  const signature = `${verdict.mimeType}:${blob.size}:${declaredContentSha256}:${verdict.durationSeconds ?? "image"}`;
+  if (draft.pendingUpload?.signature !== signature) draft.pendingUpload = null;
+
+  if (!draft.pendingUpload) {
+    draft.initiateIdempotencyKey ||= uuid();
+    const initiated = await request("/media-uploads", {
+      method: "POST",
+      headers: { "Idempotency-Key": draft.initiateIdempotencyKey },
+      body: {
+        sessionId: serverSessionId,
+        businessPurpose: "EXERCISE_RECORD",
+        mediaType: isVideo ? "VIDEO" : "IMAGE",
+        mimeType: verdict.mimeType,
+        fileSizeBytes: blob.size,
+        captureSource: "IN_APP_CAMERA",
+        declaredContentSha256,
+        durationSeconds: isVideo ? verdict.durationSeconds : null,
+      },
+    });
+    draft.pendingUpload = {
+      signature,
+      initiated,
+      objectUploaded: false,
+      confirmed: null,
+      bound: false,
+      confirmIdempotencyKey: uuid(),
+      bindIdempotencyKey: uuid(),
+    };
+  }
+
+  const pending = draft.pendingUpload;
+  const initiated = pending.initiated;
+  try {
+    if (!pending.objectUploaded) {
+      const put = await fetch(proxyObjectUrl(initiated.uploadUrl), {
+        method: initiated.uploadMethod || "PUT",
+        headers: initiated.requiredHeaders || {},
+        body: blob,
+      });
+      if (!put.ok) throw new ApiError(put.status, { code: "MEDIA_UPLOAD_FAILED", message: `Object upload failed (${put.status})` });
+      pending.etag = (put.headers.get("ETag") || "").replaceAll('"', "") || "unknown";
+      pending.objectUploaded = true;
+    }
+
+    if (!pending.confirmed) {
+      pending.confirmed = await request(`/media-uploads/${initiated.uploadSessionId}/confirm`, {
+        method: "POST",
+        headers: { "Idempotency-Key": pending.confirmIdempotencyKey },
+        body: { etag: pending.etag },
       });
     }
+
+    if (!pending.bound) {
+      await request(`/media/${initiated.mediaId}/bind`, {
+        method: "POST",
+        headers: { "Idempotency-Key": pending.bindIdempotencyKey },
+        body: { sessionId: serverSessionId, expectedVersion: pending.confirmed.version },
+      });
+      pending.bound = true;
+    }
+  } catch (error) {
+    if (error instanceof ApiError && ["MEDIA_UPLOAD_SESSION_EXPIRED", "MEDIA_INTEGRITY_MISMATCH", "MEDIA_VIDEO_DURATION_EXCEEDED", "MEDIA_AUDIO_TRACK_REQUIRED", "MEDIA_LOCATION_METADATA_NOT_ALLOWED"].includes(error.code)) {
+      draft.pendingUpload = null;
+      draft.initiateIdempotencyKey = uuid();
+    }
     throw error;
-  });
+  }
+
   // The media worker verifies bytes asynchronously; submission requires the
   // media to be AVAILABLE, so wait for verification to land (max ~15s).
   for (let attempt = 0; attempt < 20; attempt++) {
     const current = await request(`/media/${initiated.mediaId}`);
-    if (current.uploadStatus === "AVAILABLE") return { mediaId: initiated.mediaId, media: current };
-    if (current.uploadStatus === "REJECTED" || current.uploadStatus === "FAILED") {
-      throw new ApiError(422, { code: "MEDIA_REJECTED", message: "Media verification failed" });
+    if (current.uploadStatus === "AVAILABLE") {
+      draft.mediaId = initiated.mediaId;
+      draft.pendingUpload = null;
+      return { mediaId: initiated.mediaId, media: current };
+    }
+    if (current.uploadStatus === "FAILED") {
+      draft.pendingUpload = null;
+      draft.initiateIdempotencyKey = uuid();
+      throw new ApiError(422, { code: "MEDIA_FAILURE_NOT_RETRYABLE", message: "Media verification failed" });
     }
     await new Promise((resolve) => setTimeout(resolve, 750));
   }
-  return { mediaId: initiated.mediaId, media };
+  throw new ApiError(422, { code: "MEDIA_VERIFICATION_INCOMPLETE", message: "Media verification did not finish in time" });
 }
 
 export const createMediaAccessUrl = (mediaId) =>
   request(`/media/${mediaId}/access-url`, {
-    method: "POST", idempotent: true, body: { purpose: "STUDENT_REVIEW" },
+    method: "POST", idempotent: true, body: { purpose: "VIEW_ORIGINAL" },
   });
 
 // Local per-record proof metadata cache (the contract has no student media
@@ -461,9 +541,33 @@ export function readRecordProofs(recordId) {
   try { return JSON.parse(readRaw("recordProofCache") || "{}")[recordId] || []; } catch { return []; }
 }
 
-// ── Default-deny probes (30 contract-complete but closed operations) ──
+// ── Email-only student authentication and binding ────────────────
 export const requestStudentSignInCode = (account) =>
-  request("/auth/student-sign-in-codes", { method: "POST", auth: false, idempotent: true, body: { account } });
+  request("/auth/student-sign-in-codes", {
+    method: "POST", auth: false, idempotent: true,
+    body: { organizationCode: organizationCode(), account: account.trim(), channel: "EMAIL", locale: contractLocale() },
+  });
+
+export async function verifyStudentSignInCode(challengeId, code) {
+  const authSession = await request("/auth/student-sign-in-codes/verify", {
+    method: "POST", auth: false, idempotent: true,
+    body: { challengeId, code, deviceId: stableDeviceId() },
+  });
+  storeAuthSession(authSession);
+  return authSession;
+}
+
+export const requestEmailVerificationChallenge = (email, expectedVersion) =>
+  request("/me/email-verification-challenges", {
+    method: "POST", idempotent: true,
+    body: { email: email.trim(), locale: contractLocale(), expectedVersion },
+  });
+
+export const verifyEmailVerificationChallenge = (challengeId, { newEmailCode, currentEmailCode = null }) =>
+  request(`/me/email-verification-challenges/${challengeId}/verify`, {
+    method: "POST", idempotent: true,
+    body: currentEmailCode ? { currentEmailCode, newEmailCode } : { newEmailCode },
+  });
 
 // ── Workspace assembly ───────────────────────────────────────────
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -520,11 +624,31 @@ export function mapServerRecord(record, { courseIdBySection = {} } = {}) {
     teacherPublicFeedback: reviewText,
     teacherInternalNote: null,
     note: record.description || "",
-    remark: record.studentRemark || "",
+    remark: "",
     sportType: label,
     startTime: null,
     endTime: record.submittedAt,
     actualDurationSeconds: record.actualDurationSeconds ?? null,
+  };
+}
+
+/** Maps the exact Contract 1.5 `/me` projection without inventing plaintext contacts. */
+export function mapServerStudent(me, profile, semester = null) {
+  return {
+    id: profile.studentNumber,
+    name: profile.fullName,
+    email: me.user?.primaryEmailMasked || "",
+    emailVerified: Boolean(me.user?.emailVerified),
+    userVersion: me.user?.version || 1,
+    college: profile.collegeName || "",
+    className: profile.administrativeClassName || "",
+    status: tx("正常", "Active"),
+    gender: String(profile.gender || "").toLowerCase(),
+    gradeLevel: "",
+    admissionYear: profile.gradeYear,
+    currentAcademicYear: semester?.academicYear || "",
+    gradeCalculatedAt: "",
+    accountStatus: me.user?.status || "ACTIVE",
   };
 }
 
@@ -534,13 +658,17 @@ export async function loadApiWorkspace() {
   const profile = me.studentProfile;
   if (!profile) throw new ApiError(403, { code: "FORBIDDEN", message: "Not a student account" });
 
+  const optionalNotFound = (promise) => promise.catch((error) => {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  });
   const [semester, enrollments, sections, records, scores, activeSession] = await Promise.all([
-    getCurrentSemester().catch(() => null),
-    listMyEnrollments().catch(() => []),
-    listMyClassSections().catch(() => []),
-    listMyRecords().catch(() => []),
-    listMyScores().catch(() => []),
-    getActiveSession().catch(() => null),
+    optionalNotFound(getCurrentSemester()),
+    listMyEnrollments(),
+    listMyClassSections(),
+    listMyRecords(),
+    listMyScores(),
+    optionalNotFound(getActiveSession()),
   ]);
 
   const joinContext = readJoinContext();
@@ -548,7 +676,7 @@ export async function loadApiWorkspace() {
   const courseCache = {};
   for (const section of sections) {
     if (!courseCache[section.courseId]) {
-      courseCache[section.courseId] = await getCourseById(section.courseId).catch(() => null);
+      courseCache[section.courseId] = await getCourseById(section.courseId);
     }
   }
 
@@ -611,20 +739,7 @@ export async function loadApiWorkspace() {
 
   return {
     workspace: {
-      student: {
-        id: profile.studentNumber,
-        name: profile.fullName,
-        email: me.user?.primaryEmail || "",
-        college: profile.collegeName || "",
-        className: profile.administrativeClassName || "",
-        status: tx("正常", "Active"),
-        gender: String(profile.gender || "").toLowerCase(),
-        gradeLevel: "",
-        admissionYear: profile.gradeYear,
-        currentAcademicYear: semester?.academicYear || "",
-        gradeCalculatedAt: "",
-        accountStatus: me.user?.status || "ACTIVE",
-      },
+      student: mapServerStudent(me, profile, semester),
       courses,
       progress: {
         id: profile.studentNumber, name: profile.fullName,

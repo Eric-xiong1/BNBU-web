@@ -189,7 +189,7 @@ export function renderSettings(app) {
 
         <div class="swiss-panel">
           <div class="title-medium text-on-surface" style="padding-bottom:4px">${t("profile_account_security")}</div>
-          ${navigationRow(t("profile_login_contacts"), "smartphone", "profile.openBinding", true)}
+          ${navigationRow(t("profile_login_contacts"), "email", "profile.openBinding", true)}
         </div>
 
         <div class="swiss-panel"><div class="col" style="gap:12px">

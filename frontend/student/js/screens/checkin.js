@@ -9,7 +9,7 @@ import { tx, currentLocale } from "../i18n.js";
 import { icon } from "../icons.js";
 import { esc, spinner, emptyPlaceholder, validationPanel, sectionTitle } from "../ui.js";
 import { hourText } from "../data.js";
-import { validateProofFile } from "../proofs.js";
+import { canNormalizeCapturedImage, validateProofFile } from "../proofs.js";
 import {
   canStartExercise, hasSubmittedCheckInToday, loadSession, saveSession, clearSession,
   startSession, pauseSession, resumeSession, sessionDurationMs, shouldAutoEnd,
@@ -25,7 +25,6 @@ import {
 } from "../api.js";
 
 const MAX_DESCRIPTION = 200;
-const MAX_REMARK = 200;
 // Mirrors the backend's MEDIA-001 limits (see api.js).
 const MAX_IMAGES = MAX_PROOF_IMAGES;
 const MAX_VIDEOS = MAX_PROOF_VIDEOS;
@@ -82,7 +81,6 @@ function checkinState(app) {
       selectedRecordId: null,
       setup: { creditType: "general", generalSportType: "running", generalCustomSportName: "" },
       finish: { confirmed: false, submitting: false },
-      locationStatus: "unknown", // unknown | acquiring | acquired | unavailable
       mediaNotice: null,
       captureError: null,
       recordOpenError: null,
@@ -131,9 +129,6 @@ function evaluateReadiness(app) {
 const formatDateTime = (ms) => new Date(ms).toLocaleString(currentLocale(), { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 const formatDateOnly = (ms) => new Date(ms).toLocaleDateString(currentLocale(), { year: "numeric", month: "short", day: "numeric" });
 const formatTimeOnly = (ms) => new Date(ms).toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" });
-
-const locationLabel = (status) =>
-  status === "acquiring" ? tx("正在获取位置", "Getting location") : status === "acquired" ? tx("已获取位置", "Location acquired") : tx("未获取位置", "Location unavailable");
 
 function statusPill(label, color) {
   return `<span class="checkin-pill" style="background:color-mix(in srgb, ${color} 12%, transparent);color:${color}">
@@ -324,23 +319,25 @@ function renderPreparation(app) {
 //  #21 Running / paused
 // ═══════════════════════════════════════════════════════════════
 
-function draftListHtml(app, { selectable }) {
+function draftListHtml(app) {
   const ui = checkinState(app);
   if (!ui.drafts.length) {
     return `<div class="body-small text-muted">${tx("暂无现场凭证，可拍照或录像补充。", "No on-site proof yet. Take a photo or record a video.")}</div>`;
   }
   return `<div class="col" style="gap:10px">${ui.drafts
     .map(
-      (draft) => `<div class="draft-row">
+      (draft) => {
+        const locked = ui.finish.submitting || Boolean(draft.mediaId);
+        return `<div class="draft-row">
         <span class="draft-thumb">${draft.url && draft.type === "image" ? `<img src="${draft.url}" alt="">` : icon(draft.type === "video" ? "videocam" : "photo", 22)}</span>
         <div class="col grow" style="gap:2px;min-width:0">
           <span class="body-medium text-on-surface ellipsis">${esc(draft.fileName)}</span>
-          <span class="body-small text-muted">${draft.type === "video" ? tx("视频", "Video") : tx("照片", "Photo")} · ${(draft.byteCount / 1_000_000).toFixed(1)} MB${draft.durationSeconds ? ` · ${Math.round(draft.durationSeconds)}s` : ""}</span>
+          <span class="body-small text-muted">${draft.type === "video" ? tx("视频", "Video") : tx("照片", "Photo")} · ${(draft.byteCount / 1_000_000).toFixed(1)} MB${draft.durationSeconds ? ` · ${Math.ceil(draft.durationSeconds)}s` : ""}${draft.mediaId ? tx(" · 已验证", " · verified") : ""}</span>
         </div>
-        ${selectable ? `<input type="checkbox" class="checkbox" data-change="checkin.toggleDraft" data-draft-id="${esc(draft.id)}" ${draft.selected ? "checked" : ""} aria-label="${tx("选择该凭证", "Select this proof")}" />` : ""}
-        <button class="icon-btn pressable" data-action="checkin.retakeDraft" data-draft-id="${esc(draft.id)}" aria-label="${tx("重拍", "Retake")}" style="width:40px;height:40px">${icon("refresh", 20)}</button>
-        <button class="icon-btn pressable text-error" data-action="checkin.deleteDraft" data-draft-id="${esc(draft.id)}" aria-label="${tx("删除", "Delete")}" style="width:40px;height:40px">${icon("delete", 20)}</button>
-      </div>`
+        <button class="icon-btn pressable" data-action="checkin.retakeDraft" data-draft-id="${esc(draft.id)}" aria-label="${tx("重拍", "Retake")}" ${locked ? "disabled" : ""} style="width:40px;height:40px">${icon("refresh", 20)}</button>
+        <button class="icon-btn pressable text-error" data-action="checkin.deleteDraft" data-draft-id="${esc(draft.id)}" aria-label="${tx("删除", "Delete")}" ${locked ? "disabled" : ""} style="width:40px;height:40px">${icon("delete", 20)}</button>
+      </div>`;
+      }
     )
     .join("")}</div>`;
 }
@@ -366,8 +363,8 @@ function captureButtonsHtml(app, { allowVideo }) {
       ${allowVideo ? `<button class="capture-btn pressable" data-action="checkin.captureVideo" ${videoLimit ? "disabled" : ""}>${icon("videocam", 20)}<span>${tx("现场录像", "Record video")}</span></button>` : ""}
     </div>
     ${limitNote ? `<div class="body-small" style="color:${ORANGE};margin-top:8px">${esc(limitNote)}</div>` : ""}
-    <input type="file" accept="image/*" capture="environment" style="display:none" data-change="checkin.photoPicked" data-capture-input="photo" />
-    <input type="file" accept="video/*" capture="environment" style="display:none" data-change="checkin.videoPicked" data-capture-input="video" />`;
+    <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" style="display:none" data-change="checkin.photoPicked" data-capture-input="photo" />
+    <input type="file" accept="video/mp4,video/quicktime,video/3gpp,video/webm" capture="environment" style="display:none" data-change="checkin.videoPicked" data-capture-input="video" />`;
 }
 
 function renderRunning(app, session, paused) {
@@ -402,12 +399,11 @@ function renderRunning(app, session, paused) {
           <span class="title-medium text-on-surface">${tx("现场凭证", "On-site proof")}</span>
           <span class="body-small text-muted">${tx("仅保存在本机，结束后再确认提交", "Saved only on this device until you confirm submission after ending.")}</span>
         </div>
-        ${statusPill(locationLabel(ui.locationStatus), ui.locationStatus === "acquired" ? GREEN : ORANGE)}
       </div>
       <div style="height:14px"></div>
       ${captureButtonsHtml(app, { allowVideo: true })}
       <div style="height:14px"></div>
-      ${draftListHtml(app, { selectable: false })}
+      ${draftListHtml(app)}
     </div>
     <div style="height:20px"></div>
     ${paused
@@ -436,8 +432,8 @@ function renderFinished(app, session) {
   const ui = checkinState(app);
   const details = session.details;
   const credited = creditedHours(session.activeDurationMillis);
-  const selectedImages = ui.drafts.filter((d) => d.selected && d.type === "image").length;
-  const selectedVideos = ui.drafts.filter((d) => d.selected && d.type === "video").length;
+  const retainedImages = ui.drafts.filter((d) => d.type === "image").length;
+  const retainedVideos = ui.drafts.filter((d) => d.type === "video").length;
   const isGeneral = details.creditType === "general";
   return `<div class="col" style="gap:16px;padding-bottom:28px">
     <div class="col">
@@ -452,32 +448,25 @@ function renderFinished(app, session) {
       <div style="height:6px"></div>
       <span class="body-large text-muted">${creditTypeLabel(details.creditType)} · ${esc(sportLabel(details))}</span>
     </div>
-    ${isGeneral ? `<div class="swiss-panel" style="padding:16px">
-      <span class="title-medium text-on-surface">${tx("运动说明", "Exercise notes")}</span>
-      <div style="height:8px"></div>
-      <textarea class="text-field" rows="3" maxlength="${MAX_DESCRIPTION}" placeholder="${tx("请填写本次运动内容", "Describe this exercise")}" data-input="checkin.description">${esc(details.description || "")}</textarea>
-      <div class="field-supporting"><span data-description-counter>${tx(`已输入 ${(details.description || "").length}/${MAX_DESCRIPTION}`, `${(details.description || "").length}/${MAX_DESCRIPTION} entered`)}</span><br>${tx(`其他运动必填，最多 ${MAX_DESCRIPTION} 字`, `Required for other exercise; up to ${MAX_DESCRIPTION} characters.`)}</div>
-    </div>` : ""}
     <div class="swiss-panel" style="padding:16px">
-      <span class="title-medium text-on-surface">${tx("补充备注（选填）", "Additional note (optional)")}</span>
-      <div style="height:4px"></div>
-      <span class="body-small text-muted">${tx("如需补充说明，可在这里写下简短备注。", "Add a short note if there is anything else to mention.")}</span>
-      <div style="height:10px"></div>
-      <textarea class="text-field" rows="2" maxlength="${MAX_REMARK}" placeholder="${tx("例如：与同学一起完成训练", "For example: completed training with classmates")}" data-input="checkin.remark">${esc(details.remark || "")}</textarea>
-      <div class="field-supporting" data-remark-counter>${(details.remark || "").length}/${MAX_REMARK}</div>
+      <span class="title-medium text-on-surface">${isGeneral ? tx("运动说明（必填）", "Exercise description (required)") : tx("运动说明（选填）", "Exercise description (optional)")}</span>
+      <div style="height:8px"></div>
+      <textarea class="text-field" rows="3" maxlength="${MAX_DESCRIPTION}" placeholder="${isGeneral ? tx("请填写本次运动内容", "Describe this exercise") : tx("可补充本次课程运动内容", "Optionally describe this course exercise")}" data-input="checkin.description">${esc(details.description || "")}</textarea>
+      <div class="field-supporting"><span data-description-counter>${tx(`已输入 ${(details.description || "").length}/${MAX_DESCRIPTION}`, `${(details.description || "").length}/${MAX_DESCRIPTION} entered`)}</span><br>${isGeneral ? tx(`自主运动说明不能为空，最多 ${MAX_DESCRIPTION} 字`, `Independent exercise requires a nonblank description of up to ${MAX_DESCRIPTION} characters.`) : tx(`课程运动说明可不填写；填写时最多 ${MAX_DESCRIPTION} 字且不能只含空格`, `Course exercise description is optional; when provided, it must be nonblank and at most ${MAX_DESCRIPTION} characters.`)}</div>
     </div>
     <div class="swiss-panel" style="padding:16px">
-      <span class="title-medium text-on-surface">${tx("现场补拍", "Take another photo")}</span>
+      <span class="title-medium text-on-surface">${tx("现场补拍", "Capture more proof")}</span>
       <div style="height:8px"></div>
-      <span class="body-small text-muted">${tx("运动结束后仍可现场拍照；根据当前确认规则，此处不再新增录像，也不提供相册入口。", "You may still take a photo after exercise. Under the current rules, no new videos or gallery selection are available here.")}</span>
+      <span class="body-small text-muted">${tx("运动结束后仍可现场拍照或录制最长 15 秒的有声视频，不提供相册旧素材入口。提交时会自动包含当前保留的全部凭证。", "After exercise, you may still take a photo or record a video with sound up to 15 seconds. Existing gallery media is not offered, and every retained proof item is included automatically.")}</span>
       <div style="height:12px"></div>
-      ${captureButtonsHtml(app, { allowVideo: false })}
+      ${captureButtonsHtml(app, { allowVideo: true })}
       <div class="course-divider" style="margin:18px 0 16px"></div>
-      <span class="title-medium text-on-surface">${tx("选择打卡凭证", "Select check-in proof")}</span>
-      <span class="body-small text-muted">${tx("至少选择 1 项", "Select at least 1 item")}</span>
+      <span class="title-medium text-on-surface">${tx("待提交凭证", "Proof to submit")}</span>
+      <span class="body-small text-muted">${tx("至少保留 1 项；下列全部凭证都会上传", "Keep at least 1 item; every item below will be uploaded")}</span>
       <div style="height:10px"></div>
-      ${draftListHtml(app, { selectable: true })}
+      ${draftListHtml(app)}
     </div>
+    ${ui.mediaNotice ? `<div class="body-small text-primary">${esc(ui.mediaNotice)}</div>` : ""}
     <span class="body-small text-muted">${tx(`最多 ${MAX_IMAGES} 张照片和 ${MAX_VIDEOS} 个视频，视频不超过 ${MAX_PROOF_VIDEO_SECONDS} 秒且需有声音`, `Up to ${MAX_IMAGES} photos and ${MAX_VIDEOS} video; video must be at most ${MAX_PROOF_VIDEO_SECONDS}s with sound`)}</span>
     <div class="row" style="align-items:flex-end">
       <span class="title-large text-on-surface">${tx("提交确认", "Confirm submission")}</span>
@@ -493,8 +482,7 @@ function renderFinished(app, session) {
         ${summaryRow(tx("实际运动时长", "Active duration"), formatTimer(session.activeDurationMillis))}
         ${summaryRow(tx("计入学时", "Credited hours"), tx(`${credited} 小时`, `${credited} hours`))}
         ${summaryRow(tx("打卡日期", "Check-in date"), formatDateOnly(session.startedAt))}
-        ${summaryRow(tx("定位状态", "Location status"), locationLabel(ui.locationStatus))}
-        ${summaryRow(tx("凭证数量", "Proof count"), tx(`${selectedImages} 张照片`, `${selectedImages} photos`) + (selectedVideos > 0 ? tx(` + ${selectedVideos} 个视频`, ` + ${selectedVideos} videos`) : ""))}
+        ${summaryRow(tx("凭证数量", "Proof count"), tx(`${retainedImages} 张照片`, `${retainedImages} photos`) + (retainedVideos > 0 ? tx(` + ${retainedVideos} 个视频`, ` + ${retainedVideos} videos`) : ""))}
       </div>
     </div>
     <div class="swiss-panel" style="padding:8px 16px 8px 8px">
@@ -756,9 +744,12 @@ function persist(app, session) {
 }
 
 function apiFailureDialog(app, error, title) {
+  const diagnostics = error instanceof ApiError
+    ? `\n\n${tx("错误码", "Error code")}: ${error.code}${error.requestId ? `\nrequestId: ${error.requestId}` : ""}`
+    : "";
   app.showDialog({
     title: title || tx("操作失败", "Action failed"),
-    body: apiErrorText(error),
+    body: `${apiErrorText(error)}${diagnostics}`,
     buttons: [{ label: tx("我知道了", "Got it"), action: "dialog.close" }],
   });
 }
@@ -811,6 +802,52 @@ function pickCaptureInput(app, kind) {
   input?.click();
 }
 
+async function normalizeCapturedPhoto(file) {
+  if (!canNormalizeCapturedImage(file)) throw new Error("unsupported-source-image");
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("image-decode-failed"));
+      element.src = sourceUrl;
+    });
+    if (!image.naturalWidth || !image.naturalHeight) throw new Error("image-decode-failed");
+
+    // Fresh JPEG bytes omit the original EXIF/GPS blocks. Backend still
+    // performs the authoritative location-metadata and integrity checks.
+    const maxDimension = 4096;
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d", { alpha: false });
+    if (!context) throw new Error("image-encode-unavailable");
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const jpeg = await new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("image-encode-failed")), "image/jpeg", 0.9);
+    });
+    return new File([jpeg], `proof_photo_${Date.now()}.jpg`, { type: "image/jpeg", lastModified: Date.now() });
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
+
+async function readVideoDuration(url) {
+  return new Promise((resolve) => {
+    const video = document.createElement("video");
+    const finish = (value) => {
+      video.removeAttribute("src");
+      video.load();
+      resolve(value);
+    };
+    video.preload = "metadata";
+    video.onloadedmetadata = () => finish(Number.isFinite(video.duration) ? video.duration : null);
+    video.onerror = () => finish(null);
+    video.src = url;
+  });
+}
+
 async function addDraftFromFile(app, file, type, replaceId = null) {
   const ui = checkinState(app);
   ui.captureError = null;
@@ -819,11 +856,28 @@ async function addDraftFromFile(app, file, type, replaceId = null) {
     ui.captureError = message;
     app.render();
   };
-  // Format and size first; the duration cap needs the browser to read metadata.
-  const preVerdict = validateProofFile(file, type);
+
+  let uploadFile = file;
+  if (type === "image") {
+    try {
+      uploadFile = await normalizeCapturedPhoto(file);
+    } catch {
+      rejectWith(tx(
+        `「${name}」无法在当前浏览器中转换为不含位置元数据的 JPEG，请重新拍摄或使用 JPEG/PNG。`,
+        `“${name}” cannot be converted to a location-metadata-free JPEG in this browser. Capture it again or use JPEG/PNG.`
+      ));
+      return;
+    }
+  }
+
+  // Video duration is measured below. The one-second value here is only used
+  // to run the exact MIME/size precheck and is never sent to Backend.
+  const preVerdict = validateProofFile(uploadFile, type, { durationSeconds: type === "video" ? 1 : null });
   if (!preVerdict.ok) {
-    if (preVerdict.error === "format") {
-      rejectWith(tx(`「${name}」格式不支持：图片仅支持 JPG/PNG/WebP/HEIC/HEIF。`, `“${name}” is not a supported format. Images must be JPG/PNG/WebP/HEIC/HEIF.`));
+    if (preVerdict.error === "format" || preVerdict.error === "empty") {
+      rejectWith(type === "video"
+        ? tx(`「${name}」格式不支持。视频仅允许 MP4、MOV、3GP、WebM，且最终 MIME 不能为空。`, `“${name}” is unsupported. Videos must be MP4, MOV, 3GP, or WebM and the final MIME must not be empty.`)
+        : tx(`「${name}」无法转换为有效的 JPEG/PNG。`, `“${name}” could not be converted to a valid JPEG/PNG.`));
     } else {
       rejectWith(type === "image"
         ? tx(`「${name}」超过单张图片 8MB 上限。`, `“${name}” exceeds the 8MB per-photo limit.`)
@@ -831,43 +885,39 @@ async function addDraftFromFile(app, file, type, replaceId = null) {
     }
     return;
   }
-  const url = URL.createObjectURL(file);
+  const url = URL.createObjectURL(uploadFile);
   let durationSeconds = null;
+  let verdict = preVerdict;
   if (type === "video") {
-    durationSeconds = await new Promise((resolve) => {
-      const video = document.createElement("video");
-      video.preload = "metadata";
-      video.onloadedmetadata = () => resolve(Number.isFinite(video.duration) ? video.duration : null);
-      video.onerror = () => resolve(null);
-      video.src = url;
-    });
+    durationSeconds = await readVideoDuration(url);
     // The backend caps exercise videos at 15 recorded seconds; catching it here
     // saves the student an upload that would be rejected anyway.
-    const verdict = validateProofFile(file, type, { durationSeconds });
+    verdict = validateProofFile(uploadFile, type, { durationSeconds });
     if (!verdict.ok && verdict.error === "duration") {
       URL.revokeObjectURL(url);
-      rejectWith(tx(
-        `「${name}」时长 ${Math.round(durationSeconds)} 秒，超过 ${MAX_PROOF_VIDEO_SECONDS} 秒上限，请重新录制。`,
-        `“${name}” is ${Math.round(durationSeconds)}s long, over the ${MAX_PROOF_VIDEO_SECONDS}s limit. Record again.`
-      ));
+      rejectWith(durationSeconds === null
+        ? tx(`无法读取「${name}」的实际时长，请重新录制。`, `The actual duration of “${name}” could not be read. Record it again.`)
+        : tx(
+          `「${name}」时长 ${durationSeconds.toFixed(1)} 秒，超过 ${MAX_PROOF_VIDEO_SECONDS} 秒上限，请重新录制。`,
+          `“${name}” is ${durationSeconds.toFixed(1)}s long, over the ${MAX_PROOF_VIDEO_SECONDS}s limit. Record again.`
+        ));
       return;
     }
   }
-  const verdict = preVerdict;
   const draft = {
     id: replaceId || `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     type,
     fileName: `proof_${type === "image" ? "photo" : "video"}_${Date.now()}.${verdict.extension}`,
-    byteCount: file.size,
+    byteCount: uploadFile.size,
     durationSeconds,
     url,
-    blob: file,
-    selected: true,
+    blob: uploadFile,
+    mimeType: verdict.mimeType,
   };
   const index = replaceId ? ui.drafts.findIndex((d) => d.id === replaceId) : -1;
   if (index >= 0) {
     if (ui.drafts[index].url?.startsWith("blob:")) URL.revokeObjectURL(ui.drafts[index].url);
-    ui.drafts[index] = { ...draft, selected: ui.drafts[index].selected };
+    ui.drafts[index] = draft;
   } else {
     // A stale replace target (e.g. deleted meanwhile) falls back to appending
     // so the fresh capture is never silently dropped.
@@ -880,17 +930,16 @@ async function addDraftFromFile(app, file, type, replaceId = null) {
 function submitCheckIn(app, session) {
   const ui = checkinState(app);
   const details = session.details;
-  const selected = ui.drafts.filter((d) => d.selected);
-  // Proof validation (validateSelectedProofs + submitExerciseCheckIn rules).
-  if (selected.length === 0) {
-    app.showDialog({ title: tx("凭证检查", "Proof check"), body: tx("请至少选择 1 项现场凭证", "Select at least one on-site proof item."), buttons: [{ label: tx("确定", "OK"), action: "dialog.close" }] });
+  const retained = [...ui.drafts];
+  if (retained.length === 0) {
+    app.showDialog({ title: tx("凭证检查", "Proof check"), body: tx("请至少保留 1 项现场凭证", "Keep at least one on-site proof item."), buttons: [{ label: tx("确定", "OK"), action: "dialog.close" }] });
     return;
   }
   if (details.creditType === "general" && !(details.description || "").trim()) {
     app.showDialog({ title: tx("凭证检查", "Proof check"), body: tx("请填写运动说明", "Enter exercise details."), buttons: [{ label: tx("确定", "OK"), action: "dialog.close" }] });
     return;
   }
-  const totalBytes = selected.reduce((sum, d) => sum + d.byteCount, 0);
+  const totalBytes = retained.reduce((sum, d) => sum + d.byteCount, 0);
   if (totalBytes > MAX_REQUEST_BYTES) {
     app.showDialog({ title: tx("凭证检查", "Proof check"), body: tx("凭证总大小超过 120MB，请减少后重试。", "Total proof size exceeds 120MB. Remove some and try again."), buttons: [{ label: tx("确定", "OK"), action: "dialog.close" }] });
     return;
@@ -898,7 +947,7 @@ function submitCheckIn(app, session) {
   ui.finish.submitting = true;
   app.render();
   if (app.isApiMode() && session.serverId) {
-    submitCheckInApi(app, session, selected);
+    submitCheckInApi(app, session, retained);
     return;
   }
   setTimeout(() => {
@@ -908,7 +957,7 @@ function submitCheckIn(app, session) {
     const started = new Date(session.startedAt);
     const submittedAt = `${started.getFullYear()}-${pad(started.getMonth() + 1)}-${pad(started.getDate())} ${pad(new Date().getHours())}:${pad(new Date().getMinutes())}`;
     const currentCourse = findCurrentCourse(app.state.workspace);
-    const proofs = selected.map((d, index) => ({
+    const proofs = retained.map((d, index) => ({
       id: `${session.startedAt}-proof-${index}`,
       type: d.type,
       fileName: d.fileName,
@@ -930,7 +979,6 @@ function submitCheckIn(app, session) {
       teacherPublicFeedback: null,
       teacherInternalNote: null,
       note: details.description || "",
-      remark: details.remark || "",
       sportType: sportLabel(details),
       startTime: new Date(session.startedAt).toISOString(),
       endTime: new Date(session.endedAt).toISOString(),
@@ -967,7 +1015,7 @@ function submitCheckIn(app, session) {
 }
 
 /** Real submission: record draft → media upload/confirm/bind → submit. */
-async function submitCheckInApi(app, session, selected) {
+async function submitCheckInApi(app, session, retained) {
   const ui = checkinState(app);
   const details = session.details;
   try {
@@ -981,14 +1029,16 @@ async function submitCheckInApi(app, session, selected) {
         creditType: details.creditType,
         sportType: details.sportType,
         sportName: details.customSportName || null,
-        description: (details.description || "").trim() || sportLabel(details),
-        studentRemark: (details.remark || "").trim() || null,
+        description: (details.description || "").trim() || null,
       });
     }
     const uploaded = [];
-    for (const draft of selected) {
+    for (let index = 0; index < retained.length; index++) {
+      const draft = retained[index];
+      ui.mediaNotice = tx(`正在处理凭证 ${index + 1}/${retained.length}…`, `Processing proof ${index + 1}/${retained.length}…`);
+      app.render();
       const blob = draft.blob || (await fetch(draft.url).then((r) => r.blob()));
-      const { mediaId } = await uploadMediaDraft(session.serverId, draft, blob);
+      const mediaId = draft.mediaId || (await uploadMediaDraft(session.serverId, draft, blob)).mediaId;
       uploaded.push({
         mediaId,
         type: draft.type,
@@ -997,6 +1047,8 @@ async function submitCheckInApi(app, session, selected) {
         durationSeconds: draft.durationSeconds,
       });
     }
+    ui.mediaNotice = tx("全部凭证已验证，正在提交打卡…", "All proof is verified. Submitting the check-in…");
+    app.render();
     const submittedRecord = await submitRecord(record.id, uploaded.map((u) => u.mediaId), record.version);
     cacheRecordProofs(record.id, uploaded);
     ui.finish.submitting = false;
@@ -1051,7 +1103,7 @@ export function checkinTick(app) {
       persist(app, finished);
       app.showDialog({
         title: tx("今日运动已达 2 小时上限", "Daily exercise limit reached"),
-        body: tx("计时已自动暂停，运动时长不再累计。请进入下一步补充运动说明，并至少选择 1 项现场凭证后提交打卡。", "The timer has paused and no more time will be counted. Next, add exercise notes and select at least one on-site proof item before submitting."),
+        body: tx("计时已自动暂停，运动时长不再累计。请进入下一步补充运动说明，并保留至少 1 项现场凭证后提交打卡。", "The timer has paused and no more time will be counted. Next, add exercise notes and retain at least one on-site proof item before submitting."),
         dismissible: false,
         buttons: [{ label: tx("去补充说明和凭证", "Add notes and proof"), action: "dialog.close" }],
       });
@@ -1116,7 +1168,6 @@ export const checkinActions = {
           ? ui.setup.generalCustomSportName.trim()
           : null,
       description: "",
-      remark: "",
     };
     const afterStart = (serverSession) => {
       const local = startSession(details);
@@ -1128,18 +1179,7 @@ export const checkinActions = {
       persist(app, local);
       // Drafts kept from an under-1h attempt stay available (v6.1 §5.3);
       // submission and explicit discard are the only clearing points.
-      ui.locationStatus = "acquiring";
       app.render();
-      // Foreground one-time location, matching the Android fine/coarse request.
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          () => { ui.locationStatus = "acquired"; app.render(); },
-          () => { ui.locationStatus = "unavailable"; app.render(); },
-          { timeout: 15_000 }
-        );
-      } else {
-        ui.locationStatus = "unavailable";
-      }
     };
     const begin = () => {
       if (!app.isApiMode()) { afterStart(null); return; }
@@ -1292,7 +1332,7 @@ export const checkinActions = {
   "checkin.retakeDraft": (app, el) => {
     const ui = checkinState(app);
     const draft = ui.drafts.find((d) => d.id === el.dataset.draftId);
-    if (!draft) return;
+    if (!draft || ui.finish.submitting || draft.mediaId) return;
     ui.pendingRetakeId = draft.id;
     if (draft.type === "video") {
       checkinActions["checkin.captureVideo"](app);
@@ -1301,7 +1341,10 @@ export const checkinActions = {
     }
   },
   "checkin.deleteDraft": (app, el) => {
+    const ui = checkinState(app);
     const draftId = el.dataset.draftId;
+    const draft = ui.drafts.find((item) => item.id === draftId);
+    if (!draft || ui.finish.submitting || draft.mediaId) return;
     app.showDialog({
       title: tx("删除这条媒体？", "Delete this media?"),
       body: tx("删除后不可恢复。", "This cannot be undone."),
@@ -1314,15 +1357,10 @@ export const checkinActions = {
   "checkin.deleteDraftConfirm": (app, el) => {
     const ui = checkinState(app);
     const draft = ui.drafts.find((d) => d.id === el.dataset.draftId);
+    if (!draft || ui.finish.submitting || draft.mediaId) return;
     if (draft?.url?.startsWith("blob:")) URL.revokeObjectURL(draft.url);
     ui.drafts = ui.drafts.filter((d) => d.id !== el.dataset.draftId);
     app.state.dialog = null;
-    app.render();
-  },
-  "checkin.toggleDraft": (app, el) => {
-    const ui = checkinState(app);
-    const draft = ui.drafts.find((d) => d.id === el.dataset.draftId);
-    if (draft) draft.selected = el.checked;
     app.render();
   },
   "checkin.description": (app, el) => {
@@ -1332,14 +1370,6 @@ export const checkinActions = {
     persist(app, session);
     const counter = app._viewport?.querySelector("[data-description-counter]");
     if (counter) counter.textContent = tx(`已输入 ${session.details.description.length}/${MAX_DESCRIPTION}`, `${session.details.description.length}/${MAX_DESCRIPTION} entered`);
-  },
-  "checkin.remark": (app, el) => {
-    const session = loadSession(accountId(app));
-    if (!session || session.phase !== "finished") return;
-    session.details.remark = el.value.slice(0, MAX_REMARK);
-    persist(app, session);
-    const counter = app._viewport?.querySelector("[data-remark-counter]");
-    if (counter) counter.textContent = `${session.details.remark.length}/${MAX_REMARK}`;
   },
   "checkin.confirm": (app, el) => {
     checkinState(app).finish.confirmed = el.checked;

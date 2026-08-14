@@ -1,6 +1,6 @@
-// Smoke test for the Android-replica student web app.
-// Exercises the framework-free logic modules (i18n, session policy, mock data,
-// proof rules, local store) without a DOM. Run: node frontend/student/student-smoke.mjs
+// Smoke test for the Contract 1.5 Web student client.
+// Exercises the framework-free logic modules (i18n, session policy, synthetic
+// fixtures, API projection mapping, proof rules, local store) without a DOM.
 
 import assert from "node:assert/strict";
 
@@ -20,7 +20,8 @@ import {
   SESSION_MAX_MILLIS,
 } from "./js/session.js";
 import { createMockWorkspace, MOCK_INVITES, hourText } from "./js/data.js";
-import { validateProofFile } from "./js/proofs.js";
+import { canNormalizeCapturedImage, mimeEssence, validateProofFile } from "./js/proofs.js";
+import { mapServerStudent } from "./js/api.js";
 import { localStore } from "./js/store.js";
 
 const failures = [];
@@ -116,29 +117,42 @@ check("time window blocks excluded dates and passed deadlines", () => {
   assert.ok(pastDeadline && pastDeadline.includes("2026-07-28"));
 });
 
-check("proof rules: image whitelist, and the 15-second video cap", () => {
-  // MIME match, including jpeg→jpg canonicalization.
-  assert.deepEqual(validateProofFile({ name: "a.jpeg", type: "image/jpeg", size: 100 }, "image"), { ok: true, extension: "jpg" });
-  assert.deepEqual(validateProofFile({ name: "b.png", type: "image/png", size: 100 }, "image"), { ok: true, extension: "png" });
-  // Extension fallback when the browser reports no MIME type (HEIC on mobile).
-  assert.deepEqual(validateProofFile({ name: "c.HEIC", type: "", size: 100 }, "image"), { ok: true, extension: "heic" });
-  assert.deepEqual(validateProofFile({ name: "d.mov", type: "", size: 100 }, "video"), { ok: true, extension: "mov" });
-  // Images keep their format whitelist and 8MB cap.
-  assert.deepEqual(validateProofFile({ name: "e.gif", type: "image/gif", size: 100 }, "image"), { ok: false, error: "format" });
-  assert.deepEqual(validateProofFile({ name: "g.jpg", type: "image/jpeg", size: 8_000_001 }, "image"), { ok: false, error: "size" });
+check("proof rules follow the exact Contract 1.5 media allowlist", () => {
+  assert.equal(mimeEssence("video/webm;codecs=vp8,opus"), "video/webm");
+  assert.deepEqual(validateProofFile({ type: "image/jpeg", size: 100 }, "image"), {
+    ok: true, extension: "jpg", mimeType: "image/jpeg", durationSeconds: null,
+  });
+  assert.deepEqual(validateProofFile({ type: "image/png", size: 100 }, "image"), {
+    ok: true, extension: "png", mimeType: "image/png", durationSeconds: null,
+  });
+  assert.equal(canNormalizeCapturedImage({ name: "capture.HEIC", type: "" }), true);
+  assert.equal(canNormalizeCapturedImage({ name: "capture.webp", type: "image/webp" }), true);
+  assert.deepEqual(validateProofFile({ type: "image/webp", size: 100 }, "image"), { ok: false, error: "format" });
+  assert.deepEqual(validateProofFile({ type: "image/jpeg", size: 10_485_761 }, "image"), { ok: false, error: "size" });
 
-  // Backend MEDIA-001/002: exercise video format and size are device-defined
-  // and not business limits, so whatever the camera produces is accepted.
-  assert.equal(validateProofFile({ name: "f.webm", type: "video/webm", size: 100 }, "video").ok, true);
-  assert.equal(validateProofFile({ name: "h.mp4", type: "video/mp4", size: 100_000_001 }, "video").ok, true);
+  const webm = validateProofFile({ type: "video/webm;codecs=vp8,opus", size: 100 }, "video", { durationSeconds: 14.1 });
+  assert.deepEqual(webm, { ok: true, extension: "webm", mimeType: "video/webm", durationSeconds: 15 });
+  for (const type of ["video/mp4", "video/quicktime", "video/3gpp", "video/webm"]) {
+    assert.equal(validateProofFile({ type, size: 100 }, "video", { durationSeconds: 15 }).ok, true);
+  }
+  assert.deepEqual(validateProofFile({ type: "video/x-matroska", size: 100 }, "video", { durationSeconds: 10 }), { ok: false, error: "format" });
+  assert.deepEqual(validateProofFile({ name: "capture.mov", type: "", size: 100 }, "video", { durationSeconds: 10 }), { ok: false, error: "format" });
+  assert.deepEqual(validateProofFile({ type: "video/mp4", size: 100 }, "video", { durationSeconds: 15.4 }), { ok: false, error: "duration" });
+  assert.deepEqual(validateProofFile({ type: "video/mp4", size: 100 }, "video", { durationSeconds: null }), { ok: false, error: "duration" });
+  assert.deepEqual(validateProofFile({ type: "video/mp4", size: 0 }, "video", { durationSeconds: 10 }), { ok: false, error: "empty" });
+  assert.deepEqual(validateProofFile({ type: "video/mp4", size: 536_870_913 }, "video", { durationSeconds: 10 }), { ok: false, error: "size" });
+});
 
-  // The one hard video rule: at most 15 recorded seconds.
-  assert.equal(validateProofFile({ name: "i.mp4", type: "video/mp4", size: 100 }, "video", { durationSeconds: 15 }).ok, true);
-  assert.equal(validateProofFile({ name: "j.mp4", type: "video/mp4", size: 100 }, "video", { durationSeconds: 15.4 }).ok, true, "15.4s rounds to 15 and is accepted");
-  assert.deepEqual(validateProofFile({ name: "k.mp4", type: "video/mp4", size: 100 }, "video", { durationSeconds: 16 }), { ok: false, error: "duration" });
-  // Duration unknown (metadata unreadable) must not block the capture; the
-  // backend still enforces the cap on the verified duration.
-  assert.equal(validateProofFile({ name: "l.mp4", type: "video/mp4", size: 100 }, "video", { durationSeconds: null }).ok, true);
+check("/me mapping uses Contract 1.5 masked email and verification fields", () => {
+  const student = mapServerStudent(
+    { user: { primaryEmailMasked: "s***@example.edu", emailVerified: true, version: 4, status: "ACTIVE" } },
+    { studentNumber: "00001234", fullName: "Synthetic Student", gender: "FEMALE", gradeYear: 2026, collegeName: null, administrativeClassName: null },
+    { academicYear: "2026-2027" },
+  );
+  assert.equal(student.id, "00001234");
+  assert.equal(student.email, "s***@example.edu");
+  assert.equal(student.emailVerified, true);
+  assert.equal(student.userVersion, 4);
 });
 
 check("store self-heals corrupted keys and merges overlay defaults", () => {

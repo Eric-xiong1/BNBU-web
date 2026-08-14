@@ -6,7 +6,7 @@ Updated: 28 July 2026
 
 Effective: 28 July 2026
 
-BNBU Sports is operated for sports teaching administration at Beijing Normal University at Zhuhai. This policy applies to the student app, teacher services, and related course, attendance, activity-hour and grade services. It explains how we handle personal information and how you can exercise your rights.
+BNBU Sports is operated for sports teaching administration at Beijing Normal University at Zhuhai. This policy applies to the Web student client and its course, exercise check-in, activity-hour, grade and student-service features. It explains how we handle personal information and how you can exercise your rights.
 
 ## 1. General terms
 
@@ -14,23 +14,23 @@ We process information only for clear, necessary and transparent purposes, with 
 
 ## 2. Information we process
 
-To provide account and teaching services, we may process your student ID, name, school affiliation, class, contact details, account credentials, course relationship, attendance, activity records, grades, application materials and review results. We process photos, videos and files only when you choose a feature that needs them, such as an activity check-in, exemption application, appeal or feedback.
+To provide account and teaching services, we may process your student ID, name, school affiliation, class, verified school email, account credentials, course relationship, attendance, activity records, grades, application materials and review results. Student authentication uses email verification codes; the Web student client does not offer phone or SMS sign-in. We process photos, videos and files only when you choose a feature that needs them, such as an activity check-in, exemption application, appeal or feedback.
 
-## 3. Android permissions
+## 3. Browser permissions
 
-The CAMERA permission is used only to scan a course invitation QR code after you enter the scan page and grant permission. You may enter an invitation code manually if you decline it. The app does not request RECORD_AUDIO, broad media-storage, background location, contacts, SMS, call logs or installed-app-list permissions. Photo and video selection uses the system picker for files you choose.
+Camera and microphone access is requested only after you actively scan a course QR code or capture on-site proof. You may enter an invitation code manually if camera access is declined. Exercise proof uses the browser or operating-system capture flow and does not scan unrelated gallery files. The Web client does not request location permission or collect coordinates for evidence upload.
 
 ## 4. Course, check-in and application processing
 
 Course invitations, enrolment requests, check-ins, exercise duration, supporting materials, exemption applications and grades are processed to deliver the teaching workflow, prevent duplicate submissions and allow authorised teachers to review records. Media drafts remain on the device until submitted or discarded; submitted materials are retained with the related teaching record under applicable school retention rules.
 
-## 5. Location and device information
+## 5. Location metadata and device information
 
-When you actively start a check-in that requires location verification, the app may obtain a one-time foreground location to prepare the verification. It does not request background location or create continuous travel tracks. Technical requests may include device model, Android/app version, language, network state, time zone, IP address, request path and status code for security and troubleshooting.
+The Web client does not request foreground or background location and does not create travel tracks. If an uploaded file already contains recognizable GPS, EXIF-location, or video-container location metadata, Backend rejects it and asks you to capture a new file. Technical requests may include browser and operating-system version, language, network state, time zone, IP address, request path and status code for security and troubleshooting.
 
 ## 6. Notifications and service providers
 
-Firebase Cloud Messaging may use an installation identifier and push token to deliver course and service notifications. Tokens are associated with your account only for notifications and are not used for advertising. Service providers that process information on our behalf must follow applicable privacy and security obligations.
+In-app notifications are retrieved from Backend when you use the service. The current Web student client does not register a third-party push token. Service providers that process information on our behalf must follow applicable privacy and security obligations.
 
 ## 7. Use, sharing and disclosure
 
