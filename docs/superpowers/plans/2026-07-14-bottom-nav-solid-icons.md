@@ -203,4 +203,3 @@ git log -4 --oneline
 ```
 
 Expected: no uncommitted implementation files remain; the branch contains the test, implementation, and browser-verification commits.
-

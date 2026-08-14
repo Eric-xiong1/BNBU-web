@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { AppSelect } from "./app-select";
 import { pageItems } from "./admin-domain";
 import { adminCopy, adminLabel } from "./admin-i18n";
-import { updateTicket } from "./admin-service";
+import {
+  adminApiErrorText,
+  listFeedbackProjections,
+  updateTicket,
+  type FeedbackProjection,
+} from "./admin-service";
 import { useAdminStore } from "./admin-store";
 import type { AdminLocale, SupportTicket, TicketStatus } from "./admin-types";
 import { AdminBadge, AdminDialog, AdminEmpty, AdminField, AdminInlineError, AdminPagination, AdminSectionHeading, formatAdminDate, type AdminTone } from "./admin-components";
@@ -46,7 +51,7 @@ function TicketDialog({ locale, ticket, close }: { locale: AdminLocale; ticket: 
   );
 }
 
-export function AdminSupport({ locale }: { locale: AdminLocale }) {
+function DemoAdminSupport({ locale }: { locale: AdminLocale }) {
   const { state } = useAdminStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<TicketFilter>("all");
@@ -79,6 +84,87 @@ export function AdminSupport({ locale }: { locale: AdminLocale }) {
         <AdminPagination locale={locale} page={paged.page} totalPages={paged.totalPages} total={paged.total} onPage={setPage} />
       </section>
       {selected && <TicketDialog locale={locale} ticket={selected} close={() => setSelectedId(null)} />}
+    </div>
+  );
+}
+
+export function AdminSupport({ locale }: { locale: AdminLocale }) {
+  const { mode } = useAdminStore();
+  return mode === "real" ? (
+    <RealFeedbackSupport locale={locale} />
+  ) : (
+    <DemoAdminSupport locale={locale} />
+  );
+}
+
+function RealFeedbackSupport({ locale }: { locale: AdminLocale }) {
+  const [items, setItems] = useState<FeedbackProjection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    setLoadError("");
+    try {
+      setItems(await listFeedbackProjections());
+    } catch (failure) {
+      setLoadError(adminApiErrorText(failure, locale));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    void listFeedbackProjections()
+      .then((next) => {
+        if (active) setItems(next);
+      })
+      .catch((failure) => {
+        if (active) setLoadError(adminApiErrorText(failure, locale));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [locale]);
+
+  const query = search.trim().toLocaleLowerCase();
+  const filtered = items.filter(
+    (item) =>
+      (statusFilter === "all" || item.status === statusFilter) &&
+      (!query ||
+        [item.id, item.category, item.content]
+          .join(" ")
+          .toLocaleLowerCase()
+          .includes(query)),
+  );
+
+  return (
+    <div className="admin-page-stack">
+      <aside className="admin-planned-banner">
+        {locale === "zh"
+          ? "这里显示组织范围内的真实反馈。当前合同没有管理员回复或改状态接口，因此页面保持只读，不会伪造工单处理结果。"
+          : "This lists real organization feedback. The current contract has no admin reply or status mutation, so this view is read-only."}
+      </aside>
+      <section className="admin-surface admin-table-surface">
+        <AdminSectionHeading
+          title={locale === "zh" ? "用户反馈" : "User feedback"}
+          action={<button className="text-button" type="button" onClick={() => void load()}>{locale === "zh" ? "刷新" : "Refresh"}</button>}
+        />
+        <div className="admin-filter-row">
+          <label className="admin-search"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === "zh" ? "搜索内容、分类或 ID" : "Search content, category, or ID"} /></label>
+          <AppSelect label={adminCopy(locale, "status")} value={statusFilter} options={["all", "OPEN", "IN_PROGRESS", "RESOLVED", "CLOSED"].map((value) => ({ value, label: value === "all" ? adminCopy(locale, "all") : value }))} onChange={(value) => setStatusFilter(String(value ?? "all"))} />
+        </div>
+        <AdminInlineError message={loadError} />
+        {loading ? null : filtered.length === 0 ? <AdminEmpty locale={locale} filtered /> : (
+          <div className="table-wrap"><table className="admin-table"><thead><tr><th>ID</th><th>{locale === "zh" ? "分类" : "Category"}</th><th>{locale === "zh" ? "内容" : "Content"}</th><th>{adminCopy(locale, "status")}</th><th>{adminCopy(locale, "updated_at")}</th></tr></thead><tbody>{filtered.map((item) => <tr key={item.id}><td><code>{item.id}</code></td><td>{item.category}</td><td><b>{item.content}</b>{item.publicReply && <small className="table-sub">{item.publicReply}</small>}</td><td><AdminBadge tone={item.status === "RESOLVED" ? "green" : item.status === "CLOSED" ? "gray" : "orange"}>{item.status}</AdminBadge></td><td>{formatAdminDate(locale, item.updatedAt, true)}</td></tr>)}</tbody></table></div>
+        )}
+      </section>
     </div>
   );
 }

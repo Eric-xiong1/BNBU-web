@@ -4,7 +4,18 @@ import { useEffect, useState } from "react";
 import { AppSelect } from "./app-select";
 import { enduranceTableKey, validateEnduranceTable } from "./admin-domain";
 import { adminCopy, adminLabel } from "./admin-i18n";
-import { deleteEnduranceRule, saveEnduranceRule } from "./admin-service";
+import {
+  adminApiErrorText,
+  approveScoreRuleProjection,
+  createScoreRuleProjection,
+  deleteEnduranceRule,
+  listClassSectionProjections,
+  listScoreRuleProjections,
+  saveEnduranceRule,
+  submitScoreRuleProjection,
+  type ClassSectionProjection,
+  type ScoreRuleProjection,
+} from "./admin-service";
 import { useAdminStore } from "./admin-store";
 import type { AdminLocale, EnduranceRule, EnduranceRuleInput, EnduranceTier, Gender, GradeGroup, RunType } from "./admin-types";
 import { AdminBadge, AdminConfirm, AdminDialog, AdminEmpty, AdminField, AdminInlineError, AdminSectionHeading } from "./admin-components";
@@ -81,9 +92,144 @@ function EndurancePanel({ locale }: { locale: AdminLocale }) {
 }
 
 export function AdminRules({ locale }: { locale: AdminLocale }) {
+  const { mode } = useAdminStore();
+  if (mode === "real") return <ScoreRulePanel locale={locale} />;
   return (
     <div className="admin-page-stack">
       <EndurancePanel locale={locale} />
+    </div>
+  );
+}
+
+function ScoreRulePanel({ locale }: { locale: AdminLocale }) {
+  const [sections, setSections] = useState<ClassSectionProjection[]>([]);
+  const [sectionId, setSectionId] = useState("");
+  const [rules, setRules] = useState<ScoreRuleProjection[]>([]);
+  const [ruleCode, setRuleCode] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+
+  const loadRules = async (nextSectionId: string) => {
+    if (!nextSectionId) {
+      setRules([]);
+      return;
+    }
+    setRules(await listScoreRuleProjections(nextSectionId));
+  };
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const next = await listClassSectionProjections();
+        const ordered = [...next].sort((left, right) => {
+          const priority = { ACTIVE: 0, UPCOMING: 1, CLOSED: 2, ARCHIVED: 3 };
+          return priority[left.status] - priority[right.status];
+        });
+        setSections(ordered);
+        const first = ordered[0]?.id ?? "";
+        setSectionId(first);
+        await loadRules(first);
+      } catch (failure) {
+        setError(adminApiErrorText(failure, locale));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [locale]);
+
+  const run = async (key: string, operation: () => Promise<unknown>) => {
+    setBusy(key);
+    setError("");
+    try {
+      await operation();
+      await loadRules(sectionId);
+    } catch (failure) {
+      setError(adminApiErrorText(failure, locale));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const create = async () => {
+    if (!sectionId || !ruleCode.trim() || !displayName.trim()) {
+      setError(locale === "zh" ? "规则代码和显示名称均为必填项。" : "Rule code and display name are required.");
+      return;
+    }
+    await run("create", async () => {
+      await createScoreRuleProjection(sectionId, {
+        ruleCode: ruleCode.trim(),
+        displayName: displayName.trim(),
+      });
+      setRuleCode("");
+      setDisplayName("");
+    });
+  };
+
+  return (
+    <div className="admin-page-stack">
+      <aside className="admin-planned-banner">
+        {locale === "zh"
+          ? "成绩规则已接入服务端固定 TOTAL_ONLY 公式：累计有效运动 20 小时、满分 100 分。规则版本不可在客户端改写公式，激活需要两名不同管理员审批。"
+          : "Score rules use the server-owned TOTAL_ONLY formula: 20 valid hours and a 100-point cap. Activation requires two distinct administrators."}
+      </aside>
+      <section className="admin-surface admin-table-surface">
+        <AdminSectionHeading title={locale === "zh" ? "服务端成绩规则" : "Server score rules"} />
+        <div className="admin-filter-row">
+          <AppSelect
+            label={locale === "zh" ? "教学班" : "Class section"}
+            value={sectionId}
+            options={sections.map((section) => ({
+              value: section.id,
+              label: `${section.displayName} · ${section.classCode}`,
+            }))}
+            onChange={(value) => {
+              const next = String(value ?? "");
+              setSectionId(next);
+              void loadRules(next).catch((failure) =>
+                setError(adminApiErrorText(failure, locale)),
+              );
+            }}
+          />
+          <button className="text-button" type="button" onClick={() => void loadRules(sectionId)}>
+            {locale === "zh" ? "刷新" : "Refresh"}
+          </button>
+        </div>
+        <div className="admin-form-grid two-columns">
+          <AdminField locale={locale} label={locale === "zh" ? "规则代码" : "Rule code"} required>
+            <input value={ruleCode} onChange={(event) => setRuleCode(event.target.value)} />
+          </AdminField>
+          <AdminField locale={locale} label={locale === "zh" ? "显示名称" : "Display name"} required>
+            <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          </AdminField>
+        </div>
+        <button className="primary-button" type="button" disabled={busy === "create" || !sectionId} onClick={() => void create()}>
+          {busy === "create" ? (locale === "zh" ? "创建中…" : "Creating…") : locale === "zh" ? "创建规则草案" : "Create draft"}
+        </button>
+        <AdminInlineError message={error} />
+        {loading ? null : rules.length === 0 ? (
+          <AdminEmpty locale={locale} />
+        ) : (
+          <div className="table-wrap">
+            <table className="admin-table">
+              <thead><tr><th>{locale === "zh" ? "规则" : "Rule"}</th><th>{locale === "zh" ? "目标" : "Target"}</th><th>{locale === "zh" ? "状态" : "Status"}</th><th>{locale === "zh" ? "审批" : "Approvals"}</th><th>{adminCopy(locale, "actions")}</th></tr></thead>
+              <tbody>{rules.map((rule) => (
+                <tr key={rule.id}>
+                  <td><b>{rule.displayName}</b><small className="table-sub">{rule.ruleCode} · v{rule.ruleVersion}</small></td>
+                  <td>{rule.totalRequiredSeconds / 3600}h · {rule.calculationDefinition.categoryAllocationMode}</td>
+                  <td><AdminBadge tone={rule.status === "ACTIVE" ? "green" : rule.status === "REJECTED" ? "red" : "orange"}>{rule.status}</AdminBadge></td>
+                  <td>{rule.approvalCount}/2</td>
+                  <td><div className="admin-row-actions">
+                    {rule.status === "DRAFT" && <button type="button" disabled={busy === rule.id} onClick={() => void run(rule.id, () => submitScoreRuleProjection(rule.id, rule.version))}>{locale === "zh" ? "提交审批" : "Submit"}</button>}
+                    {rule.status === "PENDING_APPROVAL" && <button type="button" disabled={busy === rule.id} onClick={() => void run(rule.id, () => approveScoreRuleProjection(rule.id, rule.version))}>{locale === "zh" ? "批准" : "Approve"}</button>}
+                  </div></td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

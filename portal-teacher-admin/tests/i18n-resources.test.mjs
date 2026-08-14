@@ -37,11 +37,15 @@ function readDictionary(source) {
   function visit(node) {
     if (ts.isVariableDeclaration(node) && node.name.getText(file) === "englishText" && node.initializer && ts.isObjectLiteralExpression(node.initializer)) {
       for (const property of node.initializer.properties) {
-        if (!ts.isPropertyAssignment(property) || !ts.isStringLiteralLike(property.name)) continue;
-        const lines = keys.get(property.name.text) ?? [];
+        if (!ts.isPropertyAssignment(property)) continue;
+        const key = ts.isStringLiteralLike(property.name) || ts.isIdentifier(property.name)
+          ? property.name.text
+          : undefined;
+        if (!key) continue;
+        const lines = keys.get(key) ?? [];
         lines.push(file.getLineAndCharacterOfPosition(property.getStart(file)).line + 1);
-        keys.set(property.name.text, lines);
-        if (!ts.isStringLiteralLike(property.initializer) || !property.initializer.text.trim()) emptyValues.push(property.name.text);
+        keys.set(key, lines);
+        if (!ts.isStringLiteralLike(property.initializer) || !property.initializer.text.trim()) emptyValues.push(key);
       }
     }
     ts.forEachChild(node, visit);
@@ -62,6 +66,9 @@ function isRuntimeFormatted(value) {
 test("keeps translation resources unique and covers all static system text", async () => {
   const language = await readFile(new URL("../app/language.tsx", import.meta.url), "utf8");
   const { keys: dictionary, emptyValues } = readDictionary(language);
+  const normalizedDictionary = new Set(
+    [...dictionary.keys()].map((key) => key.replace(/\s+/g, " ").trim()),
+  );
   const duplicateKeys = [...dictionary].filter(([, lines]) => lines.length > 1);
 
   assert.equal(duplicateKeys.length, 0, `Duplicate i18n keys: ${duplicateKeys.map(([key]) => key).join(", ")}`);
@@ -74,9 +81,9 @@ test("keeps translation resources unique and covers all static system text", asy
     const file = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 
     function inspect(value, node) {
-      const text = value.trim();
+      const text = value.replace(/\s+/g, " ").trim();
       if (!text || !/[\p{Script=Han}]/u.test(text)) return;
-      if (dictionary.has(text) || businessDataLiterals.has(text) || isRuntimeFormatted(text)) return;
+      if (normalizedDictionary.has(text) || businessDataLiterals.has(text) || isRuntimeFormatted(text)) return;
       const { line } = file.getLineAndCharacterOfPosition(node.getStart(file));
       unmapped.push(`${filename}:${line + 1} ${text}`);
     }
@@ -115,7 +122,8 @@ test("keeps portals, accessibility attributes, enum labels, and reverse switchin
   assert.match(profile, /querySelector<HTMLElement>\("\.localized-content"\) \?\? document\.body/);
   assert.match(portal, /adminLabel\(locale, "systemMode", adminContext\.systemMode\)/);
   assert.match(adminI18n, /READ_ONLY: \["只读模式", "Read-only mode"\]/);
-  assert.match(adminWorkspace, /className="admin-i18n-boundary" translate="no"/);
+  assert.match(adminWorkspace, /className="admin-i18n-boundary"/);
+  assert.doesNotMatch(adminWorkspace, /className="admin-i18n-boundary"\s+translate="no"/);
   assert.match(workspace, /pending: statusLabel\("pending", "audit"\)/);
   assert.match(workspace, /function membershipStatusLabel/);
   assert.doesNotMatch(workspace, /statusLabel\([^\n]+"enrollment"/);
@@ -126,6 +134,6 @@ test("keeps portals, accessibility attributes, enum labels, and reverse switchin
   assert.match(language, /closest\('\[translate="no"\]'\)/);
   assert.match(sportsBrand, /translate="no"/);
   assert.match(sportsBrand, /aria-label="SPORTS"/);
-  assert.match(sportsBrand, />SPORTS</);
+  assert.match(sportsBrand, />\s*SPORTS\s*</);
   assert.doesNotMatch(sportsBrand, /体育/);
 });

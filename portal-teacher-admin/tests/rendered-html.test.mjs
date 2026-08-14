@@ -47,15 +47,22 @@ test("keeps the supplied logo and unified authentication flow on the login surfa
   ]);
 
   assert.equal((app.match(/\/branding\/sports-logo\.png/g) ?? []).length, 1);
-  assert.match(app, /IS_DEMO_ENVIRONMENT\s*=\s*process\.env\.NODE_ENV\s*!==\s*"production"/);
+  assert.match(app, /await passwordLogin\(trimmedAccount, password\)/);
+  assert.match(app, /await requestAccountRecovery\(/);
+  assert.match(app, /await completeAccountRecovery\(/);
+  assert.match(app, /setWorkspaceMode\("real"\)/);
+  assert.doesNotMatch(app, /IS_DEMO_ENVIRONMENT|onDemoLogin|demoUsers|demoSession/);
   assert.match(app, /type=\{showPassword \? "text" : "password"\}/);
   assert.match(app, /aria-label="显示或隐藏密码"/);
   assert.match(app, /disabled=\{isSubmitting\}/);
   assert.doesNotMatch(app, /className="login-intro"|className="demo-grid"/);
   assert.match(css, /\.login-logo\s*\{[^}]*object-fit:\s*contain/);
   assert.doesNotMatch(css, /\.login-intro|\.demo-grid|\.role-principles/);
-  assert.match(language, /"登录管理平台": "Sign in to the Management Platform"/);
-  assert.match(language, /"系统将根据账号权限自动进入对应工作台": "You will be directed to the appropriate workspace based on your account permissions\."/);
+  assert.match(language, /["']?登录管理平台["']?:\s*"Sign in to the Management Platform"/);
+  assert.match(
+    language,
+    /["']?系统将根据账号权限自动进入对应工作台["']?:\s*"You will be directed to the appropriate workspace based on your account permissions\."/,
+  );
 });
 
 test("keeps role responsibilities and semantic theme tokens in source", async () => {
@@ -77,6 +84,26 @@ test("keeps role responsibilities and semantic theme tokens in source", async ()
   assert.match(page, /PortalApp/);
   assert.match(layout, /og\.png/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
+});
+
+test("uses a same-origin API default with an explicit local development proxy", async () => {
+  const [apiClient, viteConfig, integrationGuide] = await Promise.all([
+    readFile(new URL("../app/api-client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
+    readFile(
+      new URL("../../docs/LOCAL_DOCKER_INTEGRATION.md", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(apiClient, /const DEFAULT_BASE = "\/api\/v1"/);
+  assert.doesNotMatch(apiClient, /const DEFAULT_BASE = "http:\/\/127\.0\.0\.1:3000/);
+  assert.match(viteConfig, /"\/api\/v1"/);
+  assert.match(viteConfig, /BNBU_LOCAL_BACKEND_ORIGIN/);
+  assert.match(viteConfig, /http:\/\/127\.0\.0\.1:3000/);
+  assert.match(integrationGuide, /db:generate/);
+  assert.match(integrationGuide, /db:migrate:deploy/);
+  assert.match(integrationGuide, /db:seed:local/);
 });
 
 test("keeps teacher and admin sidebars resizable, collapsible, and locally persisted", async () => {
@@ -134,15 +161,25 @@ test("keeps teacher overview metrics single-sourced and separate from status fil
   assert.match(workspace, /ariaLabel="课程管理核心统计"/);
   assert.match(workspace, /label: "教学班"/);
   assert.match(workspace, /label: "在班学生"/);
-  assert.match(workspace, /label: "今日直接加入"/);
-  assert.match(workspace, /students\.filter\(\(student\) => student\.status === "active"\)\.length/);
+  assert.match(workspace, /label: "近 24 小时加入"/);
+  assert.match(workspace, /joinedWithinLast24Hours/);
+  assert.match(
+    workspace,
+    /students\.filter\(\s*\(student\)\s*=>\s*student\.status === "active",?\s*\)\.length/,
+  );
   assert.doesNotMatch(workspace, /pendingRequests\.length|renderJoinRequests|join-review/);
   assert.match(workspace, /label: "待审核记录"/);
   assert.match(workspace, /label: "涉及学生"/);
   assert.match(workspace, /label: "需要关注记录"/);
   assert.match(workspace, /label: "全部申请"/);
-  assert.match(workspace, /records\.filter\(\(record\) => !record\.reviewComment\)/);
-  assert.match(workspace, /new Set\(pendingRecords\.map\(\(record\) => record\.studentId\)\)/);
+  assert.match(
+    workspace,
+    /records\.filter\(\s*\(record\)\s*=>\s*!record\.reviewComment,?\s*\)/,
+  );
+  assert.match(
+    workspace,
+    /new Set\(\s*pendingRecords\.map\(\s*\(record\)\s*=>\s*record\.studentId,?\s*\),?\s*\)/,
+  );
   assert.doesNotMatch(workspace, /学生管理摘要|打卡审核摘要|免测与组织认证摘要|入班审核摘要|成绩完整度|本学期已通过/);
 
   assert.match(teacherCss, /\.page-summary-metrics/);
@@ -165,7 +202,10 @@ test("uses the direct-enrollment roster as the teacher membership surface", asyn
   assert.match(workspace, /<th>成员状态<\/th>/);
   assert.match(workspace, /移出课程/);
   assert.match(workspace, /无需教师审批/);
-  assert.match(workspace, /student\.status === "active" \|\| records\.some/);
+  assert.match(
+    workspace,
+    /student\.status === "active"\s*\|\|\s*records\.some/,
+  );
   assert.match(profile, /\| "joinedAt"/);
   assert.match(profile, /\| "joinMethod"/);
 });

@@ -1,13 +1,10 @@
 export const RosterReconciliationStatus = {
   MATCHED: "MATCHED",
-  NOT_JOINED: "NOT_JOINED",
+  MISSING_IN_PLATFORM: "MISSING_IN_PLATFORM",
+  EXTRA_IN_PLATFORM: "EXTRA_IN_PLATFORM",
   WRONG_COURSE: "WRONG_COURSE",
-  NOT_IN_OFFICIAL_ROSTER: "NOT_IN_OFFICIAL_ROSTER",
-  INFO_MISMATCH: "INFO_MISMATCH",
-  POSSIBLE_MATCH: "POSSIBLE_MATCH",
-  DUPLICATE: "DUPLICATE",
-  PENDING_CONFIRMATION: "PENDING_CONFIRMATION",
-  RESOLVED: "RESOLVED",
+  IDENTITY_CONFLICT: "IDENTITY_CONFLICT",
+  DUPLICATED: "DUPLICATED",
 } as const;
 
 export type RosterReconciliationStatus = (typeof RosterReconciliationStatus)[keyof typeof RosterReconciliationStatus];
@@ -16,6 +13,7 @@ export const RosterResolutionStatus = {
   PENDING: "PENDING",
   CONFIRMED: "CONFIRMED",
   RESOLVED: "RESOLVED",
+  IGNORED: "IGNORED",
 } as const;
 
 export type RosterResolutionStatus = (typeof RosterResolutionStatus)[keyof typeof RosterResolutionStatus];
@@ -29,6 +27,7 @@ export interface OfficialRosterStudent {
   name: string;
   gender?: string;
   grade?: string;
+  college?: string;
   major?: string;
   administrativeClass?: string;
   courseName?: string;
@@ -57,17 +56,9 @@ export interface RosterCourseReference {
 }
 
 export interface RosterDifference {
-  field: "studentNumber" | "name" | "gender" | "grade" | "major" | "administrativeClass" | "course";
-  officialValue?: string;
-  platformValue?: string;
-}
-
-export interface RosterOperationLog {
-  id: string;
-  action: "RECONCILED" | "CONFIRMED" | "RESOLVED" | "REOPENED" | "NOTE_UPDATED";
-  actorName: string;
-  createdAt: string;
-  detail?: string;
+  field: "FULL_NAME" | "GENDER" | "GRADE_YEAR" | "CLASS_SECTION";
+  officialValue?: string | number | null;
+  platformValue?: string | number | null;
 }
 
 export interface RosterReconciliationResult {
@@ -81,21 +72,23 @@ export interface RosterReconciliationResult {
   resolutionStatus: RosterResolutionStatus;
   teacherNote?: string;
   updatedAt: string;
-  operationLogs: RosterOperationLog[];
+  version: number;
+  lastResolutionAction?: "CONFIRM" | "RESOLVE" | "REOPEN";
 }
 
 export interface OfficialRosterVersion {
   id: string;
   courseId: string;
   versionNumber: number;
-  fileName: string;
   importedAt: string;
-  importedBy: string;
   totalRows: number;
   validRows: number;
   invalidRows: number;
+  duplicatedRows: number;
   isCurrent: boolean;
   source: "FILE" | "OFFICIAL_API";
+  status: "RECEIVED" | "VALIDATING" | "VALIDATED" | "FAILED";
+  version: number;
 }
 
 export interface OfficialRosterSnapshot {
@@ -124,14 +117,12 @@ export interface RosterReconciliationBundle {
 
 export const ROSTER_IMPORT_FIELDS = [
   "studentNumber",
-  "name",
+  "fullName",
   "gender",
-  "grade",
-  "major",
-  "administrativeClass",
-  "courseName",
-  "courseCode",
-  "teachingClassCode",
+  "gradeYear",
+  "collegeName",
+  "majorName",
+  "administrativeClassName",
 ] as const;
 
 export type RosterImportField = (typeof ROSTER_IMPORT_FIELDS)[number];
@@ -139,7 +130,12 @@ export type RosterFieldMapping = Record<RosterImportField, string | null>;
 
 export interface RosterImportRowError {
   rowNumber: number;
-  code: "MISSING_STUDENT_NUMBER" | "INVALID_STUDENT_NUMBER" | "DUPLICATE_STUDENT_NUMBER" | "EMPTY_ROW";
+  code:
+    | "MISSING_STUDENT_NUMBER"
+    | "MISSING_FULL_NAME"
+    | "INVALID_STUDENT_NUMBER"
+    | "DUPLICATE_STUDENT_NUMBER"
+    | "EMPTY_ROW";
   message: string;
 }
 
@@ -161,14 +157,10 @@ export interface ValidatedRosterImport {
   invalidRows: number;
 }
 
-export type RosterImportConflictStrategy = "REPLACE" | "NEW_VERSION";
-
 export interface ImportOfficialRosterInput {
   course: RosterCourseReference;
   parsed: ParsedRosterFile;
   mapping: RosterFieldMapping;
-  importedBy: string;
-  conflictStrategy: RosterImportConflictStrategy;
 }
 
 export interface ReconciliationContext {
@@ -178,7 +170,10 @@ export interface ReconciliationContext {
 }
 
 export interface RosterApiAdapter {
-  getBundle(courseId: string): Promise<RosterReconciliationBundle>;
+  getBundle(
+    courseId: string,
+    context?: ReconciliationContext,
+  ): Promise<RosterReconciliationBundle>;
   getOfficialRoster(courseId: string): Promise<OfficialRosterSnapshot | null>;
   getVersions(courseId: string): Promise<OfficialRosterVersion[]>;
   getStats(courseId: string): Promise<RosterReconciliationStats>;
@@ -189,7 +184,6 @@ export interface RosterApiAdapter {
     courseId: string,
     resultIds: string[],
     resolutionStatus: RosterResolutionStatus,
+    reason: string,
   ): Promise<RosterReconciliationBundle>;
-  saveTeacherNote(courseId: string, resultId: string, note: string): Promise<RosterReconciliationBundle>;
-  exportResults(courseId: string, resultIds?: string[]): Promise<Blob>;
 }

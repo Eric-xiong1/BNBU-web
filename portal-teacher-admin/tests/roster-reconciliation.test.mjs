@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
-  deriveReconciliationStats,
-  normalizeStudentNumber,
-  reconcileRosters,
-} from "../app/roster-reconciliation-engine.ts";
+  ROSTER_API_PATHS,
+  deriveStats,
+  mapAlignmentResult,
+  mapRosterEntry,
+} from "../app/roster-reconciliation-projection.ts";
 import { parseRosterFile, validateRosterImport } from "../app/roster-import.ts";
 import {
   ROSTER_IMPORT_FIELDS,
@@ -15,7 +16,6 @@ import {
 } from "../app/roster-reconciliation-types.ts";
 
 const course1 = { id: "1", code: "PE101", name: "大学体育（一）", teachingClassCode: "01班" };
-const course2 = { id: "2", code: "PE203", name: "羽毛球", teachingClassCode: "03班" };
 
 function official(id, courseId, studentNumber, name, extra = {}) {
   return { id, courseId, studentNumber, name, ...extra };
@@ -25,58 +25,98 @@ function member(id, courseId, studentNumber, name, extra = {}) {
   return { id, courseId, studentNumber, name, joinedAt: "2026-08-02T08:00:00+08:00", joinMethod: "QR_CODE", ...extra };
 }
 
-test("reconciliation is student-number-first and explains every core exception", () => {
-  const officialStudents = [
-    official("o1", "1", "001", "Alice", { grade: "2025" }),
-    official("o2", "1", "002", "Bob"),
-    official("o3", "1", "003", "Cara"),
-    official("o4", "1", "004", "Dana"),
-    official("o5", "1", "005", "Duplicate"),
-    official("o6", "1", "005", "Duplicate"),
-    official("o7", "2", "006", "Eve"),
-  ];
+test("maps every authoritative Backend reconciliation status without reclassifying it in the browser", () => {
+  const officialStudents = new Map([
+    [
+      "o1",
+      mapRosterEntry(
+        {
+          id: "o1",
+          classSectionId: "1",
+          studentNumber: "000123",
+          fullName: "Alice",
+          gender: "FEMALE",
+          gradeYear: 2025,
+          collegeName: "School",
+          majorName: "Major",
+          administrativeClassName: "Class 1",
+          sourceRowNumber: 2,
+        },
+        course1,
+      ),
+    ],
+  ]);
   const platformMembers = [
-    member("p1", "1", "001", "Alice", { grade: "2024" }),
-    member("p2", "2", "002", "Bob"),
-    member("p3", "1", "099", "Dana"),
-    member("p4", "1", "007", "Frank"),
-    member("p5", "1", "006", "Eve"),
-    member("p6", "1", "008", "Repeat"),
-    member("p7", "1", "008", "Repeat"),
+    member("p1", "1", "000123", "Alice", { studentId: "student-1" }),
   ];
-  const results = reconcileRosters(officialStudents, {
-    course: course1,
-    courses: [course1, course2],
-    platformMembers,
-  }, [], "2026-08-02T10:00:00.000Z");
+  const backendStatuses = Object.values(RosterReconciliationStatus);
+  const results = backendStatuses.map((status, index) =>
+    mapAlignmentResult(
+      {
+        id: `result-${index}`,
+        classSectionId: "1",
+        rosterEntryId: index === 2 ? null : "o1",
+        enrollmentId: index === 1 ? null : "p1",
+        studentId: index === 1 ? null : "student-1",
+        status,
+        differences:
+          status === RosterReconciliationStatus.IDENTITY_CONFLICT
+            ? [{ field: "FULL_NAME", officialValue: "Alice", platformValue: "Alicia" }]
+            : [],
+        resolutionStatus: RosterResolutionStatus.PENDING,
+        resolutionNote: null,
+        createdAt: `2026-08-02T10:00:0${index}.000Z`,
+        version: 1,
+        lastResolutionAction: null,
+      },
+      officialStudents,
+      platformMembers,
+    ),
+  );
 
-  const statuses = new Set(results.map((result) => result.status));
-  assert.ok(statuses.has(RosterReconciliationStatus.INFO_MISMATCH));
-  assert.ok(statuses.has(RosterReconciliationStatus.WRONG_COURSE));
-  assert.ok(statuses.has(RosterReconciliationStatus.NOT_JOINED));
-  assert.ok(statuses.has(RosterReconciliationStatus.POSSIBLE_MATCH));
-  assert.ok(statuses.has(RosterReconciliationStatus.NOT_IN_OFFICIAL_ROSTER));
-  assert.ok(statuses.has(RosterReconciliationStatus.DUPLICATE));
-
-  const possible = results.find((result) => result.status === RosterReconciliationStatus.POSSIBLE_MATCH);
-  assert.equal(possible.officialStudent.studentNumber, "004");
-  assert.equal(possible.platformMember.studentNumber, "099");
-  assert.match(possible.reason, /姓名一致但学号不同/);
-
-  const wrongCourse = results.find((result) => result.officialStudent?.studentNumber === "002");
-  assert.equal(wrongCourse.status, RosterReconciliationStatus.WRONG_COURSE);
-  assert.match(wrongCourse.reason, /当前加入了/);
+  assert.deepEqual(results.map((result) => result.status), backendStatuses);
+  assert.equal(results[0].officialStudent.studentNumber, "000123");
+  assert.equal(results[0].officialStudent.name, "Alice");
+  assert.equal(results[0].platformMember.id, "p1");
+  assert.equal(
+    results.find((result) => result.status === RosterReconciliationStatus.IDENTITY_CONFLICT).differences[0].field,
+    "FULL_NAME",
+  );
+  assert.ok(results.every((result) => result.reason.startsWith("后端核对结果：")));
 });
 
-test("resolved states and teacher notes survive a repeated reconciliation", () => {
-  const officialStudents = [official("o1", "1", "001", "Alice")];
-  const context = { course: course1, courses: [course1], platformMembers: [] };
-  const first = reconcileRosters(officialStudents, context, [], "2026-08-02T10:00:00.000Z");
-  const previous = [{ ...first[0], resolutionStatus: RosterResolutionStatus.RESOLVED, teacherNote: "Confirmed by registrar" }];
-  const next = reconcileRosters(officialStudents, context, previous, "2026-08-02T11:00:00.000Z");
+test("uses the latest server resolution version and note instead of browser-persisted state", () => {
+  const raw = {
+    id: "result-1",
+    classSectionId: "1",
+    rosterEntryId: null,
+    enrollmentId: null,
+    studentId: null,
+    status: RosterReconciliationStatus.MISSING_IN_PLATFORM,
+    differences: [],
+    createdAt: "2026-08-02T10:00:00.000Z",
+    lastResolutionAction: "CONFIRM",
+  };
+  const first = mapAlignmentResult(
+    { ...raw, resolutionStatus: RosterResolutionStatus.PENDING, resolutionNote: null, version: 1 },
+    new Map(),
+    [],
+  );
+  const latest = mapAlignmentResult(
+    {
+      ...raw,
+      resolutionStatus: RosterResolutionStatus.CONFIRMED,
+      resolutionNote: "Confirmed by registrar",
+      version: 2,
+    },
+    new Map(),
+    [],
+  );
 
-  assert.equal(next[0].resolutionStatus, RosterResolutionStatus.RESOLVED);
-  assert.equal(next[0].teacherNote, "Confirmed by registrar");
+  assert.equal(first.teacherNote, undefined);
+  assert.equal(latest.resolutionStatus, RosterResolutionStatus.CONFIRMED);
+  assert.equal(latest.teacherNote, "Confirmed by registrar");
+  assert.equal(latest.version, 2);
 });
 
 test("student numbers remain strings with leading zeros and duplicate rows are excluded", () => {
@@ -94,10 +134,9 @@ test("student numbers remain strings with leading zeros and duplicate rows are e
     sheetName: "Sheet1",
     totalRows: 3,
   };
-  const mapping = { ...parsed.suggestedMapping, studentNumber: "学号", name: "姓名" };
+  const mapping = { ...parsed.suggestedMapping, studentNumber: "学号", fullName: "姓名" };
   const validation = validateRosterImport(parsed, mapping);
 
-  assert.equal(normalizeStudentNumber("'000123"), "000123");
   assert.equal(validation.validRows, 1);
   assert.equal(validation.students[0].studentNumber, "A-002");
   assert.ok(validation.errors.some((error) => error.code === "DUPLICATE_STUDENT_NUMBER"));
@@ -125,31 +164,89 @@ test("the import adapter parses xlsx, legacy xls, and csv rosters", async () => 
 });
 
 test("statistics keep official members, platform members, and resolution state separate", () => {
-  const officials = [official("o1", "1", "001", "A"), official("o2", "1", "002", "B")];
   const members = [member("p1", "1", "001", "A")];
-  const results = reconcileRosters(officials, { course: course1, courses: [course1], platformMembers: members });
-  const stats = deriveReconciliationStats(officials, members, "1", results, "2026-08-02T10:00:00.000Z");
+  const currentRoster = {
+    version: {
+      id: "import-1",
+      courseId: "1",
+      versionNumber: 1,
+      importedAt: "2026-08-02T09:00:00.000Z",
+      totalRows: 2,
+      validRows: 2,
+      invalidRows: 0,
+      duplicatedRows: 0,
+      isCurrent: true,
+      source: "FILE",
+      status: "VALIDATED",
+      version: 1,
+    },
+    students: [official("o1", "1", "001", "A"), official("o2", "1", "002", "B")],
+  };
+  const results = [
+    {
+      status: RosterReconciliationStatus.MATCHED,
+      resolutionStatus: RosterResolutionStatus.PENDING,
+      updatedAt: "2026-08-02T10:00:00.000Z",
+    },
+    {
+      status: RosterReconciliationStatus.MISSING_IN_PLATFORM,
+      resolutionStatus: RosterResolutionStatus.PENDING,
+      updatedAt: "2026-08-02T10:00:01.000Z",
+    },
+  ];
+  const stats = deriveStats(currentRoster, results, members, "1");
 
   assert.equal(stats.officialTotal, 2);
   assert.equal(stats.platformTotal, 1);
   assert.equal(stats.matched, 1);
   assert.equal(stats.notJoined, 1);
-  assert.equal(stats.pending, 1);
+  assert.equal(stats.pending, 2);
+  assert.equal(stats.lastReconciledAt, "2026-08-02T10:00:01.000Z");
 });
 
-test("teacher course entry reuses services and keeps mock data out of the page component", async () => {
-  const [workspace, page, service, mock] = await Promise.all([
+test("teacher roster flow uses live API mutations, optimistic concurrency, and no browser business store", async () => {
+  const [workspace, page, service, apiService, engine, mock] = await Promise.all([
     readFile(new URL("../app/teacher-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/roster-reconciliation.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/roster-reconciliation-service.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/roster-reconciliation-api-service.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/roster-reconciliation-engine.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/roster-reconciliation-mock-data.ts", import.meta.url), "utf8"),
   ]);
 
   assert.match(workspace, /course-roster-reconciliation-button/);
   assert.match(workspace, /RosterReconciliationPage/);
   assert.match(page, /rosterReconciliationService/);
+  assert.match(page, /parseOfficialRosterFile/);
+  assert.match(page, /validateOfficialRosterFile/);
+  assert.match(page, /rosterReconciliationService\.importOfficialRoster/);
+  assert.match(page, /rosterReconciliationService\.reconcile/);
+  assert.match(page, /rosterReconciliationService\.updateResolution/);
   assert.doesNotMatch(page, /roster-reconciliation-mock-data/);
   assert.match(service, /ROSTER_API_PATHS/);
-  assert.match(service, /createInitialRosterSnapshots/);
-  assert.match(mock, /OfficialRosterStudent/);
+  assert.match(apiService, /requestFormData<ApiRosterImport>/);
+  assert.match(apiService, /expectedRosterImportVersion: current\.version/);
+  assert.match(apiService, /expectedVersion: result\.version/);
+  assert.match(apiService, /currentOnly: "true"/);
+  assert.doesNotMatch(
+    [page, service, apiService, engine, mock].join("\n"),
+    /localStorage|sessionStorage|createInitialRosterSnapshots|reconcileRosters/,
+  );
+  assert.match(engine, /Backend/);
+  assert.doesNotMatch(mock, /OfficialRosterStudent|studentNumber|fullName/);
+});
+
+test("encodes every roster API identifier before building the contract path", () => {
+  assert.equal(
+    ROSTER_API_PATHS.rosterVersions("section/1"),
+    "/class-sections/section%2F1/roster-imports",
+  );
+  assert.equal(
+    ROSTER_API_PATHS.rosterEntries("import/1"),
+    "/roster-imports/import%2F1/entries",
+  );
+  assert.equal(
+    ROSTER_API_PATHS.confirm("result/1"),
+    "/roster-alignment-results/result%2F1/confirm",
+  );
 });

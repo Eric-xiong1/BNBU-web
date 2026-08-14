@@ -619,4 +619,3 @@ Expected: no whitespace errors; only pre-existing user-owned untracked paths rem
 - [ ] **Step 5: Commit any verification-only corrections**
 
 If verification required a correction, stage only the responsible files and commit with a narrow message. If no correction was required, do not create an empty commit.
-

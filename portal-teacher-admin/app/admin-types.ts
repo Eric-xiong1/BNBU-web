@@ -25,9 +25,11 @@ export type GradeGroup = "freshman_sophomore" | "junior_senior";
 export type RunType = "800m" | "1000m";
 export type EnduranceTier = "excellent" | "good" | "pass" | "fail";
 export type HelpArticleStatus = "draft" | "published" | "archived";
-export type TicketStatus = "pending" | "in_progress" | "technical" | "resolved" | "closed";
+export type TicketStatus =
+  "pending" | "in_progress" | "technical" | "resolved" | "closed";
 export type TicketCategory = "account" | "system" | "data" | "other";
-export type GradeCorrectionStatus = "pending" | "approved" | "corrected" | "closed" | "rejected";
+export type GradeCorrectionStatus =
+  "pending" | "approved" | "corrected" | "closed" | "rejected";
 
 export type AdminPermission =
   | "admin.dashboard.read"
@@ -166,7 +168,12 @@ export type SupportTicket = {
   source: "student" | "teacher";
   submittedAt: string;
   status: TicketStatus;
-  replies: Array<{ id: string; author: string; message: string; createdAt: string }>;
+  replies: Array<{
+    id: string;
+    author: string;
+    message: string;
+    createdAt: string;
+  }>;
 };
 
 export type GradeCorrectionRequest = {
@@ -193,12 +200,19 @@ export type AdminNotification = {
 };
 
 export type AdminHealth = {
-  apiLatencyMs: number;
-  databaseConnections: number;
-  databaseConnectionLimit: number;
+  apiStatus: "UP" | "DOWN";
+  apiLatencyMs: number | null;
+  databaseStatus: "UP" | "DOWN" | "NOT_CONFIGURED";
+  databaseLatencyMs: number | null;
+  notificationQueueStatus: "UP" | "DOWN" | "NOT_CONFIGURED";
   notificationBacklog: number;
-  storageAvailability: number;
+  objectStorageStatus: "UP" | "DOWN" | "NOT_CONFIGURED";
+  objectStorageLatencyMs: number | null;
+  mediaStorageStatus: "UP" | "DOWN" | "NOT_CONFIGURED";
+  mediaStorageLatencyMs: number | null;
   checkedAt: string;
+  requestId: string | null;
+  status: "UP" | "DEGRADED" | "DOWN";
 };
 
 export type PurgeAllBusinessDataInput = {
@@ -340,8 +354,14 @@ export type UpdateAdminCourseInput = {
   expectedVersion: number;
 };
 
-export type CreateSemesterInput = Omit<Semester, "id" | "status" | "courseCount" | "studentCount" | "updatedAt">;
-export type UpdateSemesterInput = CreateSemesterInput & { id: string; expectedUpdatedAt: string };
+export type CreateSemesterInput = Omit<
+  Semester,
+  "id" | "status" | "courseCount" | "studentCount" | "updatedAt"
+>;
+export type UpdateSemesterInput = CreateSemesterInput & {
+  id: string;
+  expectedUpdatedAt: string;
+};
 
 export type UserInput = {
   id?: string;
@@ -372,12 +392,21 @@ export type EnduranceRuleInput = Omit<EnduranceRule, "id" | "updatedAt"> & {
   id?: string;
 };
 
-export type HelpArticleInput = Omit<HelpArticle, "id" | "publishedAt" | "updatedAt"> & {
+export type HelpArticleInput = Omit<
+  HelpArticle,
+  "id" | "publishedAt" | "updatedAt"
+> & {
   id?: string;
   expectedUpdatedAt?: string;
 };
 
-export type AdminServiceErrorCode = "VALIDATION" | "FORBIDDEN" | "NOT_FOUND" | "CONFLICT" | "DEPENDENCY" | "STORAGE";
+export type AdminServiceErrorCode =
+  | "VALIDATION"
+  | "FORBIDDEN"
+  | "NOT_FOUND"
+  | "CONFLICT"
+  | "DEPENDENCY"
+  | "STORAGE";
 
 export class AdminServiceError extends Error {
   code: AdminServiceErrorCode;

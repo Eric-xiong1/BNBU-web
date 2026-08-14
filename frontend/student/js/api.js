@@ -227,7 +227,7 @@ export function apiErrorText(error) {
     MEDIA_VERIFICATION_INCOMPLETE: tx("凭证校验尚未完成，请稍候。", "Proof verification is not finished yet."),
     MEDIA_TRANSITION_NOT_ALLOWED: tx("凭证当前状态不支持该操作。", "This action is not allowed for the proof's current state."),
     MEDIA_FAILURE_NOT_RETRYABLE: tx("该凭证上传失败且无法重试，请重新拍摄。", "This upload failed permanently. Capture it again."),
-    // System mode (Contract 1.4 documents the full 503 family)
+    // System mode (Contract 1.5 documents the full 503 family)
     SYSTEM_READ_ONLY: tx("系统当前为只读模式，暂时无法提交。", "The system is read-only right now, so changes cannot be saved."),
     SYSTEM_MAINTENANCE: tx("系统正在维护中，请稍后再试。", "The system is under maintenance. Try again later."),
     SYSTEM_SERVICE_UNAVAILABLE: tx("依赖服务暂时不可用，请稍后再试。", "A required service is unavailable. Try again later."),
