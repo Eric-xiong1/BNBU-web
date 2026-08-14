@@ -56,13 +56,16 @@ cd portal-teacher-admin && npm test            # 29 项，含生产构建
 
 本地测试账号（全部为合成数据）：教师 `teacher.a.local.synthetic@bnbu.invalid`、管理员 `admin.local.synthetic@bnbu.invalid`（密码见 `联调环境与任务分工.md`）。
 
-**学生端本地登录**：本机没有邮件服务时邮箱验证码发不出（后端会报 `SYSTEM_SERVICE_UNAVAILABLE`，这是环境限制不是 bug）。改用体验账号：
+**学生端本地登录（两种方式都可用）**：
+
+1. **邮箱验证码登录**：需要本地邮件服务 Mailpit 在跑（`start-all.ps1` 已包含；单独启动：`local-infra\mailpit\mailpit.exe --smtp 127.0.0.1:1025 --listen 127.0.0.1:8025`）。输入学生邮箱 → 获取验证码 → 打开 <http://127.0.0.1:8025> 收件箱查看验证码 → 填入登录。没有 Mailpit 时后端会报 `SYSTEM_SERVICE_UNAVAILABLE`（环境限制，不是 bug）。
+2. **体验账号登录**（免邮箱）：
 
 ```bash
 npm run demo:setup
 ```
 
-之后打开学生端 → 直接登录 → 「体验账号登录」即可进入（账号走真实入班流程创建、本地激活并绑定合成邮箱，数据全部来自真实后端；重建用 `npm run demo:setup -- --force`）。
+之后打开学生端 → 直接登录 → 「体验账号登录」即可进入（账号走真实入班流程创建、本地激活并绑定合成邮箱，数据全部来自真实后端；重建用 `npm run demo:setup -- --force`）。体验账号的合成邮箱（`demo.student.<学号>@bnbu.invalid`）也可以用于方式 1。
 
 造一条「待教师审核」的真实打卡记录（含照片凭证）用 [handoff/make-test-record-15.cjs](handoff/make-test-record-15.cjs)：
 
@@ -110,7 +113,7 @@ node handoff/make-test-record-15.cjs "http://127.0.0.1:3000/api/v1" "<psql.exe �
 **已知限制与技术债（不阻塞本版，按优先级）**
 
 - P1 后端/合同：教师首次审核必须传 `expectedReviewVersion: 1`（学生提交时后端自动建 reviewVersion=1 的 PENDING 行），但记录投影的 `currentReview` 不含 reviewVersion —— 门户靠审核历史接口取到，链路能通，但建议后端在投影中补该字段以消除额外请求。
-- P1 环境：学生邮箱验证码登录本机仍不可用（需 Mailpit 收信；后端 .env 已补 SMTP 配置指向 :1025，装上 Mailpit 即可）。新入班学生未验证邮箱前不是 ACTIVE，无法开运动会话。
+- ~~P1 环境：学生邮箱验证码登录本机不可用~~ **已解决（2026-08-15）**：Mailpit v1.30.7 已装到 `local-infra\mailpit\`，`start-all.ps1` 会自动启动；邮箱验证码登录全链路（请求码 → Mailpit 收信 → 验证 → 学生主页）已实测通过。新入班学生仍需完成邮箱验证才是 ACTIVE（真实流程），本地演示账号由 `demo:setup` 直接激活。
 - P2 性能：审核页对每条记录发 3 个详情请求（详情/凭证上下文/最新审核），57 条记录 ≈ 170+ 请求，首屏加载约 15–20 秒。建议后端提供批量投影或列表内嵌字段。
 - P2 稳定性：`vinext dev` 开发服务器在多次热更新后不稳定（本轮出现 3 次）：可能直接退出，也可能自行「内部重启」后**丢失 API 代理** —— 症状是页面能打开但登录报「HTTP 404，requestId 未提供」（请求根本没到后端）。解决办法：结束 4300 端口的 node 进程后重新 `npm run dev -- --port 4300`；生产构建不受影响。
 - P2 遗留：学生端预览 CSP 仍放行旧 Mock 端口 :8080；仓库根仍带旧 `backend/`、`database/`、`frontend/teacher/` 弃用代码，建议另开清理 PR。
