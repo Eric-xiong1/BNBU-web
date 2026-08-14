@@ -1,4 +1,21 @@
-// Backend contract shapes used by the teacher workspace (OpenAPI 1.1).
+// UI adapter shapes used by the teacher workspace.
+// Canonical Contract 1.5 models are generated in openapi.generated.ts; keep
+// additions here limited to explicit view-only compatibility fields.
+
+import type { components } from "./openapi.generated";
+
+type ContractSchemas = components["schemas"];
+
+export type ContractClassSection = ContractSchemas["ClassSection"];
+export type ContractEnrollment = ContractSchemas["Enrollment"];
+export type ContractExerciseRecord = ContractSchemas["ExerciseRecord"];
+export type ContractStudentScore = ContractSchemas["StudentScore"];
+export type ReviewRecord = ContractSchemas["ReviewRecord"];
+export type ExemptionApplication = ContractSchemas["ExemptionApplication"];
+export type StructuredExemptionApplication =
+  ContractSchemas["StructuredExemptionApplication"];
+export type ReviewExemptionApplicationBody =
+  ContractSchemas["ReviewExemptionApplicationRequest"];
 
 export type OpaqueId = string;
 
@@ -103,7 +120,7 @@ export type ExerciseRecord = {
   creditType: "COURSE_RELATED" | "GENERAL" | string;
   sportType: string;
   sportName: string | null;
-  description: string;
+  description: ContractExerciseRecord["description"];
   studentRemark: string | null;
   actualDurationSeconds: number;
   pausedDurationSeconds: number;
@@ -114,8 +131,14 @@ export type ExerciseRecord = {
   clientRequestId: string;
   currentReview: StudentCurrentReview | null;
   version: number;
-  /** Teacher projection may include bound media ids (not always in list examples). */
-  mediaIds?: OpaqueId[];
+};
+
+export type ExerciseRecordEvidenceContext = {
+  recordId: OpaqueId;
+  sessionId: OpaqueId;
+  startedAt: string;
+  endedAt: string | null;
+  mediaIds: OpaqueId[];
 };
 
 export type MediaAccess = {
@@ -156,6 +179,9 @@ export type StudentProfileApi = {
   primaryEmail?: string | null;
   [key: string]: unknown;
 };
+
+export type VersionedReasonBody = ContractSchemas["VersionedReasonRequest"];
+export type ExpectedVersionBody = ContractSchemas["ExpectedVersionRequest"];
 
 export type CreateClassSectionBody = {
   courseId: OpaqueId;

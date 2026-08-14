@@ -55,7 +55,6 @@ export const app = {
     loginPrivacyAccepted: false,
     showLoginPrivacy: false,
     showEmailLogin: false,
-    showPhoneLogin: false,
     showRecoveryRequest: false,
     showScanJoin: false,
     pendingInvite: null, // { code, course } — pre-login confirm
@@ -135,13 +134,23 @@ export const app = {
     return localStore.getSession()?.kind === "api";
   },
   /** Establishes the authenticated shell after a successful invite join. */
-  completeApiLogin(joined) {
-    const accountId = joined.studentProfile.studentNumber;
+  async completeApiLogin(joined = {}) {
+    let accountId = joined.studentProfile?.studentNumber || null;
+    if (!accountId) {
+      const loaded = await loadApiWorkspace();
+      accountId = loaded.workspace.student.id;
+      this.state.workspace = loaded.workspace;
+      this.state.requiresContactBinding = !loaded.workspace.student.emailVerified;
+    }
     localStore.setSession({ accountId, kind: "api", signedInAt: new Date().toISOString() });
     this.state.authenticated = true;
-    this.state.requiresContactBinding = false;
     this.state.postEnrollmentGuideCompleted = localStore.hasCompletedPostEnrollmentGuide(accountId);
     this.navDirection = "forward";
+    if (!joined.studentProfile?.studentNumber) {
+      this.state.isLoading = false;
+      this.render();
+      return;
+    }
     return this.reloadApiWorkspace();
   },
   /**
@@ -161,6 +170,7 @@ export const app = {
     try {
       const { workspace } = await loadApiWorkspace();
       this.state.workspace = workspace;
+      this.state.requiresContactBinding = !workspace.student.emailVerified;
       this.state.lastError = null;
       this.state.isShowingCachedData = false;
     } catch (error) {
@@ -301,7 +311,6 @@ export const app = {
     if (s.showScanJoin) { s.showScanJoin = false; this.navDirection = "back"; this.render(); return true; }
     if (s.showRecoveryRequest) { s.showRecoveryRequest = false; this.navDirection = "back"; this.render(); return true; }
     if (s.showEmailLogin) { s.showEmailLogin = false; this.navDirection = "back"; this.render(); return true; }
-    if (s.showPhoneLogin) { s.showPhoneLogin = false; this.navDirection = "back"; this.render(); return true; }
     if (s.showLoginPrivacy) { s.showLoginPrivacy = false; this.navDirection = "back"; this.render(); return true; }
     return false;
   },
@@ -324,7 +333,6 @@ export const app = {
     if (s.showScanJoin) return "prelogin-scan";
     if (s.showRecoveryRequest) return "recovery";
     if (s.showEmailLogin) return "email-login";
-    if (s.showPhoneLogin) return "phone-login";
     if (!s.preLoginGuideCompleted) return "pre-guide";
     if (s.showLoginPrivacy) return "login-privacy";
     return "login";
@@ -349,7 +357,6 @@ export const app = {
     if (s.showScanJoin) return renderScanJoin(this, { preLogin: true });
     if (s.showRecoveryRequest) return renderRecoveryRequest(this);
     if (s.showEmailLogin) return renderVerificationLogin(this, { method: "email" });
-    if (s.showPhoneLogin) return renderVerificationLogin(this, { method: "phone" });
     if (!s.preLoginGuideCompleted) return renderPreLoginGuide(this);
     if (s.showLoginPrivacy) return renderPrivacyPolicy(this, { context: "login" });
     return renderLogin(this);

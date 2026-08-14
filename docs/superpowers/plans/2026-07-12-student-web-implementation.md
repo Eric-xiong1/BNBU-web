@@ -75,7 +75,7 @@ console.log("student static entry smoke passed");
 
 - [ ] **Step 2: Run it and verify RED**
 
-Run: `node frontend/student/student-smoke.cjs`  
+Run: `node frontend/student/student-smoke.cjs`
 Expected: FAIL with `ENOENT` for `frontend/student/index.html`.
 
 - [ ] **Step 3: Create the minimal CSP-safe entry and visual foundation**
@@ -121,7 +121,7 @@ Add `.mjs`, `.mp4`, `.mov`, `.heic`, and `.heif` to `contentTypes` in `frontend/
 
 - [ ] **Step 5: Run GREEN**
 
-Run: `npm run smoke:student`  
+Run: `npm run smoke:student`
 Expected: `student static entry smoke passed`.
 
 - [ ] **Step 6: Commit**
@@ -174,7 +174,7 @@ test("store restores a saved draft", () => {
 
 - [ ] **Step 2: Run RED**
 
-Run: `node --test frontend/student/student-test.mjs`  
+Run: `node --test frontend/student/student-test.mjs`
 Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `core/constants.js`.
 
 - [ ] **Step 3: Implement stable domain contracts**
@@ -197,7 +197,7 @@ Implement `escapeHtml`, `safeProofUrl`, `formatDate`, `formatBytes`, and `uid` i
 
 - [ ] **Step 4: Run GREEN**
 
-Run: `node --test frontend/student/student-test.mjs`  
+Run: `node --test frontend/student/student-test.mjs`
 Expected: 4 tests pass.
 
 - [ ] **Step 5: Commit**
@@ -229,7 +229,7 @@ assert.match(schemaSource, /sport_type/i);
 
 - [ ] **Step 2: Run RED**
 
-Run: `npm test --prefix backend`  
+Run: `npm test --prefix backend`
 Expected: FAIL because the student course/grade endpoints, video MIME types, seven-file limit, and `sport_type` column are absent.
 
 - [ ] **Step 3: Upgrade upload validation and response normalization**
@@ -270,7 +270,7 @@ Add `sport_type VARCHAR(32) NULL` to `sport_records` in `schema.sql`; include `s
 
 - [ ] **Step 6: Run GREEN**
 
-Run: `npm test --prefix backend`  
+Run: `npm test --prefix backend`
 Expected: all backend tests pass with zero failures.
 
 - [ ] **Step 7: Commit**
@@ -308,7 +308,7 @@ test("upload normalizes urls-only backend responses", async () => {
 
 - [ ] **Step 2: Run RED**
 
-Run: `node --test frontend/student/student-test.mjs`  
+Run: `node --test frontend/student/student-test.mjs`
 Expected: FAIL because `createStudentApi` is missing.
 
 - [ ] **Step 3: Implement the API adapter**
@@ -323,7 +323,7 @@ Provide `createDemoApi({store})` with the same methods. Demo writes must mutate 
 
 - [ ] **Step 5: Run GREEN**
 
-Run: `node --test frontend/student/student-test.mjs`  
+Run: `node --test frontend/student/student-test.mjs`
 Expected: auth and upload normalization tests pass.
 
 - [ ] **Step 6: Commit**
@@ -357,7 +357,7 @@ test("bottom nav renders check-in first and all five destinations", () => {
 
 - [ ] **Step 2: Run RED**
 
-Run: `node --test frontend/student/student-test.mjs`  
+Run: `node --test frontend/student/student-test.mjs`
 Expected: FAIL because routing and shell exports are missing.
 
 - [ ] **Step 3: Implement hash routing and shell**
@@ -370,7 +370,7 @@ At `max-width:600px`, use one column and fixed bottom nav. At `601–900px`, all
 
 - [ ] **Step 5: Run GREEN**
 
-Run: `node --test frontend/student/student-test.mjs`  
+Run: `node --test frontend/student/student-test.mjs`
 Expected: routing/nav tests pass.
 
 - [ ] **Step 6: Commit**
@@ -414,7 +414,7 @@ test("check-in renders tasks submit records tabs with submit active", () => {
 
 - [ ] **Step 2: Run RED**
 
-Run: `node --test frontend/student/student-test.mjs`  
+Run: `node --test frontend/student/student-test.mjs`
 Expected: FAIL because upload/check-in modules are missing.
 
 - [ ] **Step 3: Implement uploads and drafts**
@@ -427,7 +427,7 @@ Tasks filter by all/pending/completed. Submit supports 0.5-hour steps through 2 
 
 - [ ] **Step 5: Run GREEN**
 
-Run: `npm run test:student`  
+Run: `npm run test:student`
 Expected: all student tests and static smoke pass.
 
 - [ ] **Step 6: Commit**
@@ -467,7 +467,7 @@ test("courses display code section tasks and related records", () => {
 
 - [ ] **Step 2: Run RED**
 
-Run: `node --test frontend/student/student-test.mjs`  
+Run: `node --test frontend/student/student-test.mjs`
 Expected: FAIL because home/courses modules are missing.
 
 - [ ] **Step 3: Implement home**
@@ -480,7 +480,7 @@ Render course cards keyed by `courseCode + Section`; course detail shows teacher
 
 - [ ] **Step 5: Run GREEN and commit**
 
-Run: `npm run test:student`  
+Run: `npm run test:student`
 Expected: all tests pass.
 
 ```bash
@@ -512,12 +512,12 @@ test("grade view discloses formula missing items and sources", () => {
 
 - [ ] **Step 2: Run RED, implement, and run GREEN**
 
-Run RED: `node --test frontend/student/student-test.mjs`  
+Run RED: `node --test frontend/student/student-test.mjs`
 Expected: missing grades module.
 
 Implement a pure `calculateGrade` that preserves missing values, excludes pending check-ins from the official component, reports weighted rows and rounds the displayed total to one decimal. Render four component cards, formula expansion, missing-risk panel, source trace, and update time.
 
-Run GREEN: `npm run test:student`  
+Run GREEN: `npm run test:student`
 Expected: all tests pass.
 
 - [ ] **Step 3: Commit**

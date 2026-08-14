@@ -1,4 +1,4 @@
-// Shared API client for the unified BNBU Sports backend (Contract 1.4, /api/v1).
+// Shared API client for the unified BNBU Sports backend (Contract 1.5, /api/v1).
 // Teacher and admin workspaces both build on this module; keep it UI-free.
 //
 // Contract rules baked in here so pages never re-implement them:
@@ -9,7 +9,11 @@
 
 const STORAGE_KEY = "bnbu-portal-tokens-v1";
 const BASE_KEY = "bnbu-portal-api-base";
-const DEFAULT_BASE = "http://127.0.0.1:3000/api/v1";
+// Keep the browser on a same-origin API path by default. Local development
+// proxies this path to the backend, while deployed environments can route it
+// through their edge/reverse proxy or explicitly set the existing local
+// override. This avoids baking a developer-loopback address into production.
+const DEFAULT_BASE = "/api/v1";
 
 export type ApiRole = "STUDENT" | "TEACHER" | "ADMIN";
 
@@ -18,6 +22,7 @@ export interface ApiUser {
   role: ApiRole;
   status: string;
   primaryEmail?: string | null;
+  primaryEmailMasked?: string | null;
   [key: string]: unknown;
 }
 
@@ -33,9 +38,40 @@ export interface AuthSessionData {
 
 export interface CurrentUserData {
   user: ApiUser;
-  studentProfile: Record<string, unknown> | null;
-  teacherProfile: Record<string, unknown> | null;
-  adminProfile: Record<string, unknown> | null;
+  studentProfile: StudentProfileData | null;
+  teacherProfile: TeacherProfileData | null;
+  adminProfile: AdminProfileData | null;
+}
+
+export interface TeacherProfileData {
+  id: string;
+  organizationId: string;
+  userId: string;
+  employeeNumber: string;
+  fullName: string;
+  collegeName?: string | null;
+  departmentName?: string | null;
+  title?: string | null;
+  status: string;
+}
+
+export interface AdminProfileData {
+  id: string;
+  organizationId: string;
+  userId: string;
+  employeeNumber: string;
+  fullName: string;
+  departmentName?: string | null;
+  status: string;
+}
+
+export interface StudentProfileData {
+  id: string;
+  organizationId: string;
+  userId: string;
+  studentNumber: string;
+  fullName: string;
+  status: string;
 }
 
 export type ApiPaginationMeta = {
@@ -69,7 +105,15 @@ export class ApiError extends Error {
   details: Record<string, unknown>;
   requestId: string | null;
 
-  constructor(status: number, body: { code?: string; message?: string; details?: Record<string, unknown>; requestId?: string } | null) {
+  constructor(
+    status: number,
+    body: {
+      code?: string;
+      message?: string;
+      details?: Record<string, unknown>;
+      requestId?: string;
+    } | null,
+  ) {
     super(body?.message || `HTTP ${status}`);
     this.status = status;
     this.code = body?.code || "UNKNOWN";
@@ -81,12 +125,52 @@ export class ApiError extends Error {
 export const isUnsupported = (error: unknown): boolean =>
   error instanceof ApiError && error.code === "SYSTEM_MODE_UNSUPPORTED";
 
-/** Human-readable Chinese message for any thrown error. */
-export function apiErrorText(error: unknown): string {
+/** Human-readable message for any thrown error. */
+export function apiErrorText(error: unknown, locale: "zh" | "en" = "zh"): string {
   if (!(error instanceof ApiError)) {
-    return "网络连接失败，请确认本机后端已启动（start-dev.ps1）。";
+    return locale === "en"
+      ? "Network connection failed. From the monorepo root, run npm --prefix backend run start:dev and confirm that http://127.0.0.1:3000 is reachable. requestId: not generated because the request did not reach the Backend."
+      : "网络连接失败，请从 monorepo 根目录运行 npm --prefix backend run start:dev，并确认 http://127.0.0.1:3000 可访问。requestId：未生成（请求未到达 Backend）。";
   }
-  if (isUnsupported(error)) return "该功能后端暂未开放。";
+  if (isUnsupported(error))
+    return locale === "en"
+      ? "This backend capability is not available."
+      : "该功能后端暂未开放。";
+  if (locale === "en") {
+    const knownEnglish: Record<string, string> = {
+      VALIDATION_FAILED: "The submitted content is invalid. Check it and try again.",
+      AUTH_CREDENTIAL_INVALID: "The account or password is incorrect.",
+      AUTH_REQUIRED: "Sign in before continuing.",
+      AUTH_TOKEN_INVALID: "The sign-in credential is invalid. Sign in again.",
+      AUTH_TOKEN_EXPIRED: "Your session has expired. Sign in again.",
+      AUTH_SESSION_REVOKED: "This session is no longer valid. Sign in again.",
+      AUTH_RATE_LIMITED: "Too many requests. Try again later.",
+      AUTH_ACCOUNT_DISABLED: "This account has been disabled.",
+      PERMISSION_DENIED: "You do not have permission to perform this action.",
+      PERMISSION_RESOURCE_NOT_FOUND: "The resource does not exist or is not accessible.",
+      CONFLICT_VERSION_MISMATCH: "The data changed elsewhere. Refresh and try again.",
+      SYSTEM_READ_ONLY: "The system is in read-only mode and cannot save changes.",
+      SYSTEM_MAINTENANCE: "The system is under maintenance. Try again later.",
+      SYSTEM_SERVICE_UNAVAILABLE: "A required service is unavailable. Try again later.",
+      SYSTEM_DEPENDENCY_TIMEOUT: "A required service timed out. Try again later.",
+      SYSTEM_INTERNAL_ERROR: "The server encountered an internal error. Try again later.",
+    };
+    const dependencyLabels: Record<string, string> = {
+      DATABASE: "PostgreSQL",
+      NOTIFICATION_QUEUE: "Notification queue",
+      OBJECT_STORAGE: "Object storage",
+      MEDIA_STORAGE: "Media storage",
+    };
+    const dependency =
+      typeof error.details.dependency === "string"
+        ? dependencyLabels[error.details.dependency]
+        : undefined;
+    const message =
+      dependency && error.code === "SYSTEM_SERVICE_UNAVAILABLE"
+        ? `${dependency} is unavailable.`
+        : knownEnglish[error.code] || error.message;
+    return `${message} requestId: ${error.requestId ?? "unavailable"}`;
+  }
   const known: Record<string, string> = {
     VALIDATION_FAILED: "提交的内容格式不正确，请检查后重试。",
     AUTH_CREDENTIAL_INVALID: "账号或密码不正确。",
@@ -143,14 +227,28 @@ export function apiErrorText(error: unknown): string {
     CONFLICT_RESOURCE_ALREADY_EXISTS: "该资源已存在。",
     CONFLICT_STATE_TRANSITION: "当前状态不支持该操作。",
     CONFLICT_UNSUPPORTED_RESOURCE_STATE: "当前状态不支持该操作。",
-    // Contract 1.4 documents the full 503 SystemMode family.
+    // Contract 1.5 documents the full 503 SystemMode family.
     SYSTEM_READ_ONLY: "系统当前为只读模式，暂时无法保存修改。",
     SYSTEM_MAINTENANCE: "系统正在维护中，请稍后再试。",
     SYSTEM_SERVICE_UNAVAILABLE: "依赖服务暂时不可用，请稍后再试。",
     SYSTEM_DEPENDENCY_TIMEOUT: "依赖服务响应超时，请稍后再试。",
     SYSTEM_INTERNAL_ERROR: "服务器内部错误，请稍后再试。",
   };
-  return known[error.code] || error.message;
+  const dependencyLabels: Record<string, string> = {
+    DATABASE: "PostgreSQL",
+    NOTIFICATION_QUEUE: "通知队列",
+    OBJECT_STORAGE: "对象存储",
+    MEDIA_STORAGE: "媒体存储",
+  };
+  const dependency =
+    typeof error.details.dependency === "string"
+      ? dependencyLabels[error.details.dependency]
+      : undefined;
+  const message =
+    dependency && error.code === "SYSTEM_SERVICE_UNAVAILABLE"
+      ? `${dependency}不可用。`
+      : known[error.code] || error.message;
+  return `${message} requestId：${error.requestId ?? "响应未提供"}`;
 }
 
 function readTokens(): StoredTokens | null {
@@ -164,7 +262,8 @@ function readTokens(): StoredTokens | null {
 
 function writeTokens(tokens: StoredTokens | null) {
   try {
-    if (tokens) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));
+    if (tokens)
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens));
     else window.localStorage.removeItem(STORAGE_KEY);
   } catch {
     /* storage unavailable — session-only */
@@ -173,7 +272,10 @@ function writeTokens(tokens: StoredTokens | null) {
 
 export function apiBaseUrl(): string {
   try {
-    return (window.localStorage.getItem(BASE_KEY) || DEFAULT_BASE).replace(/\/$/, "");
+    return (window.localStorage.getItem(BASE_KEY) || DEFAULT_BASE).replace(
+      /\/$/,
+      "",
+    );
   } catch {
     return DEFAULT_BASE;
   }
@@ -186,7 +288,8 @@ export function clearApiSession() {
 }
 
 export function uuid(): string {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  if (typeof crypto !== "undefined" && crypto.randomUUID)
+    return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -207,19 +310,39 @@ type RequestOptions = {
   headers?: Record<string, string>;
 };
 
-async function rawEnvelopeRequest<T>(path: string, options: RequestOptions = {}): Promise<ApiSuccessEnvelope<T>> {
+async function rawEnvelopeRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<ApiSuccessEnvelope<T>> {
   const { method = "GET", body, auth = true, headers = {} } = options;
   const requestHeaders: Record<string, string> = { ...headers };
-  if (body !== undefined) requestHeaders["Content-Type"] = "application/json";
-  if (method !== "GET" && !requestHeaders["Idempotency-Key"]) requestHeaders["Idempotency-Key"] = uuid();
+  const isFormDataBody =
+    typeof FormData !== "undefined" && body instanceof FormData;
+  if (body !== undefined && !isFormDataBody)
+    requestHeaders["Content-Type"] = "application/json";
+  if (method !== "GET" && !requestHeaders["Idempotency-Key"])
+    requestHeaders["Idempotency-Key"] = uuid();
   const tokens = readTokens();
-  if (auth && tokens?.accessToken) requestHeaders["Authorization"] = `Bearer ${tokens.accessToken}`;
+  if (auth && tokens?.accessToken)
+    requestHeaders["Authorization"] = `Bearer ${tokens.accessToken}`;
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     method,
     headers: requestHeaders,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body:
+      body === undefined
+        ? undefined
+        : isFormDataBody
+          ? body
+          : JSON.stringify(body),
   });
-  let parsed: { data?: T; meta?: ApiSuccessMeta; code?: string; message?: string; details?: Record<string, unknown>; requestId?: string } | null = null;
+  let parsed: {
+    data?: T;
+    meta?: ApiSuccessMeta;
+    code?: string;
+    message?: string;
+    details?: Record<string, unknown>;
+    requestId?: string;
+  } | null = null;
   try {
     parsed = await response.json();
   } catch {
@@ -229,7 +352,10 @@ async function rawEnvelopeRequest<T>(path: string, options: RequestOptions = {})
   return { data: parsed?.data as T, meta: parsed?.meta ?? {} };
 }
 
-async function rawRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function rawRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
   return (await rawEnvelopeRequest<T>(path, options)).data;
 }
 
@@ -237,7 +363,11 @@ let refreshInFlight: Promise<void> | null = null;
 
 async function refreshSession(): Promise<void> {
   const tokens = readTokens();
-  if (!tokens?.refreshToken) throw new ApiError(401, { code: "AUTH_REQUIRED", message: "no refresh token" });
+  if (!tokens?.refreshToken)
+    throw new ApiError(401, {
+      code: "AUTH_REQUIRED",
+      message: "no refresh token",
+    });
   const session = await rawRequest<AuthSessionData>("/auth/refresh", {
     method: "POST",
     auth: false,
@@ -253,7 +383,10 @@ async function refreshSession(): Promise<void> {
  * Handles the envelope, bearer token, idempotency key, and a single automatic
  * refresh-and-retry when the access token expired.
  */
-async function requestWithRefresh<T>(operation: () => Promise<T>, options: RequestOptions): Promise<T> {
+async function requestWithRefresh<T>(
+  operation: () => Promise<T>,
+  options: RequestOptions,
+): Promise<T> {
   try {
     return await operation();
   } catch (error) {
@@ -276,17 +409,42 @@ async function requestWithRefresh<T>(operation: () => Promise<T>, options: Reque
   }
 }
 
-export function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export function request<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
   return requestWithRefresh(() => rawRequest<T>(path, options), options);
 }
 
 /** Use for cursor-paginated endpoints that need success-envelope metadata. */
-export function requestWithMeta<T>(path: string, options: RequestOptions = {}): Promise<ApiSuccessEnvelope<T>> {
-  return requestWithRefresh(() => rawEnvelopeRequest<T>(path, options), options);
+export function requestWithMeta<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<ApiSuccessEnvelope<T>> {
+  return requestWithRefresh(
+    () => rawEnvelopeRequest<T>(path, options),
+    options,
+  );
+}
+
+/**
+ * Upload multipart/form-data through the same authenticated, idempotent and
+ * single-refresh path as JSON mutations. The browser must set the multipart
+ * boundary, so callers must not provide a Content-Type header themselves.
+ */
+export function requestFormData<T>(
+  path: string,
+  formData: FormData,
+  options: Omit<RequestOptions, "body"> = {},
+): Promise<T> {
+  return request<T>(path, { ...options, body: formData });
 }
 
 // ── Auth ─────────────────────────────────────────────────────────
-export async function passwordLogin(account: string, password: string): Promise<AuthSessionData> {
+export async function passwordLogin(
+  account: string,
+  password: string,
+): Promise<AuthSessionData> {
   const session = await rawRequest<AuthSessionData>("/auth/password-login", {
     method: "POST",
     auth: false,
@@ -294,6 +452,39 @@ export async function passwordLogin(account: string, password: string): Promise<
   });
   storeAuthSession(session);
   return session;
+}
+
+export interface AccountRecoveryAcceptedData {
+  recoveryId: string;
+  expiresAt: string;
+}
+
+export async function requestAccountRecovery(input: {
+  organizationCode: string;
+  account: string;
+  requestedRole: "TEACHER" | "ADMIN";
+  locale: "zh-CN" | "en";
+}): Promise<AccountRecoveryAcceptedData> {
+  return rawRequest<AccountRecoveryAcceptedData>(
+    "/auth/account-recovery-requests",
+    {
+      method: "POST",
+      auth: false,
+      body: { ...input, channel: "EMAIL" },
+    },
+  );
+}
+
+export async function completeAccountRecovery(input: {
+  recoveryId: string;
+  verificationCode: string;
+  newPassword: string;
+}): Promise<void> {
+  await rawRequest<null>("/auth/account-recovery-requests/complete", {
+    method: "POST",
+    auth: false,
+    body: input,
+  });
 }
 
 export async function logoutApi(): Promise<void> {

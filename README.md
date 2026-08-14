@@ -90,5 +90,6 @@ npm run api
 | [docs/DELIVERY_README.md](docs/DELIVERY_README.md) | 交付包说明 |
 | [docs/DEPLOY_DEV.md](docs/DEPLOY_DEV.md) | 开发环境部署 |
 | [docs/STUDENT_WEB_ACCEPTANCE.md](docs/STUDENT_WEB_ACCEPTANCE.md) | 学生端验收 |
+| [docs/LOCAL_DOCKER_INTEGRATION.md](docs/LOCAL_DOCKER_INTEGRATION.md) | Web + Backend 1.5 本地 Docker 联调 |
 | [docs/plans/2026-07-15-teacher-p0-frontend.md](docs/plans/2026-07-15-teacher-p0-frontend.md) | 教师端 P0 前端设计与对接清单 |
 | [docs/工作日志-2026-07-11.md](docs/工作日志-2026-07-11.md) | 2026-07-11 工作日志 |

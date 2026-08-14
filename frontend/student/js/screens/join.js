@@ -6,11 +6,10 @@
 import { tx } from "../i18n.js";
 import { icon } from "../icons.js";
 import { esc, spinner, sectionTitle, statusBadge, validationPanel, actionButton } from "../ui.js";
-import { MOCK_INVITES } from "../data.js";
 import { previewInvite, joinWithInvite, storeJoinContext, apiErrorText, ApiError } from "../api.js";
 
 // Real backend invite tokens are "<id>.<secret>" — dots/underscores allowed.
-const INVITE_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~-]{2,200}$/;
+const INVITE_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~-]{15,199}$/;
 const isInviteCode = (value) => INVITE_CODE_PATTERN.test(value.trim());
 const MAX_NAME = 64;
 const MAX_STUDENT_NUMBER = 32;
@@ -31,16 +30,8 @@ function inviteCodeFromQr(rawValue) {
   }
 }
 
-/** Invite lookup: demo codes stay mock, anything else hits the real backend. */
+/** Every invite lookup uses the real backend. Failures never fall back to mock data. */
 function lookupInvite(code, { onResolved, onUnavailable, onError }) {
-  if (Object.prototype.hasOwnProperty.call(MOCK_INVITES, code)) {
-    setTimeout(() => {
-      const course = MOCK_INVITES[code];
-      if (course === null) onUnavailable();
-      else onResolved(code, course);
-    }, 700);
-    return;
-  }
   previewInvite(code).then(
     (preview) => {
       if (!preview.enrollmentOpen) { onUnavailable(); return; }
@@ -64,12 +55,8 @@ function lookupInvite(code, { onResolved, onUnavailable, onError }) {
 const inviteExpiredMessage = () =>
   tx("该邀请已过期或已被撤销，请联系教师获取新二维码或邀请码", "This invitation has expired or was revoked. Contact the teacher for a new QR code or invitation code.");
 
-/** Demo codes are case-insensitive; real backend tokens are case-sensitive. */
-function normalizeInviteInput(value) {
-  const trimmed = value.trim();
-  const upper = trimmed.toUpperCase();
-  return Object.prototype.hasOwnProperty.call(MOCK_INVITES, upper) ? upper : trimmed;
-}
+/** Backend invite tokens are opaque and case-sensitive. */
+function normalizeInviteInput(value) { return value.trim(); }
 
 // ═══════════════════════════════════════════════════════════════
 //  #9 Scan to join
@@ -160,7 +147,7 @@ function renderManualInviteDialog(app, ui) {
         <div style="height:20px"></div>
         <label class="field-label" for="manual-invite-code">${tx("邀请码", "Invitation code")}</label>
         <input id="manual-invite-code" class="text-field${showFormatError ? " error" : ""}" style="border-radius:12px" type="text"
-          value="${esc(ui.manualCode)}" placeholder="例如 BNBU-7K3P9Q" data-input="scan.manualCode" autocomplete="off" spellcheck="false" />
+          value="${esc(ui.manualCode)}" placeholder="invite_xxx.secret_xxx" data-input="scan.manualCode" autocomplete="off" spellcheck="false" />
         ${showFormatError ? `<div class="field-supporting error">${tx("请输入有效的邀请码", "Enter a valid invitation code.")}</div>` : ""}
       </div>
       <div class="dialog-actions">
@@ -335,13 +322,13 @@ export function renderEnterInviteCode(app) {
         </button>
         <span class="text-primary" style="display:inline-flex">${icon("keyboard", 24)}</span>
         <div class="headline-small text-on-surface">${tx("输入邀请码", "Enter invitation code")}</div>
-        <div class="body-large text-muted">${tx("请输入老师提供的邀请码。查询后请核对课程、教学班和教师信息，再提交加入申请。", "Enter the code from your teacher. Review the course, section, and instructor before submitting your request.")}</div>
+        <div class="body-large text-muted">${tx("请输入老师提供的邀请码。查询后请核对课程、教学班和教师信息，再确认加入。", "Enter the token from your teacher. Review the course, section, and instructor before joining.")}</div>
         <div style="height:8px"></div>
         <div class="col">
           <label class="field-label" for="enter-invite-code">${tx("邀请码", "Invitation code")}</label>
           <input id="enter-invite-code" class="text-field${hasFormatError ? " error" : ""}" type="text" value="${esc(ui.code)}"
-            placeholder="${tx("例如 BNBU-7K3P9Q", "For example: BNBU-7K3P9Q")}" data-input="enterCode.input" ${ui.resolving ? "disabled" : ""} autocomplete="off" spellcheck="false" />
-          ${hasFormatError ? `<div class="field-supporting error">${tx("请输入有效的邀请码，格式如 BNBU-7K3P9Q。", "Enter a valid invitation code, such as BNBU-7K3P9Q.")}</div>` : ""}
+            placeholder="invite_xxx.secret_xxx" data-input="enterCode.input" ${ui.resolving ? "disabled" : ""} autocomplete="off" spellcheck="false" />
+          ${hasFormatError ? `<div class="field-supporting error">${tx("请输入教师提供的完整邀请码。", "Enter the complete invitation token supplied by your teacher.")}</div>` : ""}
         </div>
         ${ui.error ? `<div class="body-medium text-error">${esc(ui.error)}</div>` : ""}
         <button class="primary-btn pressable" data-action="enterCode.submit" ${!ui.resolving && isInviteCode(normalized) ? "" : "disabled"} style="height:52px">
@@ -386,7 +373,6 @@ function joinSelect({ id, label, value, options, disabled }) {
 const GENDER_OPTIONS = () => [
   { value: "FEMALE", label: tx("女", "Female") },
   { value: "MALE", label: tx("男", "Male") },
-  { value: "OTHER", label: tx("其他", "Other") },
 ];
 
 const GRADE_YEAR_OPTIONS = () => {
@@ -430,7 +416,7 @@ export function renderCourseJoinConfirm(app, params) {
   const identityContent = ui.submitted
     ? `<div class="col" style="align-items:center;gap:12px">
         <span class="text-primary" style="display:inline-flex">${icon("check-circle", 24)}</span>
-        <div class="title-medium text-on-surface">${tx("申请已提交，请等待老师确认。", "Request submitted. Please wait for the teacher's confirmation.")}</div>
+        <div class="title-medium text-on-surface">${tx("已加入课程。", "Course joined.")}</div>
       </div>`
     : `<div class="col" style="gap:14px">
         ${!canSubmitNew ? validationPanel(tx("本学期仅可选择一门课程。你已有课程或待处理申请，不能重复提交。", "You can choose only one course per term. You already have a course or a pending request.")) : ""}
@@ -444,7 +430,7 @@ export function renderCourseJoinConfirm(app, params) {
         <div style="height:2px"></div>
         <button class="primary-btn pressable" data-action="joinConfirm.submit" ${!ui.submitting && writeEnabled ? "" : "disabled"}>
           ${ui.submitting ? spinner(18, "on-primary") : icon("send", 18)}
-          <span class="ellipsis">${ui.submitting ? tx("提交中…", "Submitting…") : tx("提交加入申请", "Submit join request")}</span>
+          <span class="ellipsis">${ui.submitting ? tx("加入中…", "Joining…") : tx("确认并加入课程", "Confirm and join course")}</span>
         </button>
       </div>`;
 
@@ -460,7 +446,7 @@ export function renderCourseJoinConfirm(app, params) {
           ${joinFact(tx("课程编号 / Section", "Course number / Section"), `${course.courseNumber} / Section ${course.section}`)}
           ${joinFact(tx("授课老师", "Instructor"), course.teacher)}
           ${joinFact(tx("学期", "Term"), course.semester)}
-          <div class="body-medium text-muted">${tx("请确认以上课程信息无误后再提交申请", "Confirm that these course details are correct before submitting your request.")}</div>
+          <div class="body-medium text-muted">${tx("请确认以上课程信息无误后再加入", "Confirm that these course details are correct before joining.")}</div>
         </div></div>
         ${sectionTitle(tx("填写身份资料", "Enter identity details"))}
         <div class="swiss-panel">${identityContent}</div>
@@ -655,7 +641,7 @@ export const joinActions = {
     if (ui.resolving) return;
     const normalized = normalizeInviteInput(ui.code);
     if (!isInviteCode(normalized)) {
-      ui.error = tx("请输入有效的邀请码，格式如 BNBU-7K3P9Q。", "Enter a valid invitation code, such as BNBU-7K3P9Q.");
+      ui.error = tx("请输入教师提供的完整邀请码。", "Enter the complete invitation token supplied by your teacher.");
       app.render();
       return;
     }

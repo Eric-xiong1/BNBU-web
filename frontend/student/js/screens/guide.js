@@ -18,11 +18,11 @@ function preLoginSteps() {
       artwork: "courseJoin",
     },
     {
-      title: tx("确认并提交申请", "Confirm and submit"),
+      title: tx("确认并直接加入", "Confirm and join"),
       eyebrow: tx("核对信息后再加入", "Review before you join"),
       description: tx(
-        "核对课程和个人资料后提交加入申请；如需补正或等待审核，按页面提示处理。",
-        "Review the course and your details, then submit the join request. Follow the on-screen guidance if information is needed or the request is under review."
+        "核对课程和个人资料后直接加入教学班；Backend 会校验身份、学期冲突和课程开放状态。",
+        "Review the course and your details, then join the class section directly. Backend validates identity, semester conflicts, and enrolment availability."
       ),
       artwork: "joinRequest",
     },
@@ -47,8 +47,8 @@ function postEnrollmentSteps() {
       title: tx("提交并查看记录", "Submit and review records"),
       eyebrow: tx("完成后确认并提交", "Confirm and submit when finished"),
       description: tx(
-        "补充说明、确认凭证后提交打卡；在“记录”中查看历史运动、时长和媒体。",
-        "Add notes, confirm your proof, and submit the check-in. Use Records to review exercise history, duration, and media."
+        "补充运动说明后，系统会提交当前保留的全部凭证；在“记录”中查看历史运动、时长和媒体。",
+        "Add the exercise notes, then the app submits every retained proof item. Use Records to review exercise history, duration, and media."
       ),
       artwork: "submittedRecords",
     },
@@ -130,9 +130,9 @@ const ARTWORKS = {
       </div>
       <div class="art-card col" style="gap:8px">
         ${guideInfoRow("person", tx("确认个人资料", "Confirm your details"))}
-        ${guideInfoRow("assignment", tx("提交加入申请", "Submit the join request"))}
+        ${guideInfoRow("assignment", tx("确认身份并加入", "Confirm identity and join"))}
       </div>
-      ${statusArtworkRow("schedule", tx("等待审核或按提示补正", "Wait for review or add what is needed"), "var(--color-secondary-container)", "var(--color-on-secondary-container)", "var(--color-secondary)")}
+      ${statusArtworkRow("check-circle", tx("加入成功后完成邮箱验证", "Verify email after joining"), "var(--color-secondary-container)", "var(--color-on-secondary-container)", "var(--color-secondary)")}
     </div>`,
   startExercise: () => `
     <div class="art-col" style="align-items:center">
@@ -178,7 +178,7 @@ const ARTWORKS = {
       </div>
       <div class="art-card col" style="gap:8px">
         ${guideInfoRow("description", tx("补充说明", "Add notes"))}
-        ${guideInfoRow("camera-alt", tx("确认现场凭证", "Confirm activity proof"))}
+        ${guideInfoRow("camera-alt", tx("提交全部保留凭证", "Submit all retained proof"))}
         ${guideInfoRow("check", tx("提交本次打卡", "Submit this check-in"))}
       </div>
       ${statusArtworkRow("history", tx("在“记录”中查看历史", "Review history in Records"), "var(--color-tertiary-container)", "var(--color-on-tertiary-container)", "var(--color-tertiary)")}

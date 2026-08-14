@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { deriveAuditSummary } from "../app/checkin-audit.ts";
@@ -39,4 +40,20 @@ test("switching audit state immediately changes the derived result", () => {
   assert.deepEqual([valid.validMinutes, valid.progressPercent], [120, 20]);
   assert.deepEqual([invalid.validMinutes, invalid.progressPercent], [0, 0]);
   assert.deepEqual([pending.validMinutes, pending.progressPercent], [0, 0]);
+});
+
+test("keeps reviewed records reachable from the teacher audit landing page", async () => {
+  const workspace = await readFile(
+    new URL("../app/teacher-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(workspace, /type CheckinReviewFilter = "all" \| "low_confidence" \| "history"/);
+  assert.match(
+    workspace,
+    /label:\s*"全部历史记录",\s*count:\s*records\.length/,
+  );
+  assert.match(workspace, /showingHistory\s*\?\s*records/);
+  assert.match(workspace, /切换到全部历史记录可回看已处理内容/);
+  assert.match(workspace, /record\.auditStatus === "pending"/);
 });

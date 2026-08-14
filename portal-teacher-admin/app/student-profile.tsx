@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { createPortal } from "react-dom";
 import {
   useCallback,
@@ -12,7 +13,10 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { useStudentProfile, type StudentProfileLoadState } from "./use-student-profile";
+import {
+  useStudentProfile,
+  type StudentProfileLoadState,
+} from "./use-student-profile";
 
 export type StudentProfile = {
   id: string | number;
@@ -81,7 +85,9 @@ const avatarSizes = {
 };
 
 function portalTarget() {
-  return document.querySelector<HTMLElement>(".localized-content") ?? document.body;
+  return (
+    document.querySelector<HTMLElement>(".localized-content") ?? document.body
+  );
 }
 
 export function StudentInfoFields({
@@ -100,7 +106,10 @@ export function StudentInfoFields({
     label: fieldLabels[field],
     value: profile[field],
   }));
-  const visibleItems = [...profileItems, ...items].filter((item) => item.value !== undefined && item.value !== null && item.value !== "");
+  const visibleItems = [...profileItems, ...items].filter(
+    (item) =>
+      item.value !== undefined && item.value !== null && item.value !== "",
+  );
 
   if (visibleItems.length === 0) return null;
 
@@ -125,11 +134,17 @@ function StudentAvatar({
 }) {
   return (
     <span className="student-avatar" aria-hidden={decorative || undefined}>
-      {student.avatarUrl
-        // Student avatars may come from the existing account service at runtime.
-        // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={student.avatarUrl} alt={decorative ? "" : student.name} />
-        : student.name.trim().slice(-1) || "生"}
+      {student.avatarUrl ? (
+        <Image
+          src={student.avatarUrl}
+          alt={decorative ? "" : student.name}
+          width={48}
+          height={48}
+          unoptimized
+        />
+      ) : (
+        student.name.trim().slice(-1) || "生"
+      )}
     </span>
   );
 }
@@ -170,9 +185,13 @@ export function StudentHoverCard({
     const gap = 10;
     const triggerRect = trigger.getBoundingClientRect();
     const cardRect = card.getBoundingClientRect();
-    const maxLeft = Math.max(margin, window.innerWidth - cardRect.width - margin);
+    const maxLeft = Math.max(
+      margin,
+      window.innerWidth - cardRect.width - margin,
+    );
     const left = Math.min(maxLeft, Math.max(margin, triggerRect.left));
-    const fitsBelow = triggerRect.bottom + gap + cardRect.height <= window.innerHeight - margin;
+    const fitsBelow =
+      triggerRect.bottom + gap + cardRect.height <= window.innerHeight - margin;
     const fitsAbove = triggerRect.top - gap - cardRect.height >= margin;
     const preferredTop = fitsBelow
       ? triggerRect.bottom + gap
@@ -209,13 +228,20 @@ export function StudentHoverCard({
       id={id}
       ref={cardRef}
       role="tooltip"
-      style={{ left: position.left, top: position.top, visibility: position.ready ? "visible" : "hidden" }}
+      style={{
+        left: position.left,
+        top: position.top,
+        visibility: position.ready ? "visible" : "hidden",
+      }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
       <div className="student-hover-heading">
         <StudentAvatar student={student} />
-        <div><b>{student.name}</b><small>学生信息</small></div>
+        <div>
+          <b>{student.name}</b>
+          <small>学生信息</small>
+        </div>
       </div>
       <StudentInfoFields profile={student} fields={fields} compact />
     </div>,
@@ -256,8 +282,14 @@ export function StudentDetailDrawer({
 
   useEffect(() => {
     if (!open || !mounted) return;
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const focusTimer = window.setTimeout(
+      () => closeButtonRef.current?.focus(),
+      0,
+    );
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -265,9 +297,11 @@ export function StudentDetailDrawer({
         return;
       }
       if (event.key !== "Tab" || !drawerRef.current) return;
-      const focusable = [...drawerRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-      )];
+      const focusable = [
+        ...drawerRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ];
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -311,36 +345,70 @@ export function StudentDetailDrawer({
             <h2 id={titleId}>{student.name}</h2>
             <p>{student.course ?? "学生资料"}</p>
           </div>
-          <button ref={closeButtonRef} type="button" aria-label="关闭学生详情" onClick={onClose}>×</button>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            aria-label="关闭学生详情"
+            onClick={onClose}
+          >
+            ×
+          </button>
         </header>
 
         <div className="student-detail-body">
           {status === "loading" ? (
-            <div className="student-detail-skeleton" role="status" aria-label="正在加载学生详情">
-              <span /><span /><span /><span /><span />
+            <div
+              className="student-detail-skeleton"
+              role="status"
+              aria-label="正在加载学生详情"
+            >
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
             </div>
           ) : (
             <>
               {status === "error" && (
                 <div className="student-detail-error" role="alert">
-                  <div><b>学生详情加载失败</b><p>{error || "请稍后重试。"}</p></div>
-                  {onRetry && <button type="button" onClick={onRetry}>重新加载</button>}
+                  <div>
+                    <b>学生详情加载失败</b>
+                    <p>{error || "请稍后重试。"}</p>
+                  </div>
+                  {onRetry && (
+                    <button type="button" onClick={onRetry}>
+                      重新加载
+                    </button>
+                  )}
                 </div>
               )}
 
               <section className="student-detail-section">
-                <div className="student-detail-section-title"><span>基础信息</span></div>
+                <div className="student-detail-section-title">
+                  <span>基础信息</span>
+                </div>
                 <StudentInfoFields profile={student} fields={detailFields} />
               </section>
 
-              {(student.course || student.courseStatus || courseMetrics.length > 0) && (
+              {(student.course ||
+                student.courseStatus ||
+                courseMetrics.length > 0) && (
                 <section className="student-detail-section">
-                  <div className="student-detail-section-title"><span>当前课程信息</span></div>
-                  <StudentInfoFields profile={student} fields={["course", "courseStatus"]} />
+                  <div className="student-detail-section-title">
+                    <span>当前课程信息</span>
+                  </div>
+                  <StudentInfoFields
+                    profile={student}
+                    fields={["course", "courseStatus"]}
+                  />
                   {courseMetrics.length > 0 && (
                     <dl className="student-course-metrics">
                       {courseMetrics.map((metric) => (
-                        <div className={`is-${metric.tone ?? "default"}`} key={metric.label}>
+                        <div
+                          className={`is-${metric.tone ?? "default"}`}
+                          key={metric.label}
+                        >
                           <dt>{metric.label}</dt>
                           <dd>{metric.value}</dd>
                         </div>
@@ -352,7 +420,9 @@ export function StudentDetailDrawer({
 
               {quickActions.length > 0 && (
                 <section className="student-detail-section student-quick-actions">
-                  <div className="student-detail-section-title"><span>快捷操作</span></div>
+                  <div className="student-detail-section-title">
+                    <span>快捷操作</span>
+                  </div>
                   <div>
                     {quickActions.map((action) => (
                       <button
@@ -365,7 +435,8 @@ export function StudentDetailDrawer({
                           onClose();
                         }}
                       >
-                        {action.label}<span aria-hidden="true">→</span>
+                        {action.label}
+                        <span aria-hidden="true">→</span>
                       </button>
                     ))}
                   </div>
@@ -385,7 +456,16 @@ export function StudentIdentity({
   enableHover = true,
   enableClick = true,
   hoverFields = ["number", "gender", "grade", "course", "courseStatus"],
-  detailFields = ["number", "email", "gender", "grade", "joinedAt", "joinMethod", "className", "major"],
+  detailFields = [
+    "number",
+    "email",
+    "gender",
+    "grade",
+    "joinedAt",
+    "joinMethod",
+    "className",
+    "major",
+  ],
   courseMetrics,
   quickActions,
   avatarSize = "small",
@@ -412,8 +492,12 @@ export function StudentIdentity({
   const closeTimer = useRef<number | null>(null);
   const [hoverOpen, setHoverOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const { profile, status, error, load } = useStudentProfile({ student, loadProfile });
-  const avatarPixels = typeof avatarSize === "number" ? avatarSize : avatarSizes[avatarSize];
+  const { profile, status, error, load } = useStudentProfile({
+    student,
+    loadProfile,
+  });
+  const avatarPixels =
+    typeof avatarSize === "number" ? avatarSize : avatarSizes[avatarSize];
 
   const clearTimer = useCallback((timer: RefObject<number | null>) => {
     if (timer.current !== null) {
@@ -441,8 +525,9 @@ export function StudentIdentity({
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [clearHoverTimers, hoverOpen]);
 
-  const supportsHover = () => typeof window !== "undefined"
-    && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+  const supportsHover = () =>
+    typeof window !== "undefined" &&
+    window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 
   const showHover = (delay = 150, force = false) => {
     if (!enableHover || (!force && !supportsHover())) return;
@@ -474,13 +559,20 @@ export function StudentIdentity({
 
   if (loading) {
     return (
-      <span className="student-identity student-identity-loading" role="status" aria-label="正在加载学生信息">
-        <span className="student-avatar" /><span className="student-name-placeholder" />
+      <span
+        className="student-identity student-identity-loading"
+        role="status"
+        aria-label="正在加载学生信息"
+      >
+        <span className="student-avatar" />
+        <span className="student-name-placeholder" />
       </span>
     );
   }
 
-  const triggerStyle = { "--student-avatar-size": `${avatarPixels}px` } as CSSProperties;
+  const triggerStyle = {
+    "--student-avatar-size": `${avatarPixels}px`,
+  } as CSSProperties;
 
   return (
     <>
@@ -500,7 +592,8 @@ export function StudentIdentity({
         }}
         onBlur={(event) => {
           const next = event.relatedTarget;
-          if (next instanceof Node && hoverCardRef.current?.contains(next)) return;
+          if (next instanceof Node && hoverCardRef.current?.contains(next))
+            return;
           hideHover();
         }}
         onClick={openDrawer}
