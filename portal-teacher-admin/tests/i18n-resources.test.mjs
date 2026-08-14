@@ -117,10 +117,18 @@ test("keeps portals, accessibility attributes, enum labels, and reverse switchin
   assert.match(language, /function formatIsoDateTime/);
   assert.match(language, /const statusSourceLabels/);
   assert.match(language, /"BNBU 校园体育": "BNBU CAMPUS SPORTS"/);
+  assert.match(language, /有效: "Valid"/);
+  assert.match(language, /跑步: "Running"/);
+  assert.match(language, /\^打开\(\.\*\)的用户信息\$/);
+  assert.match(language, /record\$\{count === "1" \? "" : "s"\}/);
   assert.match(select, /querySelector<HTMLElement>\("\.localized-content"\) \?\? document\.body/);
   assert.match(ui, /querySelector<HTMLElement>\("\.localized-content"\) \?\? document\.body/);
   assert.match(profile, /querySelector<HTMLElement>\("\.localized-content"\) \?\? document\.body/);
   assert.match(portal, /adminLabel\(locale, "systemMode", adminContext\.systemMode\)/);
+  assert.match(
+    portal,
+    /locale === "en"[\s\S]*?`Open \$\{displayUser\.name\}'s profile`/,
+  );
   assert.match(adminI18n, /READ_ONLY: \["只读模式", "Read-only mode"\]/);
   assert.match(adminWorkspace, /className="admin-i18n-boundary"/);
   assert.doesNotMatch(adminWorkspace, /className="admin-i18n-boundary"\s+translate="no"/);

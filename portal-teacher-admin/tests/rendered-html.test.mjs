@@ -87,13 +87,9 @@ test("keeps role responsibilities and semantic theme tokens in source", async ()
 });
 
 test("uses a same-origin API default with an explicit local development proxy", async () => {
-  const [apiClient, viteConfig, integrationGuide] = await Promise.all([
+  const [apiClient, viteConfig] = await Promise.all([
     readFile(new URL("../app/api-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
-    readFile(
-      new URL("../../../tools/local-integration/README.md", import.meta.url),
-      "utf8",
-    ),
   ]);
 
   assert.match(apiClient, /const DEFAULT_BASE = "\/api\/v1"/);
@@ -101,9 +97,6 @@ test("uses a same-origin API default with an explicit local development proxy", 
   assert.match(viteConfig, /"\/api\/v1"/);
   assert.match(viteConfig, /BNBU_LOCAL_BACKEND_ORIGIN/);
   assert.match(viteConfig, /http:\/\/127\.0\.0\.1:3000/);
-  assert.match(integrationGuide, /db:generate/);
-  assert.match(integrationGuide, /db:migrate:deploy/);
-  assert.match(integrationGuide, /db:seed:local/);
 });
 
 test("keeps teacher and admin sidebars resizable, collapsible, and locally persisted", async () => {

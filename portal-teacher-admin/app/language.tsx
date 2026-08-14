@@ -276,7 +276,7 @@ const englishText: Record<string, string> = {
   低风险: "Low risk",
   需关注: "Needs attention",
   凭证模糊: "Unclear evidence",
-  有效: "Active",
+  有效: "Valid",
   已调整: "Adjusted",
   教师补录: "Teacher entry",
   补录记录: "Manual entry",
@@ -333,8 +333,14 @@ const englishText: Record<string, string> = {
   课程目标设置: "Course target settings",
   当前课程: "Current class",
   "大学体育（一）": "University Physical Education I",
+  跑步: "Running",
   羽毛球: "Badminton",
   篮球: "Basketball",
+  足球: "Football",
+  乒乓球: "Table tennis",
+  游泳: "Swimming",
+  健身: "Fitness",
+  骑行: "Cycling",
   "调整当前课程目标。": "Adjust the activity targets for this class.",
   "保存后仅影响本课程，不影响其他课程。":
     "Saving affects only this class and does not change other classes.",
@@ -1734,8 +1740,10 @@ const dynamicText: Array<[RegExp, (...matches: string[]) => string]> = [
   [/^(\d+) 条待审核$/, (_, count) => `${count} pending`],
   [
     /^显示 (\d+) 条待审核记录$/,
-    (_, count) => `Showing ${count} pending records`,
+    (_, count) =>
+      `Showing ${count} pending record${count === "1" ? "" : "s"}`,
   ],
+  [/^打开(.*)的用户信息$/, (_, name) => `Open ${name}'s profile`],
   [/^涉及 (\d+) 名学生$/, (_, count) => `${count} students involved`],
   [/^显示 (\d+) 条申请$/, (_, count) => `Showing ${count} applications`],
   [/^共 (\d+) 条申请$/, (_, count) => `${count} applications in total`],
@@ -1931,7 +1939,8 @@ const dynamicText: Array<[RegExp, (...matches: string[]) => string]> = [
   ],
   [
     /^共 (\d+) 条记录；(.*)$/,
-    (_, count, rest) => `Total ${count} records; ${translateText(rest)}`,
+    (_, count, rest) =>
+      `Total ${count} record${count === "1" ? "" : "s"}; ${translateText(rest)}`,
   ],
   [/^处理 (.*)$/, (_, value) => `Manage ${value}`],
   [
@@ -1971,9 +1980,13 @@ const dynamicText: Array<[RegExp, (...matches: string[]) => string]> = [
   ],
   [
     /^(.*) 条相同学号记录$/,
-    (_, count) => `${count} records with the same student number`,
+    (_, count) =>
+      `${count} record${count === "1" ? "" : "s"} with the same student number`,
   ],
-  [/^(.*) 条课程成员记录$/, (_, count) => `${count} class-member records`],
+  [
+    /^(.*) 条课程成员记录$/,
+    (_, count) => `${count} class-member record${count === "1" ? "" : "s"}`,
+  ],
 ];
 
 function translateToEnglish(value: string) {
