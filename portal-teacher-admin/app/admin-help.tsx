@@ -4,7 +4,13 @@ import { useEffect, useState } from "react";
 import { AppSelect } from "./app-select";
 import { pageItems } from "./admin-domain";
 import { adminCopy, adminLabel } from "./admin-i18n";
-import { saveHelpArticle, transitionHelpArticle } from "./admin-service";
+import {
+  adminApiErrorText,
+  listHelpArticleProjections,
+  saveHelpArticle,
+  transitionHelpArticle,
+  type HelpArticleProjection,
+} from "./admin-service";
 import { useAdminStore } from "./admin-store";
 import type { AdminLocale, HelpArticle, HelpArticleInput, HelpArticleStatus } from "./admin-types";
 import { AdminBadge, AdminConfirm, AdminDialog, AdminEmpty, AdminField, AdminInlineError, AdminPagination, AdminSectionHeading, formatAdminDate, type AdminTone } from "./admin-components";
@@ -76,7 +82,7 @@ function ArticleDialog({ locale, article, close }: { locale: AdminLocale; articl
   );
 }
 
-export function AdminHelp({ locale }: { locale: AdminLocale }) {
+function DemoAdminHelp({ locale }: { locale: AdminLocale }) {
   const { state, busyKey, run } = useAdminStore();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<HelpFilter>("all");
@@ -120,6 +126,90 @@ export function AdminHelp({ locale }: { locale: AdminLocale }) {
       </section>
       {editing && <ArticleDialog locale={locale} article={editing === "new" ? undefined : editing} close={() => setEditing(null)} />}
       {transition && <AdminConfirm locale={locale} title={adminCopy(locale, transition.nextStatus === "published" ? "publish" : "take_offline")} description={transition.nextStatus === "published" ? adminCopy(locale, "help_audience") : adminCopy(locale, "article_archived")} close={() => setTransition(null)} confirm={() => void confirmTransition()} confirmLabel={adminCopy(locale, transition.nextStatus === "published" ? "publish" : "take_offline")} busy={busyKey === transitionKey} danger={transition.nextStatus === "archived"}><div className="admin-confirm-object"><b>{locale === "en" ? transition.article.titleEn : transition.article.titleZh}</b><span>{adminLabel(locale, "helpStatus", transition.article.status)} → {adminLabel(locale, "helpStatus", transition.nextStatus)}</span></div></AdminConfirm>}
+    </div>
+  );
+}
+
+export function AdminHelp({ locale }: { locale: AdminLocale }) {
+  const { mode } = useAdminStore();
+  return mode === "real" ? (
+    <PublishedHelpArticles locale={locale} />
+  ) : (
+    <DemoAdminHelp locale={locale} />
+  );
+}
+
+function PublishedHelpArticles({ locale }: { locale: AdminLocale }) {
+  const [items, setItems] = useState<HelpArticleProjection[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    setLoadError("");
+    try {
+      setItems(await listHelpArticleProjections(locale === "en" ? "en" : "zh-CN"));
+    } catch (failure) {
+      setLoadError(adminApiErrorText(failure, locale));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    void listHelpArticleProjections(locale === "en" ? "en" : "zh-CN")
+      .then((next) => {
+        if (active) setItems(next);
+      })
+      .catch((failure) => {
+        if (active) setLoadError(adminApiErrorText(failure, locale));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [locale]);
+
+  const query = search.trim().toLocaleLowerCase();
+  const filtered = items.filter((item) =>
+    !query || [item.title, item.bodyMarkdown, item.category].join(" ").toLocaleLowerCase().includes(query),
+  );
+
+  return (
+    <div className="admin-page-stack">
+      <aside className="admin-planned-banner">
+        {locale === "zh"
+          ? "当前客户端合同只能读取已发布帮助文章；创建、编辑、下线属于合同外管理流程。此页面不会把浏览器本地草稿伪装成正式帮助内容。"
+          : "The client contract can read published help only. Authoring and publication remain outside this client API, so local drafts are never presented as official content."}
+      </aside>
+      <section className="admin-surface admin-table-surface">
+        <AdminSectionHeading
+          title={adminCopy(locale, "help_articles")}
+          description={locale === "zh" ? "服务端已发布内容（只读）" : "Published server content (read-only)"}
+          action={<button className="text-button" type="button" onClick={() => void load()}>{locale === "zh" ? "刷新" : "Refresh"}</button>}
+        />
+        <div className="admin-filter-row">
+          <label className="admin-search"><span aria-hidden="true">⌕</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={adminCopy(locale, "help_search")} /></label>
+        </div>
+        <AdminInlineError message={loadError} />
+        {loading ? null : filtered.length === 0 ? <AdminEmpty locale={locale} filtered={Boolean(search)} /> : (
+          <div className="admin-article-list">
+            {filtered.map((article) => (
+              <article key={article.id}>
+                <div>
+                  <span><AdminBadge tone="green">PUBLISHED</AdminBadge><small>{categoryLabel(locale, article.category)} · {formatAdminDate(locale, article.publishedAt, true)}</small></span>
+                  <h3>{article.title}</h3>
+                  <p style={{ whiteSpace: "pre-wrap" }}>{article.bodyMarkdown}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

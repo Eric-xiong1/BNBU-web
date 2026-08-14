@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
-  Download,
   FileSpreadsheet,
   RefreshCw,
   Search,
@@ -13,11 +12,12 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppSelect } from "./app-select";
+import { apiErrorText } from "./api-client";
 import {
   rosterReconciliationService,
   parseOfficialRosterFile,
   validateOfficialRosterFile,
-} from "./roster-reconciliation-service";
+} from "./roster-reconciliation-api-service";
 import {
   ROSTER_IMPORT_FIELDS,
   RosterReconciliationStatus,
@@ -26,7 +26,6 @@ import {
   type PlatformCourseMember,
   type RosterCourseReference,
   type RosterFieldMapping,
-  type RosterImportConflictStrategy,
   type RosterImportField,
   type RosterReconciliationBundle,
   type RosterReconciliationResult,
@@ -42,50 +41,35 @@ import {
 
 const STATUS_LABELS: Record<RosterReconciliationStatus, string> = {
   MATCHED: "已正确加入",
-  NOT_JOINED: "未加入课程",
+  MISSING_IN_PLATFORM: "未加入课程",
+  EXTRA_IN_PLATFORM: "非官方名单成员",
   WRONG_COURSE: "加错课程",
-  NOT_IN_OFFICIAL_ROSTER: "非官方名单成员",
-  INFO_MISMATCH: "信息不一致",
-  POSSIBLE_MATCH: "疑似匹配",
-  DUPLICATE: "重复记录",
-  PENDING_CONFIRMATION: "待人工确认",
-  RESOLVED: "已处理",
+  IDENTITY_CONFLICT: "信息不一致",
+  DUPLICATED: "重复记录",
 };
 
 const RESOLUTION_LABELS: Record<RosterResolutionStatus, string> = {
   PENDING: "待确认",
   CONFIRMED: "已确认",
   RESOLVED: "已处理",
-};
-
-const OPERATION_LABELS: Record<RosterReconciliationResult["operationLogs"][number]["action"], string> = {
-  RECONCILED: "执行名单对齐",
-  CONFIRMED: "标记为已确认",
-  RESOLVED: "标记为已处理",
-  REOPENED: "恢复为待处理",
-  NOTE_UPDATED: "更新教师备注",
+  IGNORED: "已忽略",
 };
 
 const FIELD_LABELS: Record<RosterImportField, string> = {
   studentNumber: "学号",
-  name: "姓名",
+  fullName: "姓名",
   gender: "性别",
-  grade: "年级",
-  major: "专业",
-  administrativeClass: "行政班",
-  courseName: "课程名称",
-  courseCode: "课程代码",
-  teachingClassCode: "教学班编号",
+  gradeYear: "入学年份",
+  collegeName: "学院",
+  majorName: "专业",
+  administrativeClassName: "行政班",
 };
 
 const DIFFERENCE_LABELS: Record<RosterReconciliationResult["differences"][number]["field"], string> = {
-  studentNumber: "学号",
-  name: "姓名",
-  gender: "性别",
-  grade: "年级",
-  major: "专业",
-  administrativeClass: "行政班",
-  course: "课程",
+  FULL_NAME: "姓名",
+  GENDER: "性别",
+  GRADE_YEAR: "入学年份",
+  CLASS_SECTION: "教学班",
 };
 
 const PAGE_SIZE = 8;
@@ -94,8 +78,8 @@ type StatusFilter = "ALL" | "OTHER" | RosterReconciliationStatus;
 
 function statusTone(status: RosterReconciliationStatus) {
   if (status === RosterReconciliationStatus.MATCHED) return "success";
-  if (status === RosterReconciliationStatus.NOT_JOINED || status === RosterReconciliationStatus.POSSIBLE_MATCH) return "warning";
-  if (status === RosterReconciliationStatus.WRONG_COURSE || status === RosterReconciliationStatus.DUPLICATE) return "danger";
+  if (status === RosterReconciliationStatus.MISSING_IN_PLATFORM) return "warning";
+  if (status === RosterReconciliationStatus.WRONG_COURSE || status === RosterReconciliationStatus.DUPLICATED) return "danger";
   return "neutral";
 }
 
@@ -118,17 +102,11 @@ function importErrorMessage(error: unknown) {
     FILE_TOO_LARGE: "文件过大，请将名单控制在 10 MB 以内。",
     FILE_PARSE_FAILED: "文件解析失败，请检查文件是否损坏或受密码保护。",
     MISSING_STUDENT_NUMBER_FIELD: "缺少必填字段：学号。",
+    MISSING_FULL_NAME_FIELD: "缺少必填字段：姓名。",
+    ROW_LIMIT_EXCEEDED: "名单超过 10,000 行，请拆分或整理后重新导入。",
+    ROSTER_IMPORT_FAILED: "后端未接受该名单版本，请根据校验结果修正文件后重试。",
   };
-  return messages[code] ?? "导入失败，请检查文件后重试。";
-}
-
-function downloadBlob(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = fileName;
-  anchor.click();
-  URL.revokeObjectURL(url);
+  return messages[code] ?? apiErrorText(error);
 }
 
 type RosterReconciliationPageProps = {
@@ -159,7 +137,6 @@ export function RosterReconciliationPage({
   const [courseFilter, setCourseFilter] = useState("ALL");
   const [sort, setSort] = useState<"ATTENTION" | "STUDENT_NUMBER" | "NAME" | "UPDATED_AT">("ATTENTION");
   const [page, setPage] = useState(1);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<RosterReconciliationResult | null>(null);
 
   const context = useMemo(() => ({ course, courses, platformMembers }), [course, courses, platformMembers]);
@@ -168,14 +145,9 @@ export function RosterReconciliationPage({
     setLoading(true);
     setError("");
     try {
-      const loaded = await rosterReconciliationService.getBundle(course.id);
-      if (loaded.currentRoster) {
-        setBundle(await rosterReconciliationService.reconcile(context));
-      } else {
-        setBundle(loaded);
-      }
-    } catch {
-      setError("名单对齐数据加载失败，请重试。");
+      setBundle(await rosterReconciliationService.getBundle(course.id, context));
+    } catch (loadError) {
+      setError(apiErrorText(loadError));
     } finally {
       setLoading(false);
     }
@@ -194,7 +166,7 @@ export function RosterReconciliationPage({
         const student = primaryStudent(result);
         const matchesSearch = !query || student.name.toLocaleLowerCase().includes(query) || student.studentNumber.toLocaleLowerCase().includes(query);
         const primaryStatus = result.status === RosterReconciliationStatus.MATCHED
-          || result.status === RosterReconciliationStatus.NOT_JOINED
+          || result.status === RosterReconciliationStatus.MISSING_IN_PLATFORM
           || result.status === RosterReconciliationStatus.WRONG_COURSE;
         const matchesStatus = statusFilter === "ALL"
           || (statusFilter === "OTHER" ? !primaryStatus : result.status === statusFilter);
@@ -219,13 +191,10 @@ export function RosterReconciliationPage({
 
   const resetResultNavigation = () => {
     setPage(1);
-    setSelectedIds(new Set());
   };
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const pageAllSelected = pageRows.length > 0 && pageRows.every((result) => selectedIds.has(result.id));
-
   const runReconciliation = async () => {
     if (!bundle?.currentRoster || reconciling) return;
     setReconciling(true);
@@ -233,36 +202,33 @@ export function RosterReconciliationPage({
     try {
       const next = await rosterReconciliationService.reconcile(context);
       setBundle(next);
-      setSelectedIds(new Set());
-      showToast("对齐完成；结果已保存到当前前端演示会话，尚未写入服务器。");
-    } catch {
-      setError("重新对齐失败，请检查网络后重试。");
+      showToast("后端名单核对已完成，并生成新的不可变核对修订。");
+    } catch (reconcileError) {
+      setError(apiErrorText(reconcileError));
     } finally {
       setReconciling(false);
     }
   };
 
-  const updateResolution = async (ids: string[], status: RosterResolutionStatus) => {
+  const updateResolution = async (
+    ids: string[],
+    status: RosterResolutionStatus,
+    reason: string,
+  ) => {
     if (!canManage || ids.length === 0) return;
     try {
-      const next = await rosterReconciliationService.updateResolution(course.id, ids, status);
+      const next = await rosterReconciliationService.updateResolution(
+        course.id,
+        ids,
+        status,
+        reason,
+      );
       setBundle(next);
-      setSelectedIds(new Set());
       setDetail((current) => current ? next.results.find((item) => item.id === current.id) ?? null : null);
-      showToast("处理状态已保存在当前前端演示会话，尚未写入服务器。");
-    } catch {
-      setError("处理状态更新失败，请重试。");
-    }
-  };
-
-  const exportResults = async () => {
-    try {
-      const ids = selectedIds.size > 0 ? [...selectedIds] : filtered.map((result) => result.id);
-      const blob = await rosterReconciliationService.exportResults(course.id, ids);
-      downloadBlob(blob, `${course.code}-${course.teachingClassCode}-名单对齐结果.csv`);
-      showToast("已导出当前筛选结果。");
-    } catch {
-      setError("导出失败，请重试。");
+      showToast(status === RosterResolutionStatus.CONFIRMED ? "已由后端记录确认原因。" : "已由后端重新打开该核对结果。");
+    } catch (resolutionError) {
+      setError(apiErrorText(resolutionError));
+      throw resolutionError;
     }
   };
 
@@ -291,11 +257,11 @@ export function RosterReconciliationPage({
         <div className="roster-empty-import">
           <span><FileSpreadsheet aria-hidden="true" /></span>
           <h2>尚未导入官方名单</h2>
-          <p>导入学校提供的 Excel 或 CSV 名单后，系统会按学号自动比对当前课程成员。</p>
+          <p>导入学校提供的 Excel 或 CSV 名单后，后端会校验并创建不可变名单版本；教师确认后再运行名单核对。</p>
           <button className="primary-button" type="button" disabled={!canManage} onClick={() => setImportOpen(true)}><Upload size={17} aria-hidden="true" />导入官方名单</button>
-          <small>当前为前端 Mock 服务；导入内容仅保存在本次浏览器会话，不会写入学校服务器。</small>
+          <small>文件和字段映射将提交到真实后端；导入不会直接增删课程成员。</small>
         </div>
-        {importOpen && <RosterImportDialog course={course} currentBundle={bundle} context={context} onClose={() => setImportOpen(false)} onImported={(next) => { setBundle(next); setImportOpen(false); showToast("导入成功并完成对齐；数据仅保存在当前前端演示会话。"); }} />}
+        {importOpen && <RosterImportDialog course={course} currentBundle={bundle} onClose={() => setImportOpen(false)} onImported={(next) => { setBundle(next); setImportOpen(false); showToast("后端已创建并验证新的官方名单版本；请点击“运行核对”生成结果。"); }} />}
       </section>
     );
   }
@@ -305,16 +271,15 @@ export function RosterReconciliationPage({
     <section className="roster-reconciliation-page">
       <RosterHeader course={course} onBack={onBack}>
         <button className="secondary-button" type="button" disabled={reconciling || !canManage} onClick={() => void runReconciliation()}>
-          <RefreshCw size={16} className={reconciling ? "is-spinning" : ""} aria-hidden="true" />{reconciling ? "正在对齐" : "重新对齐"}
+          <RefreshCw size={16} className={reconciling ? "is-spinning" : ""} aria-hidden="true" />{reconciling ? "正在核对" : results.length > 0 ? "重新核对" : "运行核对"}
         </button>
         <button className="secondary-button" type="button" disabled={!canManage} onClick={() => setImportOpen(true)}><Upload size={16} aria-hidden="true" />导入官方名单</button>
-        <button className="primary-button" type="button" disabled={filtered.length === 0 || !canManage} onClick={() => void exportResults()}><Download size={16} aria-hidden="true" />导出结果</button>
       </RosterHeader>
 
       <section className="roster-version-strip" aria-label="名单版本和更新时间">
-        <div><span>当前名单版本</span><b>v{bundle.currentRoster.version.versionNumber} · {bundle.currentRoster.version.fileName}</b></div>
+        <div><span>当前名单版本</span><b>v{bundle.currentRoster.version.versionNumber} · {bundle.currentRoster.version.status}</b></div>
         <div><span>官方名单更新时间</span><time>{bundle.currentRoster.version.importedAt}</time></div>
-        <div><span>平台名单更新时间</span><time>{bundle.platformUpdatedAt ?? "—"}</time></div>
+        <div><span>名单有效 / 异常</span><b>{bundle.currentRoster.version.validRows} / {bundle.currentRoster.version.invalidRows + bundle.currentRoster.version.duplicatedRows}</b></div>
         <div><span>最近一次对齐</span><time>{stats.lastReconciledAt ?? "—"}</time></div>
       </section>
 
@@ -324,18 +289,16 @@ export function RosterReconciliationPage({
         <RosterStatCard label="官方名单总人数" value={stats.officialTotal} selected={statusFilter === "ALL"} onClick={() => selectStatus("ALL")} />
         <RosterStatCard label="平台当前人数" value={stats.platformTotal} selected={false} onClick={() => { setCourseFilter(course.id); selectStatus("ALL"); }} />
         <RosterStatCard label="已正确加入人数" value={stats.matched} tone="success" selected={statusFilter === RosterReconciliationStatus.MATCHED} onClick={() => selectStatus(RosterReconciliationStatus.MATCHED)} />
-        <RosterStatCard label="未加入人数" value={stats.notJoined} tone="warning" selected={statusFilter === RosterReconciliationStatus.NOT_JOINED} onClick={() => selectStatus(RosterReconciliationStatus.NOT_JOINED)} />
+        <RosterStatCard label="未加入人数" value={stats.notJoined} tone="warning" selected={statusFilter === RosterReconciliationStatus.MISSING_IN_PLATFORM} onClick={() => selectStatus(RosterReconciliationStatus.MISSING_IN_PLATFORM)} />
         <RosterStatCard label="加错课程人数" value={stats.wrongCourse} tone="danger" selected={statusFilter === RosterReconciliationStatus.WRONG_COURSE} onClick={() => selectStatus(RosterReconciliationStatus.WRONG_COURSE)} />
         <RosterStatCard label="其他异常人数" value={stats.otherExceptions} tone="neutral" selected={statusFilter === "OTHER"} onClick={() => selectStatus("OTHER")} />
       </section>
 
       <ManagementTableLayout
         toolbar={
-          <FilterToolbar ariaLabel="名单对齐筛选工具栏" action={
-            selectedIds.size > 0 ? <div className="roster-batch-actions"><span>已选择 {selectedIds.size} 条</span><button type="button" onClick={() => void updateResolution([...selectedIds], RosterResolutionStatus.CONFIRMED)}>批量确认</button><button type="button" onClick={() => void updateResolution([...selectedIds], RosterResolutionStatus.RESOLVED)}>批量标记已处理</button></div> : undefined
-          }>
+          <FilterToolbar ariaLabel="名单对齐筛选工具栏">
             <label className="search-field roster-search"><Search size={16} aria-hidden="true" /><input value={search} onChange={(event) => { setSearch(event.target.value); resetResultNavigation(); }} placeholder="搜索姓名或学号" /></label>
-            <AppSelect className="roster-filter-select" label="对齐状态" value={statusFilter} options={[{ value: "ALL", label: "全部对齐状态" }, { value: "OTHER", label: "其他异常" }, ...Object.values(RosterReconciliationStatus).slice(0, 7).map((status) => ({ value: status, label: STATUS_LABELS[status] }))]} onChange={(value) => { if (value) { setStatusFilter(value as StatusFilter); resetResultNavigation(); } }} />
+            <AppSelect className="roster-filter-select" label="对齐状态" value={statusFilter} options={[{ value: "ALL", label: "全部对齐状态" }, { value: "OTHER", label: "其他异常" }, ...Object.values(RosterReconciliationStatus).map((status) => ({ value: status, label: STATUS_LABELS[status] }))]} onChange={(value) => { if (value) { setStatusFilter(value as StatusFilter); resetResultNavigation(); } }} />
             <AppSelect className="roster-filter-select" label="处理状态" value={resolutionFilter} options={[{ value: "ALL", label: "全部处理状态" }, ...Object.values(RosterResolutionStatus).map((status) => ({ value: status, label: RESOLUTION_LABELS[status] }))]} onChange={(value) => { if (value) { setResolutionFilter(value as typeof resolutionFilter); resetResultNavigation(); } }} />
             <AppSelect className="roster-filter-select" label="课程筛选" value={courseFilter} options={[{ value: "ALL", label: "全部相关课程" }, ...courses.map((item) => ({ value: item.id, label: formatCourse(item) }))]} onChange={(value) => { if (value) { setCourseFilter(String(value)); resetResultNavigation(); } }} />
             <AppSelect className="roster-filter-select" label="排序" value={sort} options={[{ value: "ATTENTION", label: "待处理优先" }, { value: "STUDENT_NUMBER", label: "按学号" }, { value: "NAME", label: "按姓名" }, { value: "UPDATED_AT", label: "最近更新" }]} onChange={(value) => { if (value) { setSort(value as typeof sort); resetResultNavigation(); } }} />
@@ -347,7 +310,6 @@ export function RosterReconciliationPage({
           {filtered.length === 0 ? <div className="roster-table-empty"><Check aria-hidden="true" /><h3>没有符合筛选条件的记录</h3><p>调整搜索或筛选条件后再试。</p></div> : <>
             <DataTable className="roster-reconciliation-table" minWidth={1460}>
               <thead><tr>
-                <th className="roster-check-column"><input type="checkbox" checked={pageAllSelected} onChange={() => setSelectedIds((current) => { const next = new Set(current); pageRows.forEach((result) => pageAllSelected ? next.delete(result.id) : next.add(result.id)); return next; })} aria-label="选择当前页全部记录" /></th>
                 <th>学号</th><th>姓名</th><th>官方课程</th><th>当前加入课程</th><th>官方信息</th><th>平台信息</th><th>对齐状态</th><th>差异说明</th><th>处理状态</th><th className="action-column">操作</th>
               </tr></thead>
               <tbody>{pageRows.map((result) => {
@@ -355,7 +317,6 @@ export function RosterReconciliationPage({
                 const officialCourse = courses.find((item) => item.id === result.officialStudent?.courseId);
                 const platformCourse = courses.find((item) => item.id === result.platformMember?.courseId);
                 return <tr key={result.id} className={result.status === RosterReconciliationStatus.MATCHED ? "is-matched-row" : ""}>
-                  <td><input type="checkbox" checked={selectedIds.has(result.id)} onChange={() => setSelectedIds((current) => { const next = new Set(current); if (next.has(result.id)) next.delete(result.id); else next.add(result.id); return next; })} aria-label={`选择 ${student.name}`} /></td>
                   <td><b className="roster-student-number" translate="no">{student.studentNumber}</b></td>
                   <td><button className="roster-student-link" type="button" onClick={() => setDetail(result)}>{student.name}</button></td>
                   <td>{formatCourse(officialCourse)}</td><td>{formatCourse(platformCourse)}</td>
@@ -366,9 +327,6 @@ export function RosterReconciliationPage({
                   <td><span className={`resolution-status is-${result.resolutionStatus.toLocaleLowerCase()}`}>{RESOLUTION_LABELS[result.resolutionStatus]}</span></td>
                   <td className="action-column"><TableActionMenu iconOnly label={`处理 ${student.name}`}>
                     <TableActionMenuItem onClick={() => setDetail(result)}>查看差异详情</TableActionMenuItem>
-                    <TableActionMenuItem disabled={!canManage} onClick={() => void updateResolution([result.id], RosterResolutionStatus.CONFIRMED)}>标记为已确认</TableActionMenuItem>
-                    <TableActionMenuItem disabled={!canManage} onClick={() => void updateResolution([result.id], RosterResolutionStatus.RESOLVED)}>标记为已处理</TableActionMenuItem>
-                    <TableActionMenuItem disabled={!canManage} onClick={() => void updateResolution([result.id], RosterResolutionStatus.PENDING)}>恢复为待处理</TableActionMenuItem>
                   </TableActionMenu></td>
                 </tr>;
               })}</tbody>
@@ -378,8 +336,8 @@ export function RosterReconciliationPage({
         </section>
       </ManagementTableLayout>
 
-      {detail && <RosterDetailDrawer result={detail} courses={courses} canManage={canManage} onClose={() => setDetail(null)} onResolution={(status) => void updateResolution([detail.id], status)} onSaveNote={async (note) => { const next = await rosterReconciliationService.saveTeacherNote(course.id, detail.id, note); setBundle(next); setDetail(next.results.find((result) => result.id === detail.id) ?? null); showToast("教师备注已保存在当前前端演示会话，尚未写入服务器。"); }} />}
-      {importOpen && <RosterImportDialog course={course} currentBundle={bundle} context={context} onClose={() => setImportOpen(false)} onImported={(next) => { setBundle(next); setImportOpen(false); showToast("导入成功并完成对齐；数据仅保存在当前前端演示会话。"); }} />}
+      {detail && <RosterDetailDrawer result={detail} courses={courses} canManage={canManage} onClose={() => setDetail(null)} onResolution={(status, reason) => updateResolution([detail.id], status, reason)} />}
+      {importOpen && <RosterImportDialog course={course} currentBundle={bundle} onClose={() => setImportOpen(false)} onImported={(next) => { setBundle(next); setImportOpen(false); showToast("后端已创建并验证新的官方名单版本；请运行核对生成最新结果。"); }} />}
     </section>
   );
 }
@@ -405,12 +363,29 @@ function RosterIdentitySummary({ name, gender, grade }: { name?: string; gender?
   return <span className="roster-identity-summary"><b>{name ?? "—"}</b><small>{[gender, grade].filter(Boolean).join(" · ") || "—"}</small></span>;
 }
 
-function RosterDetailDrawer({ result, courses, canManage, onClose, onResolution, onSaveNote }: { result: RosterReconciliationResult; courses: RosterCourseReference[]; canManage: boolean; onClose: () => void; onResolution: (status: RosterResolutionStatus) => void; onSaveNote: (note: string) => Promise<void> }) {
-  const [note, setNote] = useState(result.teacherNote ?? "");
+function RosterDetailDrawer({ result, courses, canManage, onClose, onResolution }: { result: RosterReconciliationResult; courses: RosterCourseReference[]; canManage: boolean; onClose: () => void; onResolution: (status: RosterResolutionStatus, reason: string) => Promise<void> }) {
+  const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState("");
   const student = primaryStudent(result);
   const officialCourse = courses.find((course) => course.id === result.officialStudent?.courseId);
   const platformCourse = courses.find((course) => course.id === result.platformMember?.courseId);
+  const submitResolution = async (status: RosterResolutionStatus) => {
+    if (!reason.trim()) {
+      setActionError("请填写本次确认或重新打开的原因。");
+      return;
+    }
+    setSaving(true);
+    setActionError("");
+    try {
+      await onResolution(status, reason);
+      setReason("");
+    } catch {
+      setActionError("后端未接受本次处理，请查看页面错误信息后重试。");
+    } finally {
+      setSaving(false);
+    }
+  };
   return <div className="modal-backdrop roster-drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="modal teacher-dialog review-drawer roster-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="roster-detail-title">
       <div className="modal-head"><div><span className="eyebrow">差异详情</span><h2 id="roster-detail-title">{student.name} · {student.studentNumber}</h2><p>系统判定依据与教师处理记录</p></div><button className="icon-button" type="button" aria-label="关闭差异详情" onClick={onClose}><X aria-hidden="true" /></button></div>
@@ -421,21 +396,21 @@ function RosterDetailDrawer({ result, courses, canManage, onClose, onResolution,
           <section><h3>平台学生信息</h3><dl><div><dt>学号</dt><dd translate="no">{result.platformMember?.studentNumber ?? "—"}</dd></div><div><dt>姓名</dt><dd>{result.platformMember?.name ?? "—"}</dd></div><div><dt>性别</dt><dd>{result.platformMember?.gender ?? "—"}</dd></div><div><dt>年级</dt><dd>{result.platformMember?.grade ?? "—"}</dd></div><div><dt>当前加入课程</dt><dd>{formatCourse(platformCourse)}</dd></div></dl></section>
         </div>
         <section className="roster-difference-list"><h3>差异字段</h3>{result.differences.length === 0 ? <p>主要身份字段无差异。</p> : result.differences.map((difference, index) => <div key={`${difference.field}-${index}`}><b>{DIFFERENCE_LABELS[difference.field]}</b><span>官方：{difference.officialValue ?? "—"}</span><span>平台：{difference.platformValue ?? "—"}</span></div>)}</section>
-        <label className="roster-note-field"><span>教师备注</span><textarea rows={4} value={note} onChange={(event) => setNote(event.target.value)} maxLength={500} placeholder="记录核实情况或后续处理计划" /><small>{note.length} / 500</small></label>
-        <section className="roster-operation-log"><h3>最近操作记录</h3>{result.operationLogs.slice(0, 5).map((log) => <div key={log.id}><span>{log.actorName}</span><b>{OPERATION_LABELS[log.action]}</b><time>{log.createdAt}</time>{log.detail && <p>{log.detail}</p>}</div>)}</section>
-        <section className="roster-future-actions"><h3>后续操作（等待真实后端）</h3><div><button type="button" disabled>通知学生</button><button type="button" disabled>调整到正确课程</button><button type="button" disabled>从当前课程移除</button><button type="button" disabled>修改平台信息</button></div><p>这些操作尚未接入服务器，不会伪造处理成功。调整课程或移除成员上线前必须增加对象、范围和不可逆风险的二次确认。</p></section>
+        {result.teacherNote && <section className="roster-operation-log"><h3>后端最近处理说明</h3><p>{result.teacherNote}</p></section>}
+        <label className="roster-note-field"><span>本次处理原因</span><textarea rows={4} value={reason} onChange={(event) => setReason(event.target.value)} maxLength={1000} placeholder="必填；说明核实依据。该原因会写入后端审计与处理历史。" /><small>{reason.length} / 1000</small></label>
+        {actionError && <p className="form-error" role="alert">{actionError}</p>}
+        <section className="roster-future-actions"><h3>受合同约束的处理范围</h3><p>当前页面仅开放后端已支持的“确认异常”和“重新打开”。“已处理”必须附带可追溯证据引用；现有页面尚不能安全采集该证据，因此不会显示伪造入口。完整历史可在审计日志中查询。</p></section>
       </div>
-      <div className="modal-footer"><button className="secondary-button" type="button" disabled={!canManage} onClick={() => onResolution(RosterResolutionStatus.PENDING)}>恢复待处理</button><button className="secondary-button" type="button" disabled={!canManage || saving} onClick={() => { setSaving(true); void onSaveNote(note).finally(() => setSaving(false)); }}>{saving ? "正在保存" : "保存备注"}</button><button className="secondary-button" type="button" disabled={!canManage} onClick={() => onResolution(RosterResolutionStatus.CONFIRMED)}>标记已确认</button><button className="primary-button" type="button" disabled={!canManage} onClick={() => onResolution(RosterResolutionStatus.RESOLVED)}>标记已处理</button></div>
+      <div className="modal-footer"><button className="secondary-button" type="button" onClick={onClose}>关闭</button>{(result.resolutionStatus === RosterResolutionStatus.RESOLVED || result.resolutionStatus === RosterResolutionStatus.IGNORED) && <button className="secondary-button" type="button" disabled={!canManage || saving} onClick={() => void submitResolution(RosterResolutionStatus.PENDING)}>{saving ? "正在提交" : "重新打开"}</button>}{result.status !== RosterReconciliationStatus.MATCHED && result.resolutionStatus === RosterResolutionStatus.PENDING && <button className="primary-button" type="button" disabled={!canManage || saving} onClick={() => void submitResolution(RosterResolutionStatus.CONFIRMED)}>{saving ? "正在提交" : "确认该异常"}</button>}</div>
     </section>
   </div>;
 }
 
-function RosterImportDialog({ course, currentBundle, context, onClose, onImported }: { course: RosterCourseReference; currentBundle: RosterReconciliationBundle; context: { course: RosterCourseReference; courses: RosterCourseReference[]; platformMembers: PlatformCourseMember[] }; onClose: () => void; onImported: (bundle: RosterReconciliationBundle) => void }) {
+function RosterImportDialog({ course, currentBundle, onClose, onImported }: { course: RosterCourseReference; currentBundle: RosterReconciliationBundle; onClose: () => void; onImported: (bundle: RosterReconciliationBundle) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [parsed, setParsed] = useState<ParsedRosterFile | null>(null);
   const [mapping, setMapping] = useState<RosterFieldMapping | null>(null);
   const [validation, setValidation] = useState<ValidatedRosterImport | null>(null);
-  const [strategy, setStrategy] = useState<RosterImportConflictStrategy>("NEW_VERSION");
   const [parsing, setParsing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
@@ -473,9 +448,8 @@ function RosterImportDialog({ course, currentBundle, context, onClose, onImporte
     setImporting(true);
     setError("");
     try {
-      const next = await rosterReconciliationService.importOfficialRoster({ course, parsed, mapping, importedBy: "陈若宁", conflictStrategy: strategy });
-      const reconciled = next.currentRoster && next.results.length === 0 ? await rosterReconciliationService.reconcile(context) : next;
-      onImported(reconciled);
+      const next = await rosterReconciliationService.importOfficialRoster({ course, parsed, mapping });
+      onImported(next);
     } catch (nextError) {
       setError(importErrorMessage(nextError));
     } finally {
@@ -493,17 +467,17 @@ function RosterImportDialog({ course, currentBundle, context, onClose, onImporte
         {parsed && !validation && mapping && <>
           <section className="roster-file-summary"><FileSpreadsheet aria-hidden="true" /><div><h3>{parsed.fileName}</h3><p>{parsed.sheetName} · {parsed.totalRows} 行数据</p></div><button className="text-button" type="button" onClick={() => { setParsed(null); setMapping(null); }}>更换文件</button></section>
           <section className="roster-preview-section"><div><h3>数据预览</h3><p>显示前 {parsed.previewRows.length} 行；确认表头和学号前导零是否正确。</p></div><DataTable minWidth={Math.max(720, parsed.headers.length * 150)}><thead><tr>{parsed.headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{parsed.previewRows.map((row, index) => <tr key={index}>{parsed.headers.map((header) => <td key={header} translate={mapping.studentNumber === header ? "no" : undefined}>{row[header] || "—"}</td>)}</tr>)}</tbody></DataTable></section>
-          <section className="roster-mapping-section"><div><h3>字段映射</h3><p>系统已自动识别常见表头。学号为必填核心匹配字段，姓名仅用于辅助校验。</p></div><div className="roster-mapping-grid">{ROSTER_IMPORT_FIELDS.map((field) => <AppSelect key={field} label={`${FIELD_LABELS[field]}${field === "studentNumber" ? " *" : ""}`} value={mapping[field] ?? ""} options={[{ value: "", label: "不导入此字段" }, ...parsed.headers.map((header) => ({ value: header, label: header }))]} onChange={(value) => setMapping((current) => current ? { ...current, [field]: value ? String(value) : null } : current)} />)}</div></section>
+          <section className="roster-mapping-section"><div><h3>字段映射</h3><p>字段名与后端合同一致；学号和姓名均为必填字段，最终校验结果以后端为准。</p></div><div className="roster-mapping-grid">{ROSTER_IMPORT_FIELDS.map((field) => <AppSelect key={field} label={`${FIELD_LABELS[field]}${field === "studentNumber" || field === "fullName" ? " *" : ""}`} value={mapping[field] ?? ""} options={[{ value: "", label: "不导入此字段" }, ...parsed.headers.map((header) => ({ value: header, label: header }))]} onChange={(value) => setMapping((current) => current ? { ...current, [field]: value ? String(value) : null } : current)} />)}</div></section>
         </>}
         {validation && parsed && <>
           <section className="roster-validation-summary"><div className="is-success"><span>有效数据</span><b>{validation.validRows}</b></div><div className={validation.invalidRows > 0 ? "is-warning" : ""}><span>异常数据</span><b>{validation.invalidRows}</b></div><div><span>总数据行</span><b>{validation.totalRows}</b></div></section>
           {validation.errors.length > 0 && <section className="roster-validation-errors"><h3>异常数据</h3><p>异常行不会导入；重复学号的所有相关记录需要先在源文件中确认。</p><div>{validation.errors.slice(0, 12).map((item) => <span key={`${item.rowNumber}-${item.code}`}><b>第 {item.rowNumber} 行</b>{item.message}</span>)}</div>{validation.errors.length > 12 && <small>另有 {validation.errors.length - 12} 条异常未展开。</small>}</section>}
-          {currentBundle.currentRoster && <section className="roster-version-conflict"><h3>该课程已有官方名单</h3><p>当前版本为 v{currentBundle.currentRoster.version.versionNumber} · {currentBundle.currentRoster.version.fileName}。请选择本次导入方式，不会直接覆盖。</p><div><button className={strategy === "NEW_VERSION" ? "selected" : ""} type="button" onClick={() => setStrategy("NEW_VERSION")}><b>创建新版本</b><span>保留当前版本记录，并将本次名单设为最新版本。</span></button><button className={strategy === "REPLACE" ? "selected" : ""} type="button" onClick={() => setStrategy("REPLACE")}><b>替换当前官方名单</b><span>替换当前版本内容；历史版本能力仍由数据结构预留。</span></button></div></section>}
-          <aside className="roster-mock-notice"><AlertTriangle size={18} aria-hidden="true" /><p>当前使用前端 Mock Service。确认后会在本次浏览器会话中保存名单并自动重新对齐，不会修改学校服务器或真实学生成员关系。</p></aside>
+          {currentBundle.currentRoster && <section className="roster-version-conflict"><h3>该教学班已有官方名单</h3><p>当前版本为 v{currentBundle.currentRoster.version.versionNumber}。后端只允许创建新的不可变版本；历史版本会保留，本次导入验证通过后成为当前版本。</p></section>}
+          <aside className="roster-mock-notice"><AlertTriangle size={18} aria-hidden="true" /><p>确认后会把规范化 CSV 和字段映射提交到真实后端。后端负责校验、版本切换、审计与存储；该操作不会直接增删 Enrollment。</p></aside>
         </>}
         {error && <p className="form-error roster-import-error" role="alert">{error}</p>}
       </div>
-      <div className="modal-footer"><button className="secondary-button" type="button" disabled={importing} onClick={onClose}>取消导入</button>{parsed && !validation && <button className="primary-button" type="button" onClick={validate}>校验数据</button>}{validation && <button className="primary-button" type="button" disabled={importing || validation.validRows === 0} onClick={() => void confirmImport()}>{importing ? "正在导入并对齐" : "确认导入并对齐"}</button>}</div>
+      <div className="modal-footer"><button className="secondary-button" type="button" disabled={importing} onClick={onClose}>取消导入</button>{parsed && !validation && <button className="primary-button" type="button" onClick={validate}>本地预检</button>}{validation && <button className="primary-button" type="button" disabled={importing || validation.validRows === 0} onClick={() => void confirmImport()}>{importing ? "正在提交后端" : "确认创建新版本"}</button>}</div>
     </section>
   </div>;
 }

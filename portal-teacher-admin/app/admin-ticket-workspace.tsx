@@ -19,12 +19,9 @@ type Ticket = {
   replies: string[];
 };
 
-const initialTickets: Ticket[] = [
-  { id: "SR-82914", requester: "赵可心", account: "2024110261", category: "系统功能", subject: "昨晚校园跑无法提交", content: "运动完成后页面一直提示网络异常，想咨询是否可以补录。", source: "学生端", submittedAt: "今天 10:05", status: "待受理", replies: [] },
-  { id: "SR-82913", requester: "何雨桐", account: "2024110335", category: "数据与权限", subject: "免测通过后成绩状态未更新", content: "免测申请通过后，成绩页仍显示未录入，希望协助核对同步状态。", source: "学生端", submittedAt: "昨天 15:20", status: "受理中", replies: ["已受理，正在核对免测审批记录和成绩同步队列。"] },
-  { id: "SR-82909", requester: "郭思远", account: "2023110724", category: "其他咨询", subject: "校队认证抵扣如何计算", content: "想确认校队认证通过后还需完成多少课程运动。", source: "学生端", submittedAt: "昨天 11:08", status: "待受理", replies: [] },
-  { id: "SR-82902", requester: "陈若宁", account: "T2024007", category: "账户与登录", subject: "学生验证码多次验证失败", content: "学生多次尝试验证码登录后被锁定，请协助检查账号状态。", source: "教师端", submittedAt: "07-27 16:42", status: "待技术团队处理", replies: ["已定位到验证码限流规则，正在由技术团队处理。"] },
-];
+// The Backend contract does not expose a support-ticket workflow. Keep this
+// retired component empty so it can never surface or mutate browser fixtures.
+const initialTickets: Ticket[] = [];
 
 function ticketTone(status: TicketStatus) {
   if (status === "处理完成") return "green";
