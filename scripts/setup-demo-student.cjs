@@ -95,7 +95,7 @@ async function seedRecord(studentToken, enrollmentId, { sportType, description, 
   });
   const record = await api("/exercise-records", {
     method: "POST", token: studentToken,
-    body: { sessionId: session.id, creditType: "GENERAL", sportType, sportName: null, description, studentRemark: null, clientRequestId: uuid() },
+    body: { sessionId: session.id, creditType: "GENERAL", sportType, sportName: null, description, clientRequestId: uuid() },
   });
   if (psqlAvailable()) {
     psql(`BEGIN; SET LOCAL session_replication_role = replica;
@@ -109,7 +109,13 @@ COMMIT;`);
   );
   const upload = await api("/media-uploads", {
     method: "POST", token: studentToken,
-    body: { sessionId: session.id, businessPurpose: "EXERCISE_RECORD", mediaType: "IMAGE", mimeType: "image/png", fileSizeBytes: png.length, captureSource: "IN_APP_CAMERA", durationSeconds: null },
+    body: {
+      sessionId: session.id, businessPurpose: "EXERCISE_RECORD", mediaType: "IMAGE",
+      mimeType: "image/png", fileSizeBytes: png.length,
+      // Contract 1.5 起必须申报文件 SHA-256，后端会与实际上传内容比对。
+      declaredContentSha256: require("crypto").createHash("sha256").update(png).digest("hex"),
+      captureSource: "IN_APP_CAMERA", durationSeconds: null,
+    },
   });
   const put = await fetch(upload.uploadUrl, { method: upload.uploadMethod || "PUT", headers: upload.requiredHeaders || {}, body: png });
   if (!put.ok) throw new Error(`凭证上传失败（${put.status}）`);
@@ -174,8 +180,21 @@ COMMIT;`);
   const studentToken = joined.authSession.accessToken;
   console.log(`  已建号并入班：${identity.fullName} / ${studentNumber}`);
 
-  if (!psqlAvailable()) {
-    console.log("  提示：未找到本机 psql，跳过时长补齐，演示记录将不计入学时。");
+  // Contract 1.5：新学生在完成邮箱验证前不是 ACTIVE，无法开始运动会话，
+  // 学生端也会把未绑邮箱的账号拦在「完成邮箱验证」页。本地没有邮件服务
+  // （Mailpit），这里直接激活并绑定已验证的合成邮箱——仅限本地演示数据。
+  if (psqlAvailable()) {
+    const demoEmail = `demo.student.${studentNumber}@bnbu.invalid`;
+    psql(`BEGIN; SET LOCAL session_replication_role = replica;
+UPDATE users SET status = 'ACTIVE',
+  primary_email = '${demoEmail}',
+  primary_email_normalized = '${demoEmail}',
+  email_verified_at = NOW()
+WHERE id = '${joined.authSession.user.id}';
+COMMIT;`);
+    console.log("  已本地激活并绑定合成邮箱（替代 Contract 1.5 的邮箱验证，仅本地）");
+  } else {
+    console.log("  警告：未找到本机 psql，无法激活演示账号；登录可用但打卡会被 USER_STATUS_NOT_ACTIVE 拒绝。");
   }
   await seedRecord(studentToken, joined.enrollment.id, { sportType: "RUNNING", description: "晨跑 5 公里", review: true }, teacher.accessToken);
   console.log("  已生成 1 条已通过审核的打卡记录");

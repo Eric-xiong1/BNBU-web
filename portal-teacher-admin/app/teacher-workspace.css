@@ -5769,16 +5769,19 @@ button:disabled {
   padding-inline: 11px;
 }
 
-.grade-table th:nth-child(1) {
+/* These percentages were designed for the 4-column legacy grade table.
+   The 8-column server grade table must not inherit them — 86% across the
+   first four columns leaves the remaining four overlapping each other. */
+.grade-table-legacy th:nth-child(1) {
   width: 27%;
 }
-.grade-table th:nth-child(2) {
+.grade-table-legacy th:nth-child(2) {
   width: 16%;
 }
-.grade-table th:nth-child(3) {
+.grade-table-legacy th:nth-child(3) {
   width: 28%;
 }
-.grade-table th:nth-child(4) {
+.grade-table-legacy th:nth-child(4) {
   width: 15%;
 }
 

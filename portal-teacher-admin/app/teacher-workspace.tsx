@@ -3599,7 +3599,7 @@ export function TeacherWorkspace({
           }
         >
           <section className="table-surface" aria-label="服务端成绩册">
-            <DataTable className="grade-table" minWidth={1040}>
+            <DataTable className="grade-table" minWidth={1220}>
               <thead>
                 <tr>
                   <th>学生</th>
@@ -3739,7 +3739,7 @@ export function TeacherWorkspace({
         }
       >
         <section className="table-surface" aria-label="成绩册">
-          <DataTable className="grade-table" minWidth={680}>
+          <DataTable className="grade-table grade-table-legacy" minWidth={680}>
             <thead>
               <tr>
                 <th>学生</th>

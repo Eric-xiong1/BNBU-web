@@ -54,7 +54,17 @@ cd portal-teacher-admin && npm run lint
 cd portal-teacher-admin && npm test            # 29 项，含生产构建
 ```
 
-本地测试账号（全部为合成数据）：教师 `teacher.a.local.synthetic@bnbu.invalid`、管理员 `admin.local.synthetic@bnbu.invalid`（密码见 `联调环境与任务分工.md`）。造一条「待教师审核」的真实打卡记录（含照片凭证）用 [handoff/make-test-record-15.cjs](handoff/make-test-record-15.cjs)：
+本地测试账号（全部为合成数据）：教师 `teacher.a.local.synthetic@bnbu.invalid`、管理员 `admin.local.synthetic@bnbu.invalid`（密码见 `联调环境与任务分工.md`）。
+
+**学生端本地登录**：本机没有邮件服务时邮箱验证码发不出（后端会报 `SYSTEM_SERVICE_UNAVAILABLE`，这是环境限制不是 bug）。改用体验账号：
+
+```bash
+npm run demo:setup
+```
+
+之后打开学生端 → 直接登录 → 「体验账号登录」即可进入（账号走真实入班流程创建、本地激活并绑定合成邮箱，数据全部来自真实后端；重建用 `npm run demo:setup -- --force`）。
+
+造一条「待教师审核」的真实打卡记录（含照片凭证）用 [handoff/make-test-record-15.cjs](handoff/make-test-record-15.cjs)：
 
 ```bash
 node handoff/make-test-record-15.cjs "http://127.0.0.1:3000/api/v1" "<psql.exe 路径>" 5433 "<pg_migrator 密码>"
@@ -91,6 +101,11 @@ node handoff/make-test-record-15.cjs "http://127.0.0.1:3000/api/v1" "<psql.exe �
 1. **列表不翻页导致教师工作台整页拒显**：门户所有列表接口只取了后端默认第一页（20 条），名册超过 20 人时「打卡记录 × 学生名册」交叉校验必然失败，整个工作台报「无法关联学生身份资料」。已改为按合同游标（`cursor`/`limit≤100`）自动翻页取全量。成员机器上每班少于 20 人所以未暴露 —— 这是典型的「测试数据太小掩盖分页 bug」。
 2. **不可审核的记录混入待审队列**：后端会向教师返回 DRAFT（学生未提交）、CANCELLED（已取消）与 seed 造的「REVIEWED 但无审核行」探针记录；门户此前把它们全判为「待审核」，教师点击必然收到 409 版本冲突且无法解脱。已改为：队列只收 SUBMITTED/REVIEWED，无审核行的 REVIEWED 记录归入已处理。
 3. **英文句子被拆碎拼接**：JSX 把一句话分成多个文本片段逐段翻译，出现 "Showing 5 recordsPendingrecords"、"Total 1 records"（单数用复数）等。已把相关句子合并为单一文本节点并补齐整句翻译规则。**给后续开发的规矩：界面上完整的一句中文要写成一个模板字符串，不要在 JSX 里拆开插值，否则翻译器接不住。**
+
+**2026-08-15 负责人验收轮补充修复**
+
+4. **成绩管理表格右侧三列互相叠字**：旧版 4 列成绩表的列宽百分比（前四列合计 86%）被新版 8 列服务端成绩表继承，「总有效时长/最终分数/成绩状态」被压到没有宽度。已把百分比规则限定给旧表专用，新表自动布局并加宽最小宽度，1280 与 1920 宽度下实测零重叠。
+5. **学生端本地登录打通**：`npm run demo:setup` 修好并适配 Contract 1.5（新学生本地激活 + 绑定已验证合成邮箱 + 媒体申报 SHA-256），体验账号登录 → 学生主页学时进度实测可用。邮箱验证码登录仍需邮件服务（见已知限制）。
 
 **已知限制与技术债（不阻塞本版，按优先级）**
 
