@@ -97,7 +97,7 @@ node handoff/make-test-record-15.cjs "http://127.0.0.1:3000/api/v1" "<psql.exe �
 - P1 后端/合同：教师首次审核必须传 `expectedReviewVersion: 1`（学生提交时后端自动建 reviewVersion=1 的 PENDING 行），但记录投影的 `currentReview` 不含 reviewVersion —— 门户靠审核历史接口取到，链路能通，但建议后端在投影中补该字段以消除额外请求。
 - P1 环境：学生邮箱验证码登录本机仍不可用（需 Mailpit 收信；后端 .env 已补 SMTP 配置指向 :1025，装上 Mailpit 即可）。新入班学生未验证邮箱前不是 ACTIVE，无法开运动会话。
 - P2 性能：审核页对每条记录发 3 个详情请求（详情/凭证上下文/最新审核），57 条记录 ≈ 170+ 请求，首屏加载约 15–20 秒。建议后端提供批量投影或列表内嵌字段。
-- P2 稳定性：`vinext dev` 开发服务器在多次热更新后偶发退出（本轮出现 2 次），重启即可；生产构建不受影响。
+- P2 稳定性：`vinext dev` 开发服务器在多次热更新后不稳定（本轮出现 3 次）：可能直接退出，也可能自行「内部重启」后**丢失 API 代理** —— 症状是页面能打开但登录报「HTTP 404，requestId 未提供」（请求根本没到后端）。解决办法：结束 4300 端口的 node 进程后重新 `npm run dev -- --port 4300`；生产构建不受影响。
 - P2 遗留：学生端预览 CSP 仍放行旧 Mock 端口 :8080；仓库根仍带旧 `backend/`、`database/`、`frontend/teacher/` 弃用代码，建议另开清理 PR。
 - 待人工/待环境：真机浏览器（iOS Safari / Android Chrome）拍摄与权限矩阵、Staging 部署与 HTTPS、GitHub CI 门禁 —— 与两份检测报告结论一致。
 
