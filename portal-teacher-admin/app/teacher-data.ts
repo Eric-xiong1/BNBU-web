@@ -1,4 +1,10 @@
-import { ApiError, apiErrorText, isUnsupported, request } from "./api-client";
+import {
+  ApiError,
+  apiErrorText,
+  isUnsupported,
+  request,
+  requestWithMeta,
+} from "./api-client";
 import { businessDateTime } from "./business-time";
 import type { AuditStatus } from "./checkin-audit";
 import type {
@@ -35,12 +41,36 @@ function asList<T>(
   return [];
 }
 
+// Contract list endpoints page with an opaque `cursor` (limit 1–100, default
+// 20). The workspace cross-checks records against the roster projection, so a
+// partial first page is not just incomplete — it makes valid records look
+// orphaned. Always drain every page before handing data to the UI.
+const PAGE_LIMIT = 100;
+const MAX_PAGES = 50;
+
+async function fetchAllPages<T>(
+  path: string,
+  params?: URLSearchParams,
+): Promise<T[]> {
+  const rows: T[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const query = new URLSearchParams(params);
+    query.set("limit", String(PAGE_LIMIT));
+    if (cursor) query.set("cursor", cursor);
+    const envelope = await requestWithMeta<T[] | { items?: T[] }>(
+      `${path}?${query.toString()}`,
+    );
+    rows.push(...asList(envelope.data));
+    const pagination = envelope.meta?.pagination;
+    if (!pagination?.hasMore || !pagination.nextCursor) return rows;
+    cursor = pagination.nextCursor;
+  }
+  return rows;
+}
+
 export async function fetchClassSections(): Promise<ClassSection[]> {
-  return asList(
-    await request<ClassSection[] | { items?: ClassSection[] }>(
-      "/class-sections",
-    ),
-  );
+  return fetchAllPages<ClassSection>("/class-sections");
 }
 
 export async function fetchCourse(courseId: string): Promise<CourseCatalog> {
@@ -48,9 +78,7 @@ export async function fetchCourse(courseId: string): Promise<CourseCatalog> {
 }
 
 export async function fetchCourses(): Promise<CourseCatalog[]> {
-  return asList(
-    await request<CourseCatalog[] | { items?: CourseCatalog[] }>("/courses"),
-  );
+  return fetchAllPages<CourseCatalog>("/courses");
 }
 
 export async function fetchCurrentSemester(): Promise<Semester> {
@@ -100,11 +128,7 @@ export async function fetchExerciseRecords(
 ): Promise<ExerciseRecord[]> {
   const query = new URLSearchParams();
   if (classSectionId) query.set("classSectionId", classSectionId);
-  return asList(
-    await request<ExerciseRecord[] | { items?: ExerciseRecord[] }>(
-      `/exercise-records?${query.toString()}`,
-    ),
-  );
+  return fetchAllPages<ExerciseRecord>("/exercise-records", query);
 }
 
 export async function fetchExerciseRecord(
@@ -202,11 +226,7 @@ export async function fetchEnrollments(
   classSectionId: string,
 ): Promise<Enrollment[]> {
   const query = new URLSearchParams({ classSectionId });
-  return asList(
-    await request<Enrollment[] | { items?: Enrollment[] }>(
-      `/enrollments?${query.toString()}`,
-    ),
-  );
+  return fetchAllPages<Enrollment>("/enrollments", query);
 }
 
 export async function fetchStudentProfile(
@@ -222,12 +242,7 @@ export async function fetchStudentScores(
 ): Promise<StudentScore[]> {
   const query = new URLSearchParams();
   if (classSectionId) query.set("classSectionId", classSectionId);
-  const suffix = query.toString() ? `?${query.toString()}` : "";
-  return asList(
-    await request<StudentScore[] | { items?: StudentScore[] }>(
-      `/student-scores${suffix}`,
-    ),
-  );
+  return fetchAllPages<StudentScore>("/student-scores", query);
 }
 
 export async function removeEnrollment(
@@ -246,11 +261,9 @@ export async function fetchExemptionApplications(
 ): Promise<StructuredExemptionApplication[]> {
   const query = new URLSearchParams();
   if (classSectionId) query.set("classSectionId", classSectionId);
-  const suffix = query.toString() ? `?${query.toString()}` : "";
-  return asList(
-    await request<
-      StructuredExemptionApplication[] | { items?: StructuredExemptionApplication[] }
-    >(`/exemption-application-details${suffix}`),
+  return fetchAllPages<StructuredExemptionApplication>(
+    "/exemption-application-details",
+    query,
   );
 }
 
@@ -552,6 +565,11 @@ function reviewToAuditStatus(record: ExerciseRecord): AuditStatus {
   const result = record.currentReview?.result;
   if (result === "VALID") return "valid";
   if (result === "INVALID") return "invalid";
+  // Seed/backfill data can mark a record REVIEWED without exposing a review
+  // row (currentReview stays null). The backend rejects any further review on
+  // such records with CONFLICT_VERSION_MISMATCH, so queueing them as pending
+  // would trap teachers in an unresolvable conflict loop.
+  if (record.status === "REVIEWED") return "valid";
   return "pending";
 }
 
@@ -658,7 +676,12 @@ export function mapExerciseRecordToCheckin(
 }
 
 export async function loadSubmittedCheckins(): Promise<TeacherCheckinView[]> {
-  const records = await fetchExerciseRecords();
+  // The backend also returns DRAFT and CANCELLED records to the teacher, but
+  // neither is reviewable (the review endpoint requires SUBMITTED), so they
+  // must never enter the audit workspace.
+  const records = (await fetchExerciseRecords()).filter(
+    (item) => item.status === "SUBMITTED" || item.status === "REVIEWED",
+  );
   const detailed = await Promise.all(
     records.map(async (item) => {
       const [detail, evidenceContext, latestReview] = await Promise.all([

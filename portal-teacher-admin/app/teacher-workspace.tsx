@@ -3085,9 +3085,13 @@ export function TeacherWorkspace({
         >
           <section className="table-surface" aria-label="打卡审核列表">
             <div className="table-result-line">
+              {/* Keep the sentence a single text node: the locale walker
+                  translates per node, so a spliced sentence never matches the
+                  whole-sentence English rules. */}
               <span>
-                显示 {visibleRecords.length} 条
-                {showingHistory ? "历史" : "待审核"}记录
+                {showingHistory
+                  ? `显示 ${visibleRecords.length} 条历史记录`
+                  : `显示 ${visibleRecords.length} 条待审核记录`}
               </span>
               <span>涉及 {reviewRows.length} 名学生</span>
             </div>
@@ -3276,7 +3280,7 @@ export function TeacherWorkspace({
             <div className="checkin-summary-metrics">
               <span>
                 <small>打卡记录</small>
-                <b>{selectedStudentCheckins.length} 条</b>
+                <b>{`${selectedStudentCheckins.length} 条`}</b>
               </span>
               <span>
                 <small>已处理进度</small>
@@ -3303,9 +3307,10 @@ export function TeacherWorkspace({
           <div className="panel-head teacher-panel-head checkin-record-panel-head">
             <div>
               <h2>{selectedCheckinStudent.name}的全部打卡记录</h2>
+              {/* Single text node so the whole-sentence English rule (with
+                  its singular/plural handling) can match. */}
               <p>
-                共 {selectedStudentCheckins.length}{" "}
-                条记录；审核结果已保存到后端，页面切换或刷新后会重新读取最新状态。
+                {`共 ${selectedStudentCheckins.length} 条记录；审核结果已保存到后端，页面切换或刷新后会重新读取最新状态。`}
               </p>
             </div>
             <div className="checkin-detail-toolbar">

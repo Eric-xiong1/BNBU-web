@@ -1743,6 +1743,12 @@ const dynamicText: Array<[RegExp, (...matches: string[]) => string]> = [
     (_, count) =>
       `Showing ${count} pending record${count === "1" ? "" : "s"}`,
   ],
+  [
+    /^显示 (\d+) 条历史记录$/,
+    (_, count) =>
+      `Showing ${count} history record${count === "1" ? "" : "s"}`,
+  ],
+  [/^(\d+) 条$/, (_, count) => `${count} record${count === "1" ? "" : "s"}`],
   [/^打开(.*)的用户信息$/, (_, name) => `Open ${name}'s profile`],
   [/^涉及 (\d+) 名学生$/, (_, count) => `${count} students involved`],
   [/^显示 (\d+) 条申请$/, (_, count) => `Showing ${count} applications`],
