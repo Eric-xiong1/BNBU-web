@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { deriveAuditSummary } from "../app/checkin-audit.ts";
+import { mapExerciseRecordToCheckin } from "../app/teacher-data.ts";
 
 const record = (auditStatus, creditedMinutes) => ({ auditStatus, creditedMinutes });
 
@@ -40,6 +41,27 @@ test("switching audit state immediately changes the derived result", () => {
   assert.deepEqual([valid.validMinutes, valid.progressPercent], [120, 20]);
   assert.deepEqual([invalid.validMinutes, invalid.progressPercent], [0, 0]);
   assert.deepEqual([pending.validMinutes, pending.progressPercent], [0, 0]);
+});
+
+test("maps backend sport enums to the localized teacher label", () => {
+  const checkin = mapExerciseRecordToCheckin({
+    id: "record-1",
+    studentId: "student-1",
+    classSectionId: "class-1",
+    enrollmentId: "enrollment-1",
+    creditType: "COURSE_RELATED",
+    sportType: "RUNNING",
+    sportName: null,
+    actualDurationSeconds: 60,
+    creditedDurationSeconds: 60,
+    businessDate: "2026-08-15",
+    submittedAt: "2026-08-15T10:00:00.000Z",
+    description: null,
+    currentReview: { result: "VALID" },
+  });
+
+  assert.equal(checkin.sport, "跑步");
+  assert.equal(checkin.status, "有效");
 });
 
 test("keeps reviewed records reachable from the teacher audit landing page", async () => {

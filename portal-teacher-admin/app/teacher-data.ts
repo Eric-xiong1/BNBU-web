@@ -555,6 +555,23 @@ function reviewToAuditStatus(record: ExerciseRecord): AuditStatus {
   return "pending";
 }
 
+const exerciseSportLabels: Record<string, string> = {
+  RUNNING: "跑步",
+  BASKETBALL: "篮球",
+  FOOTBALL: "足球",
+  BADMINTON: "羽毛球",
+  TABLE_TENNIS: "乒乓球",
+  SWIMMING: "游泳",
+  FITNESS: "健身",
+  CYCLING: "骑行",
+  OTHER: "其他",
+};
+
+function exerciseSportLabel(sportType: string): string {
+  const normalized = sportType.trim().toUpperCase();
+  return exerciseSportLabels[normalized] ?? (sportType.trim() || "运动");
+}
+
 function reasonCodeLabel(
   code: ReviewReasonCode | null | undefined,
 ): string | undefined {
@@ -599,7 +616,7 @@ export function mapExerciseRecordToCheckin(
     enrollmentId: record.enrollmentId,
     creditType:
       record.creditType === "COURSE_RELATED" ? "课程相关" : "其他运动",
-    sport: record.sportName || record.sportType || "运动",
+    sport: record.sportName?.trim() || exerciseSportLabel(record.sportType),
     // Slicing the raw ISO string would show UTC (8 hours behind Beijing);
     // teachers must read the record in the organization's time.
     startAt:
