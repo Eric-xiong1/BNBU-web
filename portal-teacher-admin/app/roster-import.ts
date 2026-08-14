@@ -1,5 +1,4 @@
 import type { WorkBook } from "xlsx";
-import { normalizeRosterName, normalizeStudentNumber } from "./roster-reconciliation-engine";
 import {
   ROSTER_IMPORT_FIELDS,
   type OfficialRosterStudent,
@@ -10,19 +9,25 @@ import {
   type ValidatedRosterImport,
 } from "./roster-reconciliation-types";
 
+function normalizeStudentNumber(value: string) {
+  return value.trim().replace(/^['\u2019]/, "");
+}
+
+function normalizeRosterName(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
 export const MAX_ROSTER_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_ROSTER_ROWS = 10_000;
 
 const headerAliases: Record<RosterImportField, string[]> = {
   studentNumber: ["学号", "学生学号", "studentnumber", "studentid", "studentno", "sid", "id"],
-  name: ["姓名", "学生姓名", "name", "studentname", "fullname"],
+  fullName: ["姓名", "学生姓名", "name", "studentname", "fullname"],
   gender: ["性别", "gender", "sex"],
-  grade: ["年级", "入学年级", "grade", "gradelevel", "admissionyear"],
-  major: ["专业", "major", "programme", "program"],
-  administrativeClass: ["行政班", "班级", "administrativeclass", "class", "classname"],
-  courseName: ["课程名称", "课程名", "coursename", "course"],
-  courseCode: ["课程代码", "课程编号", "coursecode"],
-  teachingClassCode: ["教学班编号", "教学班", "教学班号", "teachingclasscode", "section", "sectioncode"],
+  gradeYear: ["年级", "入学年级", "grade", "gradelevel", "admissionyear", "gradeyear"],
+  collegeName: ["学院", "学院名称", "college", "collegename", "school"],
+  majorName: ["专业", "专业名称", "major", "majorname", "programme", "program"],
+  administrativeClassName: ["行政班", "班级", "administrativeclass", "administrativeclassname", "class", "classname"],
 };
 
 function normalizeHeader(value: string) {
@@ -88,6 +93,8 @@ export async function parseRosterFile(file: File): Promise<ParsedRosterFile> {
     blankrows: false,
   });
   if (matrix.length < 2) throw new Error("EMPTY_FILE");
+  if (matrix.length - 1 > MAX_ROSTER_ROWS)
+    throw new Error("ROW_LIMIT_EXCEEDED");
 
   const headers = makeUniqueHeaders(matrix[0].map((value) => String(value ?? "")));
   const rows = matrix.slice(1, MAX_ROSTER_ROWS + 1).map((values) => Object.fromEntries(
@@ -112,6 +119,7 @@ function mappedValue(row: Record<string, string>, mapping: RosterFieldMapping, f
 
 export function validateRosterImport(parsed: ParsedRosterFile, mapping: RosterFieldMapping): ValidatedRosterImport {
   if (!mapping.studentNumber) throw new Error("MISSING_STUDENT_NUMBER_FIELD");
+  if (!mapping.fullName) throw new Error("MISSING_FULL_NAME_FIELD");
   const errors: RosterImportRowError[] = [];
   const seen = new Map<string, number>();
   const students: Omit<OfficialRosterStudent, "id" | "courseId">[] = [];
@@ -119,7 +127,7 @@ export function validateRosterImport(parsed: ParsedRosterFile, mapping: RosterFi
   parsed.rows.forEach((row, index) => {
     const rowNumber = index + 2;
     const studentNumber = normalizeStudentNumber(mappedValue(row, mapping, "studentNumber"));
-    const name = mappedValue(row, mapping, "name").replace(/\s+/g, " ").trim();
+    const name = mappedValue(row, mapping, "fullName").replace(/\s+/g, " ").trim();
     const hasAnyValue = Object.values(row).some((value) => value.trim());
     if (!hasAnyValue) {
       errors.push({ rowNumber, code: "EMPTY_ROW", message: "空白行" });
@@ -131,6 +139,10 @@ export function validateRosterImport(parsed: ParsedRosterFile, mapping: RosterFi
     }
     if (!/^[A-Za-z0-9_-]+$/.test(studentNumber)) {
       errors.push({ rowNumber, code: "INVALID_STUDENT_NUMBER", message: "学号格式异常" });
+      return;
+    }
+    if (!name) {
+      errors.push({ rowNumber, code: "MISSING_FULL_NAME", message: "缺少姓名" });
       return;
     }
     const firstRow = seen.get(studentNumber);
@@ -146,12 +158,11 @@ export function validateRosterImport(parsed: ParsedRosterFile, mapping: RosterFi
       studentNumber,
       name,
       gender: mappedValue(row, mapping, "gender") || undefined,
-      grade: mappedValue(row, mapping, "grade") || undefined,
-      major: mappedValue(row, mapping, "major") || undefined,
-      administrativeClass: mappedValue(row, mapping, "administrativeClass") || undefined,
-      courseName: mappedValue(row, mapping, "courseName") || undefined,
-      courseCode: mappedValue(row, mapping, "courseCode") || undefined,
-      teachingClassCode: mappedValue(row, mapping, "teachingClassCode") || undefined,
+      grade: mappedValue(row, mapping, "gradeYear") || undefined,
+      college: mappedValue(row, mapping, "collegeName") || undefined,
+      major: mappedValue(row, mapping, "majorName") || undefined,
+      administrativeClass:
+        mappedValue(row, mapping, "administrativeClassName") || undefined,
       sourceRow: rowNumber,
     });
   });

@@ -12,8 +12,19 @@ import {
 } from "react";
 import { ADMIN_STORAGE_EVENT } from "./admin-domain";
 import { adminErrorCopy } from "./admin-i18n";
-import { loadAdminState, reloadAdminState, type AdminMutationResult } from "./admin-service";
-import { AdminServiceError, type AdminLocale, type AdminState } from "./admin-types";
+import {
+  adminApiErrorText,
+  loadAdminState,
+  reloadAdminState,
+  refreshHealth,
+  setAdminDataMode,
+  type AdminMutationResult,
+} from "./admin-service";
+import {
+  AdminServiceError,
+  type AdminLocale,
+  type AdminState,
+} from "./admin-types";
 
 type AdminStoreError = {
   code: string;
@@ -22,6 +33,7 @@ type AdminStoreError = {
 };
 
 type AdminStoreValue = {
+  mode: "real" | "demo";
   state: AdminState | null;
   loading: boolean;
   loadError: string;
@@ -38,12 +50,60 @@ type AdminStoreValue = {
 
 const AdminStoreContext = createContext<AdminStoreValue | null>(null);
 
+function createRealAdminState(): AdminState {
+  const checkedAt = new Date(0).toISOString();
+  return {
+    schemaVersion: 2,
+    revision: 0,
+    currentAdminId: "",
+    semesters: [],
+    users: [],
+    recoveryRequests: [],
+    enduranceRules: [],
+    systemMode: {
+      mode: "NORMAL",
+      reason: "",
+      changedAt: checkedAt,
+      changedBy: "Backend",
+    },
+    maintenanceAnnouncements: [],
+    helpArticles: [],
+    auditLogs: [],
+    tickets: [],
+    gradeCorrections: [],
+    notifications: [],
+    health: {
+      apiStatus: "DOWN",
+      apiLatencyMs: null,
+      databaseStatus: "DOWN",
+      databaseLatencyMs: null,
+      notificationQueueStatus: "DOWN",
+      notificationBacklog: 0,
+      objectStorageStatus: "DOWN",
+      objectStorageLatencyMs: null,
+      mediaStorageStatus: "DOWN",
+      mediaStorageLatencyMs: null,
+      checkedAt,
+      requestId: null,
+      status: "DOWN",
+    },
+  };
+}
+
+function loadFailureMessage(locale: AdminLocale, failure: unknown) {
+  if (failure instanceof AdminServiceError)
+    return adminErrorCopy(locale, failure.message);
+  return adminApiErrorText(failure, locale);
+}
+
 export function AdminStoreProvider({
+  mode,
   locale,
   showToast,
   onStateChange,
   children,
 }: {
+  mode: "real" | "demo";
   locale: AdminLocale;
   showToast: (message: string) => void;
   onStateChange?: (state: AdminState) => void;
@@ -56,28 +116,44 @@ export function AdminStoreProvider({
   const [error, setError] = useState<AdminStoreError | null>(null);
   const stateRef = useRef<AdminState | null>(null);
 
-  const commitState = useCallback((nextState: AdminState) => {
-    stateRef.current = nextState;
-    setState(nextState);
-    onStateChange?.(nextState);
-  }, [onStateChange]);
+  const commitState = useCallback(
+    (nextState: AdminState) => {
+      stateRef.current = nextState;
+      setState(nextState);
+      onStateChange?.(nextState);
+    },
+    [onStateChange],
+  );
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setLoadError("");
     try {
-      commitState(await loadAdminState());
+      if (mode === "demo") {
+        commitState(await loadAdminState());
+      } else {
+        const health = await refreshHealth();
+        const current = stateRef.current;
+        if (current) commitState({ ...current, health });
+      }
     } catch (loadFailure) {
-      const code = loadFailure instanceof AdminServiceError ? loadFailure.message : "LOAD_FAILED";
-      setLoadError(adminErrorCopy(locale, code));
+      setLoadError(loadFailureMessage(locale, loadFailure));
     } finally {
       setLoading(false);
     }
-  }, [commitState, locale]);
+  }, [commitState, locale, mode]);
 
   useEffect(() => {
+    setAdminDataMode(mode);
     let cancelled = false;
-    loadAdminState()
+    const load =
+      mode === "demo"
+        ? loadAdminState()
+        : refreshHealth().then((health) => ({
+            ...createRealAdminState(),
+            health,
+          }));
+    load
       .then((nextState) => {
         if (cancelled) return;
         commitState(nextState);
@@ -85,17 +161,26 @@ export function AdminStoreProvider({
       })
       .catch((loadFailure: unknown) => {
         if (cancelled) return;
-        const code = loadFailure instanceof AdminServiceError ? loadFailure.message : "LOAD_FAILED";
-        setLoadError(adminErrorCopy(locale, code));
+        setLoadError(loadFailureMessage(locale, loadFailure));
         setLoading(false);
       });
-    return () => { cancelled = true; };
-  }, [commitState, locale]);
+    return () => {
+      cancelled = true;
+    };
+  }, [commitState, locale, mode]);
 
   useEffect(() => {
+    if (mode !== "demo") return;
     const sync = async (event: Event) => {
-      const revision = event instanceof CustomEvent ? Number(event.detail?.revision) : Number.POSITIVE_INFINITY;
-      if (Number.isFinite(revision) && revision <= (stateRef.current?.revision ?? 0)) return;
+      const revision =
+        event instanceof CustomEvent
+          ? Number(event.detail?.revision)
+          : Number.POSITIVE_INFINITY;
+      if (
+        Number.isFinite(revision) &&
+        revision <= (stateRef.current?.revision ?? 0)
+      )
+        return;
       try {
         commitState(await reloadAdminState());
       } catch {
@@ -108,57 +193,69 @@ export function AdminStoreProvider({
       window.removeEventListener(ADMIN_STORAGE_EVENT, sync);
       window.removeEventListener("storage", sync);
     };
-  }, [commitState]);
+  }, [commitState, mode]);
 
-  const run = useCallback(async <T,>(
-    key: string,
-    operation: () => Promise<AdminMutationResult<T>>,
-    successMessage?: string,
-  ) => {
-    if (busyKey) return null;
-    setBusyKey(key);
-    setError(null);
-    try {
-      const result = await operation();
-      commitState(result.state);
-      if (successMessage) showToast(successMessage);
-      return result.value;
-    } catch (failure) {
-      if (failure instanceof AdminServiceError) {
-        const nextError = {
-          code: failure.message,
-          message: adminErrorCopy(locale, failure.message),
-          fieldErrors: failure.fieldErrors,
-        };
-        setError(nextError);
-        showToast(nextError.message);
-      } else {
-        const message = adminErrorCopy(locale, "OPERATION_FAILED");
-        setError({ code: "OPERATION_FAILED", message, fieldErrors: {} });
-        showToast(message);
+  const run = useCallback(
+    async <T,>(
+      key: string,
+      operation: () => Promise<AdminMutationResult<T>>,
+      successMessage?: string,
+    ) => {
+      if (busyKey) return null;
+      setBusyKey(key);
+      setError(null);
+      try {
+        const result = await operation();
+        commitState(result.state);
+        if (successMessage) showToast(successMessage);
+        return result.value;
+      } catch (failure) {
+        if (failure instanceof AdminServiceError) {
+          const nextError = {
+            code: failure.message,
+            message: adminErrorCopy(locale, failure.message),
+            fieldErrors: failure.fieldErrors,
+          };
+          setError(nextError);
+          showToast(nextError.message);
+        } else {
+          const message = adminErrorCopy(locale, "OPERATION_FAILED");
+          setError({ code: "OPERATION_FAILED", message, fieldErrors: {} });
+          showToast(message);
+        }
+        return null;
+      } finally {
+        setBusyKey(null);
       }
-      return null;
-    } finally {
-      setBusyKey(null);
-    }
-  }, [busyKey, commitState, locale, showToast]);
+    },
+    [busyKey, commitState, locale, showToast],
+  );
 
-  const value = useMemo<AdminStoreValue>(() => ({
-    state,
-    loading,
-    loadError,
-    busyKey,
-    error,
-    clearError: () => setError(null),
-    refresh,
-    run,
-  }), [busyKey, error, loadError, loading, refresh, run, state]);
+  const value = useMemo<AdminStoreValue>(
+    () => ({
+      mode,
+      state,
+      loading,
+      loadError,
+      busyKey,
+      error,
+      clearError: () => setError(null),
+      refresh,
+      run,
+    }),
+    [busyKey, error, loadError, loading, mode, refresh, run, state],
+  );
 
-  return <AdminStoreContext.Provider value={value}>{children}</AdminStoreContext.Provider>;
+  return (
+    <AdminStoreContext.Provider value={value}>
+      {children}
+    </AdminStoreContext.Provider>
+  );
 }
 
 export function useAdminStore() {
   const value = useContext(AdminStoreContext);
-  if (!value) throw new Error("useAdminStore must be used inside AdminStoreProvider");
+  if (!value)
+    throw new Error("useAdminStore must be used inside AdminStoreProvider");
   return value;
 }

@@ -17,10 +17,15 @@ import {
   validateSemesterInput,
   validateUserInput,
 } from "./admin-domain";
-import { createInitialAdminState } from "./admin-mock-data";
-import { apiErrorText, isUnsupported, request, requestWithMeta } from "./api-client";
+import {
+  apiErrorText,
+  isUnsupported,
+  request,
+  requestWithMeta,
+} from "./api-client";
 import {
   AdminServiceError,
+  type AdminLocale,
   type AdminCourse,
   type AdminPermission,
   type AdminState,
@@ -47,21 +52,86 @@ import {
   type UserInput,
   type UserRole,
 } from "./admin-types";
+import type { components } from "./openapi.generated";
+
+type ContractSchemas = components["schemas"];
+export type ScoreRuleProjection = ContractSchemas["ScoreRule"];
+export type FeedbackProjection = ContractSchemas["Feedback"];
+export type HelpArticleProjection = ContractSchemas["HelpArticle"];
+export type ClassSectionProjection = ContractSchemas["ClassSection"];
 
 export type AdminMutationResult<T = undefined> = {
   state: AdminState;
   value: T;
 };
 
+function createInitialAdminState(): AdminState {
+  const checkedAt = new Date(0).toISOString();
+  return {
+    schemaVersion: 2,
+    revision: 0,
+    currentAdminId: "",
+    semesters: [],
+    users: [],
+    recoveryRequests: [],
+    enduranceRules: [],
+    systemMode: {
+      mode: "NORMAL",
+      reason: "",
+      changedAt: checkedAt,
+      changedBy: "Backend",
+    },
+    maintenanceAnnouncements: [],
+    helpArticles: [],
+    auditLogs: [],
+    tickets: [],
+    gradeCorrections: [],
+    notifications: [],
+    health: {
+      apiStatus: "DOWN",
+      apiLatencyMs: null,
+      databaseStatus: "DOWN",
+      databaseLatencyMs: null,
+      notificationQueueStatus: "DOWN",
+      notificationBacklog: 0,
+      objectStorageStatus: "DOWN",
+      objectStorageLatencyMs: null,
+      mediaStorageStatus: "DOWN",
+      mediaStorageLatencyMs: null,
+      checkedAt,
+      requestId: null,
+      status: "DOWN",
+    },
+  };
+}
+
 let memoryState: AdminState | null = null;
+let adminDataMode: "real" | "demo" = "real";
+
+export function setAdminDataMode(mode: "real" | "demo") {
+  adminDataMode = mode;
+  if (mode === "real") memoryState = null;
+}
+
+function assertDemoMode() {
+  if (adminDataMode !== "demo") {
+    throw new AdminServiceError("DEPENDENCY", "BACKEND_REQUIRED");
+  }
+}
 
 function readPersistedState() {
-  if (typeof window === "undefined") return memoryState ?? createInitialAdminState();
+  assertDemoMode();
+  if (typeof window === "undefined")
+    return memoryState ?? createInitialAdminState();
   try {
     const saved = window.localStorage.getItem(ADMIN_STORAGE_KEY);
     if (!saved) return createInitialAdminState();
     const parsed = JSON.parse(saved) as Partial<AdminState>;
-    if (parsed.schemaVersion !== 2 || !Array.isArray(parsed.users) || !Array.isArray(parsed.semesters)) {
+    if (
+      parsed.schemaVersion !== 2 ||
+      !Array.isArray(parsed.users) ||
+      !Array.isArray(parsed.semesters)
+    ) {
       return createInitialAdminState();
     }
     return parsed as AdminState;
@@ -71,11 +141,16 @@ function readPersistedState() {
 }
 
 function persistState(state: AdminState) {
+  assertDemoMode();
   memoryState = deepClone(state);
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(state));
-    window.dispatchEvent(new CustomEvent(ADMIN_STORAGE_EVENT, { detail: { revision: state.revision } }));
+    window.dispatchEvent(
+      new CustomEvent(ADMIN_STORAGE_EVENT, {
+        detail: { revision: state.revision },
+      }),
+    );
   } catch {
     throw new AdminServiceError("STORAGE", "STORAGE_UNAVAILABLE");
   }
@@ -117,7 +192,14 @@ function addNotification(
   title: string,
   message: string,
 ) {
-  state.notifications.unshift({ id: makeId("notice"), kind, audience, title, message, createdAt: nowIso() });
+  state.notifications.unshift({
+    id: makeId("notice"),
+    kind,
+    audience,
+    title,
+    message,
+    createdAt: nowIso(),
+  });
 }
 
 async function mutate<T>(
@@ -140,7 +222,8 @@ function findUser(state: AdminState, id: string) {
 }
 
 function ensureExpectedVersion(actual: string, expected?: string) {
-  if (expected && actual !== expected) throw new AdminServiceError("CONFLICT", "DATA_CHANGED");
+  if (expected && actual !== expected)
+    throw new AdminServiceError("CONFLICT", "DATA_CHANGED");
 }
 
 function normalizeUserInput(input: UserInput, existing?: AdminUser): AdminUser {
@@ -152,12 +235,14 @@ function normalizeUserInput(input: UserInput, existing?: AdminUser): AdminUser {
     role: input.role,
     name: input.name.trim(),
     college: input.college.trim(),
-    ...(input.role === "student" ? {
-      className: input.className?.trim(),
-      gender: input.gender,
-      gradeLevel: input.gradeLevel,
-      admissionYear: input.admissionYear,
-    } : {}),
+    ...(input.role === "student"
+      ? {
+          className: input.className?.trim(),
+          gender: input.gender,
+          gradeLevel: input.gradeLevel,
+          admissionYear: input.admissionYear,
+        }
+      : {}),
     status: input.status,
     tokenVersion: existing?.tokenVersion ?? 0,
     verificationLock: existing?.verificationLock,
@@ -168,15 +253,21 @@ function normalizeUserInput(input: UserInput, existing?: AdminUser): AdminUser {
 }
 
 export async function loadAdminState() {
+  assertDemoMode();
   await waitForMock();
   const state = readPersistedState();
-  if (!memoryState && typeof window !== "undefined" && !window.localStorage.getItem(ADMIN_STORAGE_KEY)) {
+  if (
+    !memoryState &&
+    typeof window !== "undefined" &&
+    !window.localStorage.getItem(ADMIN_STORAGE_KEY)
+  ) {
     persistState(state);
   }
   return deepClone(state);
 }
 
 export async function reloadAdminState() {
+  assertDemoMode();
   return deepClone(readPersistedState());
 }
 
@@ -193,7 +284,9 @@ export async function createSemester(input: CreateSemesterInput) {
       updatedAt: nowIso(),
     };
     state.semesters.unshift(semester);
-    addAudit(state, "semester.create", "semester", semester.id, { after: semester });
+    addAudit(state, "semester.create", "semester", semester.id, {
+      after: semester,
+    });
     return semester;
   });
 }
@@ -201,9 +294,11 @@ export async function createSemester(input: CreateSemesterInput) {
 export async function updateSemester(input: UpdateSemesterInput) {
   return mutate("admin.semesters.write", (state) => {
     const semester = state.semesters.find((item) => item.id === input.id);
-    if (!semester) throw new AdminServiceError("NOT_FOUND", "SEMESTER_NOT_FOUND");
+    if (!semester)
+      throw new AdminServiceError("NOT_FOUND", "SEMESTER_NOT_FOUND");
     ensureExpectedVersion(semester.updatedAt, input.expectedUpdatedAt);
-    if (semester.status !== "upcoming") throw new AdminServiceError("DEPENDENCY", "SEMESTER_EDIT_LOCKED");
+    if (semester.status !== "upcoming")
+      throw new AdminServiceError("DEPENDENCY", "SEMESTER_EDIT_LOCKED");
     validateSemesterInput(input, state.semesters, semester.id);
     const before = deepClone(semester);
     Object.assign(semester, {
@@ -214,7 +309,10 @@ export async function updateSemester(input: UpdateSemesterInput) {
       endDate: input.endDate,
       updatedAt: nowIso(),
     });
-    addAudit(state, "semester.update", "semester", semester.id, { before, after: semester });
+    addAudit(state, "semester.update", "semester", semester.id, {
+      before,
+      after: semester,
+    });
     return semester;
   });
 }
@@ -223,28 +321,48 @@ export async function setCurrentSemester(id: string) {
   return mutate("admin.semesters.write", (state) => {
     const target = state.semesters.find((semester) => semester.id === id);
     if (!target) throw new AdminServiceError("NOT_FOUND", "SEMESTER_NOT_FOUND");
-    if (!SEMESTER_TRANSITIONS[target.status].includes("current")) throw new AdminServiceError("VALIDATION", "SEMESTER_TRANSITION_INVALID");
-    if (target.startDate > todayIso()) throw new AdminServiceError("VALIDATION", "SEMESTER_NOT_STARTED");
-    const previous = state.semesters.find((semester) => semester.status === "current");
+    if (!SEMESTER_TRANSITIONS[target.status].includes("current"))
+      throw new AdminServiceError("VALIDATION", "SEMESTER_TRANSITION_INVALID");
+    if (target.startDate > todayIso())
+      throw new AdminServiceError("VALIDATION", "SEMESTER_NOT_STARTED");
+    const previous = state.semesters.find(
+      (semester) => semester.status === "current",
+    );
     if (previous) {
       previous.status = "archived";
       previous.updatedAt = nowIso();
     }
     target.status = "current";
     target.updatedAt = nowIso();
-    addNotification(state, "semester", "all", "Current semester changed", target.name);
-    addAudit(state, "semester.switch", "semester", target.id, { previousSemesterId: previous?.id ?? null, nextSemesterId: target.id });
+    addNotification(
+      state,
+      "semester",
+      "all",
+      "Current semester changed",
+      target.name,
+    );
+    addAudit(state, "semester.switch", "semester", target.id, {
+      previousSemesterId: previous?.id ?? null,
+      nextSemesterId: target.id,
+    });
     return target;
   });
 }
 
 export async function createUser(input: UserInput) {
   return mutate("admin.users.write", (state) => {
-    if (input.role !== "teacher") throw new AdminServiceError("VALIDATION", "TEACHER_CREATION_ONLY", { role: "TEACHER_CREATION_ONLY" });
+    if (input.role !== "teacher")
+      throw new AdminServiceError("VALIDATION", "TEACHER_CREATION_ONLY", {
+        role: "TEACHER_CREATION_ONLY",
+      });
     validateUserInput(input, state.users);
     const created = normalizeUserInput(input);
     state.users.unshift(created);
-    addAudit(state, "user.create", "user", created.id, { account: created.account, role: created.role, status: created.status });
+    addAudit(state, "user.create", "user", created.id, {
+      account: created.account,
+      role: created.role,
+      status: created.status,
+    });
     return created;
   });
 }
@@ -254,17 +372,41 @@ export async function updateUser(input: UserInput, reason: string) {
     const existing = findUser(state, input.id ?? "");
     ensureExpectedVersion(existing.updatedAt, input.expectedUpdatedAt);
     validateUserInput(input, state.users, existing.id);
-    if (existing.status !== input.status && !USER_TRANSITIONS[existing.status].includes(input.status)) {
-      throw new AdminServiceError("VALIDATION", "USER_STATUS_TRANSITION_INVALID", { status: "USER_STATUS_TRANSITION_INVALID" });
+    if (
+      existing.status !== input.status &&
+      !USER_TRANSITIONS[existing.status].includes(input.status)
+    ) {
+      throw new AdminServiceError(
+        "VALIDATION",
+        "USER_STATUS_TRANSITION_INVALID",
+        { status: "USER_STATUS_TRANSITION_INVALID" },
+      );
     }
-    const materialChange = existing.status !== input.status || existing.role !== input.role || existing.email !== input.email.trim().toLowerCase();
-    if (materialChange && !reason.trim()) throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", { reason: "REQUIRED" });
+    const materialChange =
+      existing.status !== input.status ||
+      existing.role !== input.role ||
+      existing.email !== input.email.trim().toLowerCase();
+    if (materialChange && !reason.trim())
+      throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", {
+        reason: "REQUIRED",
+      });
     const before = deepClone(existing);
     const next = normalizeUserInput(input, existing);
-    if (existing.status !== "DISABLED" && next.status === "DISABLED") next.tokenVersion += 1;
+    if (existing.status !== "DISABLED" && next.status === "DISABLED")
+      next.tokenVersion += 1;
     Object.assign(existing, next);
-    addNotification(state, "account", next.role === "student" ? "students" : "teachers", "Account updated", next.account);
-    addAudit(state, "user.update", "user", existing.id, { before, after: existing, reason: reason.trim() });
+    addNotification(
+      state,
+      "account",
+      next.role === "student" ? "students" : "teachers",
+      "Account updated",
+      next.account,
+    );
+    addAudit(state, "user.update", "user", existing.id, {
+      before,
+      after: existing,
+      reason: reason.trim(),
+    });
     return existing;
   });
 }
@@ -272,12 +414,20 @@ export async function updateUser(input: UserInput, reason: string) {
 export async function unlockVerificationCode(userId: string, reason: string) {
   return mutate("admin.users.write", (state) => {
     const user = findUser(state, userId);
-    if (user.role !== "student" || !user.verificationLock) throw new AdminServiceError("VALIDATION", "USER_NOT_LOCKED");
-    if (!reason.trim()) throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", { reason: "REQUIRED" });
+    if (user.role !== "student" || !user.verificationLock)
+      throw new AdminServiceError("VALIDATION", "USER_NOT_LOCKED");
+    if (!reason.trim())
+      throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", {
+        reason: "REQUIRED",
+      });
     const before = user.verificationLock;
     delete user.verificationLock;
     user.updatedAt = nowIso();
-    addAudit(state, "user.unlock_vcode", "user", user.id, { account: user.account, before, reason: reason.trim() });
+    addAudit(state, "user.unlock_vcode", "user", user.id, {
+      account: user.account,
+      before,
+      reason: reason.trim(),
+    });
     return user;
   });
 }
@@ -285,81 +435,176 @@ export async function unlockVerificationCode(userId: string, reason: string) {
 export async function forceLogoutUser(userId: string, reason: string) {
   return mutate("admin.users.write", (state) => {
     const user = findUser(state, userId);
-    if (!reason.trim()) throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", { reason: "REQUIRED" });
+    if (!reason.trim())
+      throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", {
+        reason: "REQUIRED",
+      });
     const before = user.tokenVersion;
     user.tokenVersion += 1;
     user.updatedAt = nowIso();
-    addAudit(state, "user.force_logout", "user", user.id, { account: user.account, before, after: user.tokenVersion, reason: reason.trim() });
+    addAudit(state, "user.force_logout", "user", user.id, {
+      account: user.account,
+      before,
+      after: user.tokenVersion,
+      reason: reason.trim(),
+    });
     return user;
   });
 }
 
-export async function transferTeacherCourses(fromId: string, toId: string, reason: string) {
+export async function transferTeacherCourses(
+  fromId: string,
+  toId: string,
+  reason: string,
+) {
   return mutate("admin.users.write", (state) => {
     const from = findUser(state, fromId);
     const to = findUser(state, toId);
-    if (from.role !== "teacher" || to.role !== "teacher" || to.status !== "ACTIVE" || from.id === to.id) {
+    if (
+      from.role !== "teacher" ||
+      to.role !== "teacher" ||
+      to.status !== "ACTIVE" ||
+      from.id === to.id
+    ) {
       throw new AdminServiceError("VALIDATION", "TEACHER_TRANSFER_INVALID");
     }
-    if (from.assignedCourseCount <= 0) throw new AdminServiceError("DEPENDENCY", "NO_ASSIGNED_COURSES");
-    if (!reason.trim()) throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", { reason: "REQUIRED" });
+    if (from.assignedCourseCount <= 0)
+      throw new AdminServiceError("DEPENDENCY", "NO_ASSIGNED_COURSES");
+    if (!reason.trim())
+      throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", {
+        reason: "REQUIRED",
+      });
     const transferred = from.assignedCourseCount;
     from.assignedCourseCount = 0;
     to.assignedCourseCount += transferred;
     from.updatedAt = nowIso();
     to.updatedAt = nowIso();
-    addNotification(state, "account", "students", "Course teacher changed", `${from.name} → ${to.name}`);
-    addAudit(state, "user.teacher_handover", "user", from.id, { replacementTeacherId: to.id, transferredCourseCount: transferred, reason: reason.trim() });
+    addNotification(
+      state,
+      "account",
+      "students",
+      "Course teacher changed",
+      `${from.name} → ${to.name}`,
+    );
+    addAudit(state, "user.teacher_handover", "user", from.id, {
+      replacementTeacherId: to.id,
+      transferredCourseCount: transferred,
+      reason: reason.trim(),
+    });
     return { from, to, transferred };
   });
 }
 
-export async function deleteUser(userId: string, adminPassword: string, reason: string) {
+export async function deleteUser(
+  userId: string,
+  adminPassword: string,
+  reason: string,
+) {
   return mutate("admin.users.delete", (state) => {
     const target = findUser(state, userId);
-    if (target.id === state.currentAdminId) throw new AdminServiceError("DEPENDENCY", "CANNOT_DELETE_SELF");
-    if (target.role === "teacher" && target.assignedCourseCount > 0) throw new AdminServiceError("DEPENDENCY", "TEACHER_HAS_COURSES");
-    if (adminPassword !== "Admin2026!") throw new AdminServiceError("VALIDATION", "ADMIN_PASSWORD_INVALID", { adminPassword: "ADMIN_PASSWORD_INVALID" });
-    if (!reason.trim()) throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", { reason: "REQUIRED" });
+    if (target.id === state.currentAdminId)
+      throw new AdminServiceError("DEPENDENCY", "CANNOT_DELETE_SELF");
+    if (target.role === "teacher" && target.assignedCourseCount > 0)
+      throw new AdminServiceError("DEPENDENCY", "TEACHER_HAS_COURSES");
+    if (adminPassword !== "Admin2026!")
+      throw new AdminServiceError("VALIDATION", "ADMIN_PASSWORD_INVALID", {
+        adminPassword: "ADMIN_PASSWORD_INVALID",
+      });
+    if (!reason.trim())
+      throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", {
+        reason: "REQUIRED",
+      });
     const cascade = {
-      recoveryRequests: state.recoveryRequests.filter((request) => request.userId === target.id).length,
+      recoveryRequests: state.recoveryRequests.filter(
+        (request) => request.userId === target.id,
+      ).length,
       assignedCourses: target.assignedCourseCount,
     };
     state.users = state.users.filter((user) => user.id !== target.id);
-    state.recoveryRequests = state.recoveryRequests.filter((request) => request.userId !== target.id);
+    state.recoveryRequests = state.recoveryRequests.filter(
+      (request) => request.userId !== target.id,
+    );
     state.auditLogs.forEach((log) => {
       if (log.actorId === target.id) log.actorId = null;
     });
-    addAudit(state, "user.delete", "user", target.id, { account: target.account, role: target.role, cascade, reason: reason.trim() });
+    addAudit(state, "user.delete", "user", target.id, {
+      account: target.account,
+      role: target.role,
+      cascade,
+      reason: reason.trim(),
+    });
     return { target, cascade };
   });
 }
 
 export async function reviewRecoveryRequest(input: RecoveryReviewInput) {
   return mutate("admin.recovery.review", (state) => {
-    const request = state.recoveryRequests.find((item) => item.id === input.requestId);
-    if (!request) throw new AdminServiceError("NOT_FOUND", "RECOVERY_NOT_FOUND");
-    if (request.status !== "pending") throw new AdminServiceError("VALIDATION", "RECOVERY_ALREADY_REVIEWED");
-    if (!input.verificationMethod.trim()) throw new AdminServiceError("VALIDATION", "VERIFICATION_REQUIRED", { verificationMethod: "REQUIRED" });
-    if (!input.reason.trim()) throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", { reason: "REQUIRED" });
+    const request = state.recoveryRequests.find(
+      (item) => item.id === input.requestId,
+    );
+    if (!request)
+      throw new AdminServiceError("NOT_FOUND", "RECOVERY_NOT_FOUND");
+    if (request.status !== "pending")
+      throw new AdminServiceError("VALIDATION", "RECOVERY_ALREADY_REVIEWED");
+    if (!input.verificationMethod.trim())
+      throw new AdminServiceError("VALIDATION", "VERIFICATION_REQUIRED", {
+        verificationMethod: "REQUIRED",
+      });
+    if (!input.reason.trim())
+      throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", {
+        reason: "REQUIRED",
+      });
     const user = findUser(state, request.userId);
     if (input.decision === "approve") {
-      const nextEmail = (input.newEmail || request.requestedEmail || "").trim().toLowerCase();
-      if (!nextEmail || !nextEmail.includes("@")) throw new AdminServiceError("VALIDATION", "EMAIL_FORMAT", { newEmail: "EMAIL_FORMAT" });
-      if (state.users.some((item) => item.id !== user.id && item.email.toLowerCase() === nextEmail)) {
-        throw new AdminServiceError("VALIDATION", "EMAIL_DUPLICATE", { newEmail: "EMAIL_DUPLICATE" });
+      const nextEmail = (input.newEmail || request.requestedEmail || "")
+        .trim()
+        .toLowerCase();
+      if (!nextEmail || !nextEmail.includes("@"))
+        throw new AdminServiceError("VALIDATION", "EMAIL_FORMAT", {
+          newEmail: "EMAIL_FORMAT",
+        });
+      if (
+        state.users.some(
+          (item) =>
+            item.id !== user.id && item.email.toLowerCase() === nextEmail,
+        )
+      ) {
+        throw new AdminServiceError("VALIDATION", "EMAIL_DUPLICATE", {
+          newEmail: "EMAIL_DUPLICATE",
+        });
       }
       user.email = nextEmail;
       user.status = "ACTIVE";
       user.tokenVersion += 1;
       user.updatedAt = nowIso();
       request.status = "approved";
-      addNotification(state, "recovery", "students", "Account recovery approved", user.account);
-      addAudit(state, "user.recovery", "user", user.id, { decision: "approved", verificationMethod: input.verificationMethod, newEmail: nextEmail, reason: input.reason.trim() });
+      addNotification(
+        state,
+        "recovery",
+        "students",
+        "Account recovery approved",
+        user.account,
+      );
+      addAudit(state, "user.recovery", "user", user.id, {
+        decision: "approved",
+        verificationMethod: input.verificationMethod,
+        newEmail: nextEmail,
+        reason: input.reason.trim(),
+      });
     } else {
       request.status = "rejected";
-      addNotification(state, "recovery", "students", "Account recovery rejected", user.account);
-      addAudit(state, "user.recovery", "user", user.id, { decision: "rejected", verificationMethod: input.verificationMethod, reason: input.reason.trim() });
+      addNotification(
+        state,
+        "recovery",
+        "students",
+        "Account recovery rejected",
+        user.account,
+      );
+      addAudit(state, "user.recovery", "user", user.id, {
+        decision: "rejected",
+        verificationMethod: input.verificationMethod,
+        reason: input.reason.trim(),
+      });
     }
     request.reviewedAt = nowIso();
     request.verificationMethod = input.verificationMethod.trim();
@@ -368,45 +613,95 @@ export async function reviewRecoveryRequest(input: RecoveryReviewInput) {
   });
 }
 
-export async function importUsers(csvText: string, role: "teacher", fallbackPassword: string) {
+export async function importUsers(
+  csvText: string,
+  role: "teacher",
+  fallbackPassword: string,
+) {
   return mutate("admin.users.write", (state) => {
-    if (role !== "teacher") throw new AdminServiceError("VALIDATION", "TEACHER_CREATION_ONLY", { role: "TEACHER_CREATION_ONLY" });
-    const preview = buildUserImportPreview(csvText, role, state.users, fallbackPassword);
-    if (preview.length === 0) throw new AdminServiceError("VALIDATION", "CSV_EMPTY");
-    if (preview.some((row) => row.errors.length > 0)) throw new AdminServiceError("VALIDATION", "CSV_HAS_ERRORS");
+    if (role !== "teacher")
+      throw new AdminServiceError("VALIDATION", "TEACHER_CREATION_ONLY", {
+        role: "TEACHER_CREATION_ONLY",
+      });
+    const preview = buildUserImportPreview(
+      csvText,
+      role,
+      state.users,
+      fallbackPassword,
+    );
+    if (preview.length === 0)
+      throw new AdminServiceError("VALIDATION", "CSV_EMPTY");
+    if (preview.some((row) => row.errors.length > 0))
+      throw new AdminServiceError("VALIDATION", "CSV_HAS_ERRORS");
     const created = preview.map((row) => normalizeUserInput(row.input));
     state.users.unshift(...created);
-    addAudit(state, "user.batch_create", "user", null, { role, count: created.length, accounts: created.map((user) => user.account) });
+    addAudit(state, "user.batch_create", "user", null, {
+      role,
+      count: created.length,
+      accounts: created.map((user) => user.account),
+    });
     return {
       created,
-      passwordRows: preview.map((row) => ({ account: row.input.account, name: row.input.name, email: row.input.email, initialPassword: row.input.initialPassword ?? "" })),
+      passwordRows: preview.map((row) => ({
+        account: row.input.account,
+        name: row.input.name,
+        email: row.input.email,
+        initialPassword: row.input.initialPassword ?? "",
+      })),
     };
   });
 }
 
-function validateRuleMutation(state: AdminState, input: EnduranceRuleInput, replacingId?: string) {
-  if (input.minSeconds < 0 || input.maxSeconds < input.minSeconds || input.score < 0 || input.score > 100) {
+function validateRuleMutation(
+  state: AdminState,
+  input: EnduranceRuleInput,
+  replacingId?: string,
+) {
+  if (
+    input.minSeconds < 0 ||
+    input.maxSeconds < input.minSeconds ||
+    input.score < 0 ||
+    input.score > 100
+  ) {
     throw new AdminServiceError("VALIDATION", "ENDURANCE_RULE_INVALID");
   }
-  const nextRule = { ...input, id: replacingId ?? input.id ?? makeId("rule"), updatedAt: nowIso() };
+  const nextRule = {
+    ...input,
+    id: replacingId ?? input.id ?? makeId("rule"),
+    updatedAt: nowIso(),
+  };
   const groupKey = enduranceTableKey(nextRule);
   const group = state.enduranceRules
-    .filter((rule) => rule.id !== replacingId && enduranceTableKey(rule) === groupKey)
+    .filter(
+      (rule) => rule.id !== replacingId && enduranceTableKey(rule) === groupKey,
+    )
     .concat(nextRule);
   const issues = validateEnduranceTable(group);
-  if (issues.length > 0) throw new AdminServiceError("VALIDATION", "ENDURANCE_TABLE_INVALID", { table: JSON.stringify(issues) });
+  if (issues.length > 0)
+    throw new AdminServiceError("VALIDATION", "ENDURANCE_TABLE_INVALID", {
+      table: JSON.stringify(issues),
+    });
   return nextRule;
 }
 
 export async function saveEnduranceRule(input: EnduranceRuleInput) {
   return mutate("admin.config.write", (state) => {
-    const existing = input.id ? state.enduranceRules.find((rule) => rule.id === input.id) : undefined;
-    if (input.id && !existing) throw new AdminServiceError("NOT_FOUND", "ENDURANCE_RULE_NOT_FOUND");
+    const existing = input.id
+      ? state.enduranceRules.find((rule) => rule.id === input.id)
+      : undefined;
+    if (input.id && !existing)
+      throw new AdminServiceError("NOT_FOUND", "ENDURANCE_RULE_NOT_FOUND");
     const before = existing ? deepClone(existing) : null;
     const next = validateRuleMutation(state, input, existing?.id);
     if (existing) Object.assign(existing, next);
     else state.enduranceRules.push(next);
-    addAudit(state, existing ? "endurance_rule.update" : "endurance_rule.create", "endurance_rule", next.id, { before, after: next });
+    addAudit(
+      state,
+      existing ? "endurance_rule.update" : "endurance_rule.create",
+      "endurance_rule",
+      next.id,
+      { before, after: next },
+    );
     return next;
   });
 }
@@ -414,12 +709,24 @@ export async function saveEnduranceRule(input: EnduranceRuleInput) {
 export async function deleteEnduranceRule(id: string) {
   return mutate("admin.config.write", (state) => {
     const target = state.enduranceRules.find((rule) => rule.id === id);
-    if (!target) throw new AdminServiceError("NOT_FOUND", "ENDURANCE_RULE_NOT_FOUND");
-    const remaining = state.enduranceRules.filter((rule) => enduranceTableKey(rule) === enduranceTableKey(target) && rule.id !== id);
+    if (!target)
+      throw new AdminServiceError("NOT_FOUND", "ENDURANCE_RULE_NOT_FOUND");
+    const remaining = state.enduranceRules.filter(
+      (rule) =>
+        enduranceTableKey(rule) === enduranceTableKey(target) && rule.id !== id,
+    );
     const issues = validateEnduranceTable(remaining);
-    if (remaining.length === 0 || issues.length > 0) throw new AdminServiceError("DEPENDENCY", "ENDURANCE_DELETE_BREAKS_TABLE");
-    state.enduranceRules = state.enduranceRules.filter((rule) => rule.id !== id);
-    addAudit(state, "endurance_rule.delete", "endurance_rule", id, { before: target });
+    if (remaining.length === 0 || issues.length > 0)
+      throw new AdminServiceError(
+        "DEPENDENCY",
+        "ENDURANCE_DELETE_BREAKS_TABLE",
+      );
+    state.enduranceRules = state.enduranceRules.filter(
+      (rule) => rule.id !== id,
+    );
+    addAudit(state, "endurance_rule.delete", "endurance_rule", id, {
+      before: target,
+    });
     return target;
   });
 }
@@ -427,40 +734,94 @@ export async function deleteEnduranceRule(id: string) {
 export async function switchSystemMode(
   mode: SystemMode,
   reason: string,
-  announcement?: Omit<MaintenanceAnnouncement, "id" | "publishedAt" | "publishedBy">,
+  announcement?: Omit<
+    MaintenanceAnnouncement,
+    "id" | "publishedAt" | "publishedBy"
+  >,
 ) {
   return mutate("admin.system.write", (state) => {
-    if (state.systemMode.mode === mode) throw new AdminServiceError("VALIDATION", "SYSTEM_MODE_UNCHANGED");
-    if (!reason.trim()) throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", { reason: "REQUIRED" });
-    if (mode === "MAINTENANCE" && (!announcement?.messageZh.trim() || !announcement.messageEn.trim() || !announcement.expectedRecoveryAt)) {
+    if (state.systemMode.mode === mode)
+      throw new AdminServiceError("VALIDATION", "SYSTEM_MODE_UNCHANGED");
+    if (!reason.trim())
+      throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", {
+        reason: "REQUIRED",
+      });
+    if (
+      mode === "MAINTENANCE" &&
+      (!announcement?.messageZh.trim() ||
+        !announcement.messageEn.trim() ||
+        !announcement.expectedRecoveryAt)
+    ) {
       throw new AdminServiceError("VALIDATION", "MAINTENANCE_NOTICE_REQUIRED");
     }
     const before = deepClone(state.systemMode);
-    state.systemMode = { mode, reason: reason.trim(), changedAt: nowIso(), changedBy: currentActor(state)?.name ?? "System administrator" };
+    state.systemMode = {
+      mode,
+      reason: reason.trim(),
+      changedAt: nowIso(),
+      changedBy: currentActor(state)?.name ?? "System administrator",
+    };
     if (announcement) {
-      const item = { ...announcement, id: makeId("ANN"), publishedAt: nowIso(), publishedBy: currentActor(state)?.name ?? "System administrator" };
+      const item = {
+        ...announcement,
+        id: makeId("ANN"),
+        publishedAt: nowIso(),
+        publishedBy: currentActor(state)?.name ?? "System administrator",
+      };
       state.maintenanceAnnouncements.unshift(item);
-      addNotification(state, "maintenance", "all", item.titleZh, item.messageZh);
+      addNotification(
+        state,
+        "maintenance",
+        "all",
+        item.titleZh,
+        item.messageZh,
+      );
     } else if (mode === "NORMAL") {
       addNotification(state, "maintenance", "all", "系统已恢复", reason.trim());
     }
-    addAudit(state, "system_mode.change", "system", "global", { before: before.mode, after: mode, reason: reason.trim(), announcementId: announcement ? state.maintenanceAnnouncements[0]?.id : null });
+    addAudit(state, "system_mode.change", "system", "global", {
+      before: before.mode,
+      after: mode,
+      reason: reason.trim(),
+      announcementId: announcement
+        ? state.maintenanceAnnouncements[0]?.id
+        : null,
+    });
     return state.systemMode;
   });
 }
 
-export async function publishMaintenanceAnnouncement(input: Omit<MaintenanceAnnouncement, "id" | "publishedAt" | "publishedBy">) {
+export async function publishMaintenanceAnnouncement(
+  input: Omit<MaintenanceAnnouncement, "id" | "publishedAt" | "publishedBy">,
+) {
   return mutate("admin.system.write", (state) => {
-    if (!input.titleZh.trim() || !input.titleEn.trim() || !input.messageZh.trim() || !input.messageEn.trim()) {
+    if (
+      !input.titleZh.trim() ||
+      !input.titleEn.trim() ||
+      !input.messageZh.trim() ||
+      !input.messageEn.trim()
+    ) {
       throw new AdminServiceError("VALIDATION", "MAINTENANCE_NOTICE_REQUIRED");
     }
-    if (input.kind === "planned" && new Date(input.startsAt).getTime() - Date.now() < 48 * 60 * 60 * 1000) {
+    if (
+      input.kind === "planned" &&
+      new Date(input.startsAt).getTime() - Date.now() < 48 * 60 * 60 * 1000
+    ) {
       throw new AdminServiceError("VALIDATION", "PLANNED_NOTICE_48H");
     }
-    const item = { ...input, id: makeId("ANN"), publishedAt: nowIso(), publishedBy: currentActor(state)?.name ?? "System administrator" };
+    const item = {
+      ...input,
+      id: makeId("ANN"),
+      publishedAt: nowIso(),
+      publishedBy: currentActor(state)?.name ?? "System administrator",
+    };
     state.maintenanceAnnouncements.unshift(item);
     addNotification(state, "maintenance", "all", item.titleZh, item.messageZh);
-    addAudit(state, "maintenance.announce", "system", item.id, { kind: item.kind, startsAt: item.startsAt, expectedRecoveryAt: item.expectedRecoveryAt ?? null });
+    addAudit(state, "maintenance.announce", "system", item.id, {
+      kind: item.kind,
+      startsAt: item.startsAt,
+      expectedRecoveryAt: item.expectedRecoveryAt ?? null,
+    });
     return item;
   });
 }
@@ -472,13 +833,19 @@ export async function publishMaintenanceAnnouncement(input: Omit<MaintenanceAnno
 export async function purgeAllBusinessData(input: PurgeAllBusinessDataInput) {
   return mutate("admin.system.purge", (state): PurgeAllBusinessDataResult => {
     if (input.adminPassword !== "Admin2026!") {
-      throw new AdminServiceError("VALIDATION", "ADMIN_PASSWORD_INVALID", { adminPassword: "ADMIN_PASSWORD_INVALID" });
+      throw new AdminServiceError("VALIDATION", "ADMIN_PASSWORD_INVALID", {
+        adminPassword: "ADMIN_PASSWORD_INVALID",
+      });
     }
     if (input.confirmation.trim() !== "ERASE") {
-      throw new AdminServiceError("VALIDATION", "PURGE_CONFIRMATION_INVALID", { confirmation: "PURGE_CONFIRMATION_INVALID" });
+      throw new AdminServiceError("VALIDATION", "PURGE_CONFIRMATION_INVALID", {
+        confirmation: "PURGE_CONFIRMATION_INVALID",
+      });
     }
     if (!input.reason.trim()) {
-      throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", { reason: "REQUIRED" });
+      throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", {
+        reason: "REQUIRED",
+      });
     }
 
     const administrator = currentActor(state);
@@ -514,7 +881,13 @@ export async function purgeAllBusinessData(input: PurgeAllBusinessDataInput) {
     addAudit(state, "system.business_data_purge", "system", "global", {
       ...result,
       reason: input.reason.trim(),
-      preserved: ["active_administrator", "hour_rules", "endurance_rules", "system_mode", "audit_logs"],
+      preserved: [
+        "active_administrator",
+        "hour_rules",
+        "endurance_rules",
+        "system_mode",
+        "audit_logs",
+      ],
     });
     return result;
   });
@@ -531,16 +904,25 @@ function validateHelpArticle(input: HelpArticleInput) {
     if (!input.bodyEn.trim()) errors.bodyEn = "REQUIRED";
     if (input.keywords.length === 0) errors.keywords = "REQUIRED";
   }
-  if (Object.keys(errors).length) throw new AdminServiceError("VALIDATION", "FORM_INVALID", errors);
+  if (Object.keys(errors).length)
+    throw new AdminServiceError("VALIDATION", "FORM_INVALID", errors);
 }
 
 export async function saveHelpArticle(input: HelpArticleInput) {
   return mutate("admin.help.write", (state) => {
     validateHelpArticle(input);
-    const existing = input.id ? state.helpArticles.find((article) => article.id === input.id) : undefined;
-    if (input.id && !existing) throw new AdminServiceError("NOT_FOUND", "HELP_ARTICLE_NOT_FOUND");
-    if (existing) ensureExpectedVersion(existing.updatedAt, input.expectedUpdatedAt);
-    if (existing && existing.status !== input.status && !HELP_ARTICLE_TRANSITIONS[existing.status].includes(input.status)) {
+    const existing = input.id
+      ? state.helpArticles.find((article) => article.id === input.id)
+      : undefined;
+    if (input.id && !existing)
+      throw new AdminServiceError("NOT_FOUND", "HELP_ARTICLE_NOT_FOUND");
+    if (existing)
+      ensureExpectedVersion(existing.updatedAt, input.expectedUpdatedAt);
+    if (
+      existing &&
+      existing.status !== input.status &&
+      !HELP_ARTICLE_TRANSITIONS[existing.status].includes(input.status)
+    ) {
       throw new AdminServiceError("VALIDATION", "HELP_TRANSITION_INVALID");
     }
     const before = existing ? deepClone(existing) : null;
@@ -551,9 +933,16 @@ export async function saveHelpArticle(input: HelpArticleInput) {
       titleEn: input.titleEn.trim(),
       bodyZh: input.bodyZh.trim(),
       bodyEn: input.bodyEn.trim(),
-      keywords: [...new Set(input.keywords.map((keyword) => keyword.trim()).filter(Boolean))],
+      keywords: [
+        ...new Set(
+          input.keywords.map((keyword) => keyword.trim()).filter(Boolean),
+        ),
+      ],
       category: input.category.trim(),
-      publishedAt: input.status === "published" ? existing?.publishedAt ?? nowIso() : existing?.publishedAt,
+      publishedAt:
+        input.status === "published"
+          ? (existing?.publishedAt ?? nowIso())
+          : existing?.publishedAt,
       updatedAt: nowIso(),
     };
     delete (article as Partial<HelpArticleInput>).expectedUpdatedAt;
@@ -562,85 +951,194 @@ export async function saveHelpArticle(input: HelpArticleInput) {
     const action = !existing
       ? "help_article.create"
       : before?.status !== article.status
-        ? article.status === "published" ? "help_article.publish" : "help_article.archive"
+        ? article.status === "published"
+          ? "help_article.publish"
+          : "help_article.archive"
         : "help_article.update";
-    addAudit(state, action, "help_article", article.id, { before, after: article });
+    addAudit(state, action, "help_article", article.id, {
+      before,
+      after: article,
+    });
     return article;
   });
 }
 
-export async function transitionHelpArticle(id: string, nextStatus: "published" | "archived") {
+export async function transitionHelpArticle(
+  id: string,
+  nextStatus: "published" | "archived",
+) {
   return mutate("admin.help.write", (state) => {
     const article = state.helpArticles.find((item) => item.id === id);
-    if (!article) throw new AdminServiceError("NOT_FOUND", "HELP_ARTICLE_NOT_FOUND");
-    if (!HELP_ARTICLE_TRANSITIONS[article.status].includes(nextStatus)) throw new AdminServiceError("VALIDATION", "HELP_TRANSITION_INVALID");
-    if (nextStatus === "published") validateHelpArticle({ ...article, status: "published" });
+    if (!article)
+      throw new AdminServiceError("NOT_FOUND", "HELP_ARTICLE_NOT_FOUND");
+    if (!HELP_ARTICLE_TRANSITIONS[article.status].includes(nextStatus))
+      throw new AdminServiceError("VALIDATION", "HELP_TRANSITION_INVALID");
+    if (nextStatus === "published")
+      validateHelpArticle({ ...article, status: "published" });
     const before = article.status;
     article.status = nextStatus;
     article.updatedAt = nowIso();
-    if (nextStatus === "published" && !article.publishedAt) article.publishedAt = nowIso();
-    addAudit(state, nextStatus === "published" ? "help_article.publish" : "help_article.archive", "help_article", article.id, { before, after: nextStatus });
+    if (nextStatus === "published" && !article.publishedAt)
+      article.publishedAt = nowIso();
+    addAudit(
+      state,
+      nextStatus === "published"
+        ? "help_article.publish"
+        : "help_article.archive",
+      "help_article",
+      article.id,
+      { before, after: nextStatus },
+    );
     return article;
   });
 }
 
-export async function updateTicket(ticketId: string, status: TicketStatus, reply: string) {
+export async function updateTicket(
+  ticketId: string,
+  status: TicketStatus,
+  reply: string,
+) {
   return mutate("admin.support.write", (state) => {
     const ticket = state.tickets.find((item) => item.id === ticketId);
     if (!ticket) throw new AdminServiceError("NOT_FOUND", "TICKET_NOT_FOUND");
-    if (!reply.trim()) throw new AdminServiceError("VALIDATION", "REPLY_REQUIRED", { reply: "REQUIRED" });
+    if (!reply.trim())
+      throw new AdminServiceError("VALIDATION", "REPLY_REQUIRED", {
+        reply: "REQUIRED",
+      });
     const before = ticket.status;
     ticket.status = status;
-    ticket.replies.push({ id: makeId("reply"), author: currentActor(state)?.name ?? "System administrator", message: reply.trim(), createdAt: nowIso() });
-    addAudit(state, "feedback.update", "feedback", ticket.id, { before, after: status, reply: reply.trim() });
+    ticket.replies.push({
+      id: makeId("reply"),
+      author: currentActor(state)?.name ?? "System administrator",
+      message: reply.trim(),
+      createdAt: nowIso(),
+    });
+    addAudit(state, "feedback.update", "feedback", ticket.id, {
+      before,
+      after: status,
+      reply: reply.trim(),
+    });
     return ticket;
   });
 }
 
-export async function transitionGradeCorrection(id: string, nextStatus: GradeCorrectionStatus, reason: string) {
+export async function transitionGradeCorrection(
+  id: string,
+  nextStatus: GradeCorrectionStatus,
+  reason: string,
+) {
   return mutate("admin.semesters.write", (state) => {
     const request = state.gradeCorrections.find((item) => item.id === id);
-    if (!request) throw new AdminServiceError("NOT_FOUND", "GRADE_CORRECTION_NOT_FOUND");
-    if (!GRADE_CORRECTION_TRANSITIONS[request.status].includes(nextStatus)) throw new AdminServiceError("VALIDATION", "GRADE_CORRECTION_TRANSITION_INVALID");
-    if (!reason.trim()) throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", { reason: "REQUIRED" });
+    if (!request)
+      throw new AdminServiceError("NOT_FOUND", "GRADE_CORRECTION_NOT_FOUND");
+    if (!GRADE_CORRECTION_TRANSITIONS[request.status].includes(nextStatus))
+      throw new AdminServiceError(
+        "VALIDATION",
+        "GRADE_CORRECTION_TRANSITION_INVALID",
+      );
+    if (!reason.trim())
+      throw new AdminServiceError("VALIDATION", "REASON_REQUIRED", {
+        reason: "REQUIRED",
+      });
     const before = request.status;
     request.status = nextStatus;
     request.reviewedAt = nowIso();
     request.reviewReason = reason.trim();
-    addNotification(state, "semester", "teachers", "Grade correction updated", request.id);
-    addAudit(state, nextStatus === "approved" ? "grade_correction.approve" : nextStatus === "rejected" ? "grade_correction.reject" : "grade_correction.close", "grade", request.id, { before, after: nextStatus, reason: reason.trim() });
+    addNotification(
+      state,
+      "semester",
+      "teachers",
+      "Grade correction updated",
+      request.id,
+    );
+    addAudit(
+      state,
+      nextStatus === "approved"
+        ? "grade_correction.approve"
+        : nextStatus === "rejected"
+          ? "grade_correction.reject"
+          : "grade_correction.close",
+      "grade",
+      request.id,
+      { before, after: nextStatus, reason: reason.trim() },
+    );
     return request;
   });
 }
 
 export async function refreshHealth() {
-  return mutate("admin.dashboard.read", (state) => {
-    state.health = {
-      ...state.health,
-      apiLatencyMs: 28 + Math.round(Math.random() * 15),
-      notificationBacklog: Math.max(0, state.health.notificationBacklog),
-      checkedAt: nowIso(),
+  const startedAt = performance.now();
+  const response = await requestWithMeta<{
+    kind: "ADMIN";
+    status: "UP" | "DEGRADED" | "DOWN";
+    checkedAt: string;
+    dependencies: {
+      database: {
+        status: "UP" | "DOWN" | "NOT_CONFIGURED";
+        latencyMs: number | null;
+      };
+      notificationQueue: {
+        status: "UP" | "DOWN" | "NOT_CONFIGURED";
+        latencyMs: number | null;
+        backlog?: number;
+      };
+      objectStorage: {
+        status: "UP" | "DOWN" | "NOT_CONFIGURED";
+        latencyMs: number | null;
+      };
+      mediaStorage: {
+        status: "UP" | "DOWN" | "NOT_CONFIGURED";
+        latencyMs: number | null;
+      };
     };
-    return state.health;
-  });
+  }>("/health/admin");
+  const dependencies = response.data.dependencies;
+  return {
+    apiStatus: "UP",
+    apiLatencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    databaseStatus: dependencies.database.status,
+    databaseLatencyMs: dependencies.database.latencyMs,
+    notificationQueueStatus: dependencies.notificationQueue.status,
+    notificationBacklog: dependencies.notificationQueue.backlog ?? 0,
+    objectStorageStatus: dependencies.objectStorage.status,
+    objectStorageLatencyMs: dependencies.objectStorage.latencyMs,
+    mediaStorageStatus: dependencies.mediaStorage.status,
+    mediaStorageLatencyMs: dependencies.mediaStorage.latencyMs,
+    checkedAt: response.data.checkedAt,
+    requestId: response.meta.requestId ?? null,
+    status: response.data.status,
+  } satisfies AdminState["health"];
 }
 
-export function previewUserImport(csvText: string, role: Exclude<UserRole, "admin">, users: AdminUser[], fallbackPassword: string) {
+export function previewUserImport(
+  csvText: string,
+  role: Exclude<UserRole, "admin">,
+  users: AdminUser[],
+  fallbackPassword: string,
+) {
   return buildUserImportPreview(csvText, role, users, fallbackPassword);
 }
 
-export function validateStoredEnduranceTable(state: AdminState, tableKey: string) {
-  return validateEnduranceTable(state.enduranceRules.filter((rule) => enduranceTableKey(rule) === tableKey));
+export function validateStoredEnduranceTable(
+  state: AdminState,
+  tableKey: string,
+) {
+  return validateEnduranceTable(
+    state.enduranceRules.filter((rule) => enduranceTableKey(rule) === tableKey),
+  );
 }
 
-export type TicketMutationInput = Pick<SupportTicket, "id" | "status"> & { reply: string };
+export type TicketMutationInput = Pick<SupportTicket, "id" | "status"> & {
+  reply: string;
+};
 
 // ---------------------------------------------------------------------------
 // Unified backend API: administrator contract-backed capabilities.
 // These functions intentionally do not use or update the legacy localStorage
 // demo state. Unsupported capabilities remain explicit in the UI.
 
-export const adminApiErrorText = (error: unknown) => apiErrorText(error);
+export const adminApiErrorText = (error: unknown, locale: AdminLocale = "zh") =>
+  apiErrorText(error, locale);
 export const isAdminApiUnsupported = (error: unknown) => isUnsupported(error);
 
 async function listAllCursorPages<T>(path: string): Promise<T[]> {
@@ -673,12 +1171,17 @@ export function createAdminCourse(input: CreateAdminCourseInput) {
     body: {
       courseCode: input.courseCode.trim(),
       courseName: input.courseName.trim(),
-      ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+      ...(input.description?.trim()
+        ? { description: input.description.trim() }
+        : {}),
     },
   });
 }
 
-export function updateAdminCourse(courseId: string, input: UpdateAdminCourseInput) {
+export function updateAdminCourse(
+  courseId: string,
+  input: UpdateAdminCourseInput,
+) {
   return request<AdminCourse>(`/courses/${encodeURIComponent(courseId)}`, {
     method: "PATCH",
     body: input,
@@ -690,24 +1193,33 @@ export function listStudentProfiles() {
 }
 
 export function getStudentProfile(studentId: string) {
-  return request<StudentProfileProjection>(`/students/${encodeURIComponent(studentId)}`);
+  return request<StudentProfileProjection>(
+    `/students/${encodeURIComponent(studentId)}`,
+  );
 }
 
 export function getTeacherProfile(teacherId: string) {
-  return request<TeacherProfileProjection>(`/teachers/${encodeURIComponent(teacherId)}`);
+  return request<TeacherProfileProjection>(
+    `/teachers/${encodeURIComponent(teacherId)}`,
+  );
 }
 
 type ClassSectionTeacherReference = { teacherId: string };
 
 export async function listAssociatedTeacherProfiles() {
   const teacherIds = new Set<string>();
-  const sections = await listAllCursorPages<ClassSectionTeacherReference>("/class-sections");
+  const sections =
+    await listAllCursorPages<ClassSectionTeacherReference>("/class-sections");
   sections.forEach((section) => {
     if (section.teacherId) teacherIds.add(section.teacherId);
   });
 
-  const teachers = await Promise.all([...teacherIds].map((teacherId) => getTeacherProfile(teacherId)));
-  return teachers.sort((left, right) => left.employeeNumber.localeCompare(right.employeeNumber));
+  const teachers = await Promise.all(
+    [...teacherIds].map((teacherId) => getTeacherProfile(teacherId)),
+  );
+  return teachers.sort((left, right) =>
+    left.employeeNumber.localeCompare(right.employeeNumber),
+  );
 }
 
 export type AuditLogCursorPage = {
@@ -717,10 +1229,14 @@ export type AuditLogCursorPage = {
   limit: number;
 };
 
-export async function listAuditLogProjections(cursor: string | null = null): Promise<AuditLogCursorPage> {
+export async function listAuditLogProjections(
+  cursor: string | null = null,
+): Promise<AuditLogCursorPage> {
   const query = new URLSearchParams({ limit: "50", sort: "-occurredAt" });
   if (cursor) query.set("cursor", cursor);
-  const response = await requestWithMeta<AuditLogProjection[]>(`/audit-logs?${query.toString()}`);
+  const response = await requestWithMeta<AuditLogProjection[]>(
+    `/audit-logs?${query.toString()}`,
+  );
   return {
     items: response.data,
     nextCursor: response.meta.pagination?.nextCursor ?? null,
@@ -730,7 +1246,9 @@ export async function listAuditLogProjections(cursor: string | null = null): Pro
 }
 
 export function getAuditLogProjection(auditLogId: string) {
-  return request<AuditLogProjection>(`/audit-logs/${encodeURIComponent(auditLogId)}`);
+  return request<AuditLogProjection>(
+    `/audit-logs/${encodeURIComponent(auditLogId)}`,
+  );
 }
 
 export function getSystemModeProjection() {
@@ -739,4 +1257,53 @@ export function getSystemModeProjection() {
 
 export function getCurrentSemesterProjection() {
   return request<CurrentSemesterProjection>("/semesters/current");
+}
+
+export function listClassSectionProjections() {
+  return listAllCursorPages<ClassSectionProjection>("/class-sections");
+}
+
+export function listScoreRuleProjections(classSectionId: string) {
+  return listAllCursorPages<ScoreRuleProjection>(
+    `/class-sections/${encodeURIComponent(classSectionId)}/score-rules`,
+  );
+}
+
+export function createScoreRuleProjection(
+  classSectionId: string,
+  input: { ruleCode: string; displayName: string },
+) {
+  return request<ScoreRuleProjection>(
+    `/class-sections/${encodeURIComponent(classSectionId)}/score-rules`,
+    { method: "POST", body: input },
+  );
+}
+
+export function submitScoreRuleProjection(ruleId: string, expectedVersion: number) {
+  return request<ScoreRuleProjection>(
+    `/score-rules/${encodeURIComponent(ruleId)}/submit-approval`,
+    { method: "POST", body: { expectedVersion } },
+  );
+}
+
+export function approveScoreRuleProjection(
+  ruleId: string,
+  expectedVersion: number,
+  reason?: string,
+) {
+  return request<ScoreRuleProjection>(
+    `/score-rules/${encodeURIComponent(ruleId)}/approve`,
+    { method: "POST", body: { expectedVersion, reason: reason || null } },
+  );
+}
+
+export function listFeedbackProjections() {
+  return listAllCursorPages<FeedbackProjection>("/feedback");
+}
+
+export async function listHelpArticleProjections(locale: "zh-CN" | "en") {
+  const response = await requestWithMeta<HelpArticleProjection[]>(
+    `/help-articles?locale=${encodeURIComponent(locale)}`,
+  );
+  return response.data;
 }

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "sourceRepository": "monorepo",
+  "sourceBranch": "monorepo/main",
+  "sourceCommit": "904ddaf9d1acafca527f7c74bdfb574156127f6a",
+  "sourcePath": "docs/backend-contracts/openapi.yaml",
+  "contractVersion": "1.5.0-contract",
+  "sha256": "27272e268882609034a841f42984fb4fc47bb68587fc7e1ecb42528bfdbf7754",
+  "operationCount": 125,
+  "schemaCount": 286,
+  "generatedTypesPath": "app/openapi.generated.ts",
+  "generator": "openapi-typescript",
+  "generatorVersion": "7.13.0"
+}

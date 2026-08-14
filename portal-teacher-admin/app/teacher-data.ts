@@ -8,9 +8,13 @@ import type {
   CreateClassSectionBody,
   CreateReviewBody,
   Enrollment,
+  ExemptionApplication,
   ExerciseRecord,
+  ExerciseRecordEvidenceContext,
   MediaAccess,
   ReviewReasonCode,
+  ReviewExemptionApplicationBody,
+  ReviewRecord,
   Semester,
   StudentProfileApi,
   StudentScore,
@@ -20,7 +24,9 @@ import type {
 export { apiErrorText, isUnsupported };
 
 /** List endpoints may return a bare array or a cursor page object. */
-function asList<T>(data: T[] | { items?: T[]; data?: T[] } | null | undefined): T[] {
+function asList<T>(
+  data: T[] | { items?: T[]; data?: T[] } | null | undefined,
+): T[] {
   if (!data) return [];
   if (Array.isArray(data)) return data;
   if (Array.isArray(data.items)) return data.items;
@@ -29,7 +35,11 @@ function asList<T>(data: T[] | { items?: T[]; data?: T[] } | null | undefined): 
 }
 
 export async function fetchClassSections(): Promise<ClassSection[]> {
-  return asList(await request<ClassSection[] | { items?: ClassSection[] }>("/class-sections"));
+  return asList(
+    await request<ClassSection[] | { items?: ClassSection[] }>(
+      "/class-sections",
+    ),
+  );
 }
 
 export async function fetchCourse(courseId: string): Promise<CourseCatalog> {
@@ -37,19 +47,23 @@ export async function fetchCourse(courseId: string): Promise<CourseCatalog> {
 }
 
 export async function fetchCourses(): Promise<CourseCatalog[]> {
-  return asList(await request<CourseCatalog[] | { items?: CourseCatalog[] }>("/courses"));
+  return asList(
+    await request<CourseCatalog[] | { items?: CourseCatalog[] }>("/courses"),
+  );
 }
 
 export async function fetchCurrentSemester(): Promise<Semester> {
   return request<Semester>("/semesters/current");
 }
 
-export async function createClassSection(body: CreateClassSectionBody): Promise<ClassSection> {
+export async function createClassSection(
+  body: CreateClassSectionBody,
+): Promise<ClassSection> {
   return request<ClassSection>("/class-sections", { method: "POST", body });
 }
 
 /**
- * Persists the check-in window a teacher configured. Contract 1.4 accepts both
+ * Persists the check-in window a teacher configured. Contract 1.5 accepts both
  * organization-local wall clock ("HH:MM") and RFC3339 time for the daily
  * fields; the portal's <input type="time"> already produces wall clock.
  * Course/other hour targets are ScoreRule concerns and stay out of this call.
@@ -58,49 +72,72 @@ export async function updateClassSectionWindow(
   classSectionId: string,
   body: UpdateClassSectionWindowBody,
 ): Promise<ClassSection> {
-  return request<ClassSection>(`/class-sections/${encodeURIComponent(classSectionId)}`, {
-    method: "PATCH",
-    body,
-  });
-}
-
-export async function createCourseInvite(classSectionId: string, expiresAt?: string | null): Promise<CourseInvite> {
-  return request<CourseInvite>(`/class-sections/${encodeURIComponent(classSectionId)}/course-invites`, {
-    method: "POST",
-    body: expiresAt ? { expiresAt } : {},
-  });
-}
-
-export async function fetchSubmittedExerciseRecords(classSectionId?: string): Promise<ExerciseRecord[]> {
-  const query = new URLSearchParams({ status: "SUBMITTED" });
-  if (classSectionId) query.set("classSectionId", classSectionId);
-  return asList(
-    await request<ExerciseRecord[] | { items?: ExerciseRecord[] }>(`/exercise-records?${query.toString()}`),
+  return request<ClassSection>(
+    `/class-sections/${encodeURIComponent(classSectionId)}`,
+    {
+      method: "PATCH",
+      body,
+    },
   );
 }
 
-export async function fetchExerciseRecord(recordId: string): Promise<ExerciseRecord> {
-  return request<ExerciseRecord>(`/exercise-records/${encodeURIComponent(recordId)}`);
+export async function createCourseInvite(
+  classSectionId: string,
+  expiresAt?: string | null,
+): Promise<CourseInvite> {
+  return request<CourseInvite>(
+    `/class-sections/${encodeURIComponent(classSectionId)}/course-invites`,
+    {
+      method: "POST",
+      body: expiresAt ? { expiresAt } : {},
+    },
+  );
+}
+
+export async function fetchExerciseRecords(
+  classSectionId?: string,
+): Promise<ExerciseRecord[]> {
+  const query = new URLSearchParams();
+  if (classSectionId) query.set("classSectionId", classSectionId);
+  return asList(
+    await request<ExerciseRecord[] | { items?: ExerciseRecord[] }>(
+      `/exercise-records?${query.toString()}`,
+    ),
+  );
+}
+
+export async function fetchExerciseRecord(
+  recordId: string,
+): Promise<ExerciseRecord> {
+  return request<ExerciseRecord>(
+    `/exercise-records/${encodeURIComponent(recordId)}`,
+  );
+}
+
+export async function fetchExerciseRecordEvidenceContext(
+  recordId: string,
+): Promise<ExerciseRecordEvidenceContext> {
+  return request<ExerciseRecordEvidenceContext>(
+    `/exercise-records/${encodeURIComponent(recordId)}/evidence-context`,
+  );
 }
 
 export async function openTeacherMedia(mediaId: string): Promise<string> {
-  try {
-    const access = await createMediaAccessUrl(mediaId, "TEACHER_REVIEW");
-    return access.accessUrl;
-  } catch (error) {
-    if (error instanceof ApiError && (error.code === "VALIDATION_FAILED" || error.status === 422)) {
-      const access = await createMediaAccessUrl(mediaId, "VIEW_ORIGINAL");
-      return access.accessUrl;
-    }
-    throw error;
-  }
+  const access = await createMediaAccessUrl(mediaId, "VIEW_ORIGINAL");
+  return access.accessUrl;
 }
 
-async function createMediaAccessUrl(mediaId: string, purpose: string): Promise<MediaAccess> {
-  return request<MediaAccess>(`/media/${encodeURIComponent(mediaId)}/access-url`, {
-    method: "POST",
-    body: { purpose },
-  });
+async function createMediaAccessUrl(
+  mediaId: string,
+  purpose: string,
+): Promise<MediaAccess> {
+  return request<MediaAccess>(
+    `/media/${encodeURIComponent(mediaId)}/access-url`,
+    {
+      method: "POST",
+      body: { purpose },
+    },
+  );
 }
 
 export async function submitExerciseReview(
@@ -112,19 +149,47 @@ export async function submitExerciseReview(
     body,
   });
 }
+export async function fetchLatestExerciseReview(
+  recordId: string,
+): Promise<ReviewRecord | null> {
+  const reviews = asList(
+    await request<ReviewRecord[] | { items?: ReviewRecord[] }>(
+      `/exercise-records/${encodeURIComponent(recordId)}/reviews?limit=1&sort=-reviewVersion`,
+    ),
+  );
+  return reviews[0] ?? null;
+}
 
 /** Retry once on CONFLICT_VERSION_MISMATCH after re-fetching the record. */
 export async function submitExerciseReviewWithRetry(
   recordId: string,
-  buildBody: (record: ExerciseRecord) => CreateReviewBody,
+  buildBody: (
+    record: ExerciseRecord,
+    currentReviewVersion: number,
+  ) => CreateReviewBody,
 ): Promise<ExerciseRecord> {
-  let record = await fetchExerciseRecord(recordId);
+  let [record, latestReview] = await Promise.all([
+    fetchExerciseRecord(recordId),
+    fetchLatestExerciseReview(recordId),
+  ]);
   try {
-    await submitExerciseReview(recordId, buildBody(record));
+    await submitExerciseReview(
+      recordId,
+      buildBody(record, latestReview?.reviewVersion ?? 0),
+    );
   } catch (error) {
-    if (error instanceof ApiError && error.code === "CONFLICT_VERSION_MISMATCH") {
-      record = await fetchExerciseRecord(recordId);
-      await submitExerciseReview(recordId, buildBody(record));
+    if (
+      error instanceof ApiError &&
+      error.code === "CONFLICT_VERSION_MISMATCH"
+    ) {
+      [record, latestReview] = await Promise.all([
+        fetchExerciseRecord(recordId),
+        fetchLatestExerciseReview(recordId),
+      ]);
+      await submitExerciseReview(
+        recordId,
+        buildBody(record, latestReview?.reviewVersion ?? 0),
+      );
     } else {
       throw error;
     }
@@ -132,29 +197,90 @@ export async function submitExerciseReviewWithRetry(
   return fetchExerciseRecord(recordId);
 }
 
-export async function fetchEnrollments(classSectionId: string): Promise<Enrollment[]> {
+export async function fetchEnrollments(
+  classSectionId: string,
+): Promise<Enrollment[]> {
   const query = new URLSearchParams({ classSectionId });
   return asList(
-    await request<Enrollment[] | { items?: Enrollment[] }>(`/enrollments?${query.toString()}`),
+    await request<Enrollment[] | { items?: Enrollment[] }>(
+      `/enrollments?${query.toString()}`,
+    ),
   );
 }
 
-export async function fetchStudentProfile(studentId: string): Promise<StudentProfileApi | null> {
-  try {
-    return await request<StudentProfileApi>(`/students/${encodeURIComponent(studentId)}`);
-  } catch (error) {
-    if (isUnsupported(error) || (error instanceof ApiError && (error.status === 403 || error.status === 404))) {
-      return null;
-    }
-    throw error;
-  }
+export async function fetchStudentProfile(
+  studentId: string,
+): Promise<StudentProfileApi> {
+  return request<StudentProfileApi>(
+    `/students/${encodeURIComponent(studentId)}`,
+  );
 }
 
-export async function fetchStudentScores(classSectionId?: string): Promise<StudentScore[]> {
+export async function fetchStudentScores(
+  classSectionId?: string,
+): Promise<StudentScore[]> {
   const query = new URLSearchParams();
   if (classSectionId) query.set("classSectionId", classSectionId);
   const suffix = query.toString() ? `?${query.toString()}` : "";
-  return asList(await request<StudentScore[] | { items?: StudentScore[] }>(`/student-scores${suffix}`));
+  return asList(
+    await request<StudentScore[] | { items?: StudentScore[] }>(
+      `/student-scores${suffix}`,
+    ),
+  );
+}
+
+export async function removeEnrollment(
+  enrollmentId: string,
+  expectedVersion: number,
+  reason: string,
+): Promise<Enrollment> {
+  return request<Enrollment>(
+    `/enrollments/${encodeURIComponent(enrollmentId)}/remove`,
+    { method: "POST", body: { expectedVersion, reason } },
+  );
+}
+
+export async function fetchExemptionApplications(
+  classSectionId?: string,
+): Promise<ExemptionApplication[]> {
+  const query = new URLSearchParams();
+  if (classSectionId) query.set("classSectionId", classSectionId);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  return asList(
+    await request<
+      ExemptionApplication[] | { items?: ExemptionApplication[] }
+    >(`/exemption-applications${suffix}`),
+  );
+}
+
+export async function reviewExemptionApplication(
+  applicationId: string,
+  body: ReviewExemptionApplicationBody,
+): Promise<ExemptionApplication> {
+  return request<ExemptionApplication>(
+    `/exemption-applications/${encodeURIComponent(applicationId)}/review`,
+    { method: "POST", body },
+  );
+}
+
+export async function recalculateStudentScore(
+  scoreId: string,
+  expectedVersion: number,
+): Promise<StudentScore> {
+  return request<StudentScore>(
+    `/student-scores/${encodeURIComponent(scoreId)}/recalculate`,
+    { method: "POST", body: { expectedVersion } },
+  );
+}
+
+export async function publishStudentScore(
+  scoreId: string,
+  expectedVersion: number,
+): Promise<StudentScore> {
+  return request<StudentScore>(
+    `/student-scores/${encodeURIComponent(scoreId)}/publish`,
+    { method: "POST", body: { expectedVersion } },
+  );
 }
 
 export type TeacherCourseView = {
@@ -187,7 +313,7 @@ export type TeacherStudentView = {
   name: string;
   number: string;
   email: string;
-  gender: "男" | "女" | "其他";
+  gender: "男" | "女" | "其他" | "未知";
   grade: string;
   courseId: string;
   status: "active" | "removed" | "exited" | "disabled";
@@ -209,16 +335,16 @@ export type TeacherCheckinView = {
   endAt: string;
   durationMinutes: number;
   creditedMinutes: number;
-  originalHours: 1 | 2;
-  approvedHours: 0 | 1 | 2;
+  originalHours: number;
+  approvedHours: number;
   description: string;
   submittedAt: string;
-  status: "有效" | "已调整" | "系统抵扣";
-  risk: "低风险" | "需关注" | "凭证模糊";
-  confidence: number;
+  status: "待审核" | "有效" | "已调整" | "系统抵扣";
+  risk: "低风险" | "需关注" | "凭证模糊" | null;
+  confidence: number | null;
   proof: string[];
   mediaIds: string[];
-  locationExpired: boolean;
+  locationExpired: boolean | null;
   reviewComment?: string;
   internalNote?: string;
   source: "student" | "system";
@@ -234,13 +360,38 @@ export type TeacherGradeView = {
   studentId: string;
   courseId: string;
   enrollmentId: string;
-  gender: "男" | "女";
-  gradeGroup: "大一/大二" | "大三/大四";
-  enduranceStatus: "NotRecorded" | "Recorded" | "Exempt" | "Absent";
+  gender: "男" | "女" | "其他" | "未知";
+  gradeGroup: "大一/大二" | "大三/大四" | "未知";
+  enduranceStatus: "NotRecorded" | "Recorded" | "Exempt" | "Absent" | "Unavailable";
   minutes?: number;
   seconds?: number;
   physicalScore?: number;
   published: boolean;
+  scoreStatus?: string;
+  qualificationStatus?: string;
+  validCourseDurationSeconds?: number;
+  validGeneralDurationSeconds?: number;
+  totalValidDurationSeconds?: number;
+  scoringSeconds?: number;
+  excessSeconds?: number;
+  baseScore?: number | null;
+  adjustmentTotal?: number | null;
+  calculatedAt?: string | null;
+  publishedAt?: string | null;
+  version: number;
+};
+
+export type TeacherExemptionView = {
+  id: string;
+  studentId: string;
+  courseId: string;
+  kind: "体测免测" | "运动打卡减免" | "特殊情况";
+  reason: string;
+  material: string[];
+  mediaIds: string[];
+  submittedAt: string;
+  status: "pending" | "supplement_required" | "approved" | "rejected";
+  reviewComment?: string;
   version: number;
 };
 
@@ -277,18 +428,28 @@ export function mapClassSectionToCourse(
     semesterId: section.semesterId,
     courseId: section.courseId,
     status: mapSectionStatus(section.status),
-    courseTarget: 10,
-    otherTarget: 10,
+    // The accepted score rule is TOTAL_ONLY (20h); category splits are not authoritative.
+    courseTarget: 20,
+    otherTarget: 0,
     version: section.version,
     checkinWindow: {
       ...defaultWindow,
-      windowMode: section.checkInWindowMode === "UNAVAILABLE" ? "unavailable" : "available",
+      windowMode:
+        section.checkInWindowMode === "UNAVAILABLE"
+          ? "unavailable"
+          : "available",
       dateRangeStart: section.checkInStartDate ?? "",
       dateRangeEnd: section.checkInEndDate ?? "",
       dailyStartTime: formatTime(section.dailyStartTime) || "06:00",
       dailyEndTime: formatTime(section.dailyEndTime) || "22:00",
-      excludedDates: (section.excludedDates ?? []).map((date) => ({ date, reason: "—" })),
-      semesterDeadline: section.submissionDeadlineAt?.slice(0, 10) ?? section.checkInEndDate ?? "",
+      excludedDates: (section.excludedDates ?? []).map((date) => ({
+        date,
+        reason: "—",
+      })),
+      semesterDeadline:
+        section.submissionDeadlineAt?.slice(0, 10) ??
+        section.checkInEndDate ??
+        "",
     },
   };
 }
@@ -300,8 +461,8 @@ export async function loadTeacherCourses(): Promise<{
 }> {
   const [sections, catalog, semester] = await Promise.all([
     fetchClassSections(),
-    fetchCourses().catch(() => [] as CourseCatalog[]),
-    fetchCurrentSemester().catch(() => null),
+    fetchCourses(),
+    fetchCurrentSemester(),
   ]);
   const semesterLabel = semester?.displayName ?? semester?.name ?? "当前学期";
   const courseCache = new Map<string, CourseCatalog>();
@@ -311,22 +472,19 @@ export async function loadTeacherCourses(): Promise<{
   for (const section of sections) {
     let course = courseCache.get(section.courseId) ?? null;
     if (!course) {
-      try {
-        course = await fetchCourse(section.courseId);
-        courseCache.set(course.id, course);
-      } catch {
-        course = null;
-      }
+      course = await fetchCourse(section.courseId);
+      courseCache.set(course.id, course);
     }
     courses.push(mapClassSectionToCourse(section, course, semesterLabel));
   }
   return { courses, catalog: [...courseCache.values()], semester };
 }
 
-function mapGender(value: string | null | undefined): "男" | "女" | "其他" {
+function mapGender(value: string | null | undefined): "男" | "女" | "其他" | "未知" {
   if (value === "MALE" || value === "男") return "男";
   if (value === "FEMALE" || value === "女") return "女";
-  return "其他";
+  if (value === "OTHER" || value === "其他") return "其他";
+  return "未知";
 }
 
 function mapEnrollmentStatus(status: string): TeacherStudentView["status"] {
@@ -341,29 +499,37 @@ function mapJoinMethod(source: string): "qr" | "manual_import" {
   return /INVITE|QR/i.test(source) ? "qr" : "manual_import";
 }
 
-export async function loadTeacherStudents(classSectionIds: string[]): Promise<TeacherStudentView[]> {
+export async function loadTeacherStudents(
+  classSectionIds: string[],
+): Promise<TeacherStudentView[]> {
   const rows: TeacherStudentView[] = [];
-  const profileCache = new Map<string, StudentProfileApi | null>();
+  const profileCache = new Map<string, StudentProfileApi>();
 
   for (const classSectionId of classSectionIds) {
     const enrollments = await fetchEnrollments(classSectionId);
     for (const enrollment of enrollments) {
       if (!profileCache.has(enrollment.studentId)) {
-        profileCache.set(enrollment.studentId, await fetchStudentProfile(enrollment.studentId));
+        profileCache.set(
+          enrollment.studentId,
+          await fetchStudentProfile(enrollment.studentId),
+        );
       }
       const profile = profileCache.get(enrollment.studentId);
-      const shortId = enrollment.studentId.slice(-8);
+      if (!profile?.fullName?.trim() || !profile.studentNumber?.trim()) {
+        throw new Error("STUDENT_PROFILE_IDENTITY_INCOMPLETE");
+      }
       rows.push({
         id: enrollment.studentId,
         enrollmentId: enrollment.id,
-        name: profile?.fullName?.trim() || `学生 ${shortId}`,
-        number: profile?.studentNumber?.trim() || shortId,
-        email: (profile?.primaryEmail as string | null | undefined)?.trim() || "",
-        gender: mapGender(profile?.gender ?? null),
-        grade: profile?.gradeYear ? `${profile.gradeYear}级` : "—",
+        name: profile.fullName.trim(),
+        number: profile.studentNumber.trim(),
+        email:
+          (profile.primaryEmail as string | null | undefined)?.trim() || "",
+        gender: mapGender(profile.gender ?? null),
+        grade: profile.gradeYear ? `${profile.gradeYear}级` : "—",
         courseId: enrollment.classSectionId,
         status: mapEnrollmentStatus(enrollment.status),
-        joinedAt: enrollment.joinedAt.replace("T", " ").slice(0, 16),
+        joinedAt: enrollment.joinedAt,
         joinMethod: mapJoinMethod(enrollment.source),
         courseHours: 0,
         otherHours: 0,
@@ -381,14 +547,9 @@ function reviewToAuditStatus(record: ExerciseRecord): AuditStatus {
   return "pending";
 }
 
-function hoursFromSeconds(seconds: number): 0 | 1 | 2 {
-  const hours = Math.round(seconds / 3600);
-  if (hours <= 0) return 0;
-  if (hours === 1) return 1;
-  return 2;
-}
-
-function reasonCodeLabel(code: ReviewReasonCode | null | undefined): string | undefined {
+function reasonCodeLabel(
+  code: ReviewReasonCode | null | undefined,
+): string | undefined {
   if (!code) return undefined;
   const map: Record<ReviewReasonCode, string> = {
     INSUFFICIENT_EVIDENCE: "图片或视频无法证明运动过程",
@@ -403,83 +564,88 @@ function reasonCodeLabel(code: ReviewReasonCode | null | undefined): string | un
 }
 
 export const INVALID_REASON_TO_CODE: Record<string, ReviewReasonCode> = {
-  "运动时长不符合要求": "DURATION_INCONSISTENT",
-  "图片或视频无法证明运动过程": "INSUFFICIENT_EVIDENCE",
-  "媒体内容与运动无关": "INVALID_MEDIA",
-  "重复提交": "DUPLICATE_SUBMISSION",
-  "疑似代打卡": "IDENTITY_MISMATCH",
-  "运动记录异常": "OUTSIDE_ALLOWED_SCOPE",
-  "其他": "OTHER",
+  运动时长不符合要求: "DURATION_INCONSISTENT",
+  图片或视频无法证明运动过程: "INSUFFICIENT_EVIDENCE",
+  媒体内容与运动无关: "INVALID_MEDIA",
+  重复提交: "DUPLICATE_SUBMISSION",
+  疑似代打卡: "IDENTITY_MISMATCH",
+  运动记录异常: "OUTSIDE_ALLOWED_SCOPE",
+  其他: "OTHER",
 };
 
-export function mapExerciseRecordToCheckin(record: ExerciseRecord): TeacherCheckinView {
+export function mapExerciseRecordToCheckin(
+  record: ExerciseRecord,
+  evidenceContext?: ExerciseRecordEvidenceContext,
+  currentReviewVersion = 0,
+): TeacherCheckinView {
   const durationMinutes = Math.round((record.actualDurationSeconds || 0) / 60);
-  const creditedMinutes = Math.round((record.creditedDurationSeconds || 0) / 60);
-  const mediaIds = record.mediaIds ?? [];
+  const creditedMinutes = Math.round(
+    (record.creditedDurationSeconds || 0) / 60,
+  );
+  const mediaIds = evidenceContext?.mediaIds ?? [];
   const auditStatus = reviewToAuditStatus(record);
   return {
     id: record.id,
     studentId: record.studentId,
     courseId: record.classSectionId,
     enrollmentId: record.enrollmentId,
-    creditType: record.creditType === "COURSE_RELATED" ? "课程相关" : "其他运动",
+    creditType:
+      record.creditType === "COURSE_RELATED" ? "课程相关" : "其他运动",
     sport: record.sportName || record.sportType || "运动",
     // Slicing the raw ISO string would show UTC (8 hours behind Beijing);
     // teachers must read the record in the organization's time.
-    startAt: businessDateTime(record.submittedAt) || record.businessDate,
-    endAt: businessDateTime(record.submittedAt) || record.businessDate,
+    startAt:
+      businessDateTime(evidenceContext?.startedAt) || record.businessDate,
+    endAt: businessDateTime(evidenceContext?.endedAt) || record.businessDate,
     durationMinutes,
     creditedMinutes,
-    originalHours: hoursFromSeconds(record.actualDurationSeconds) || 1,
-    approvedHours: hoursFromSeconds(record.creditedDurationSeconds),
-    description: record.description,
+    originalHours: Math.max(0, record.actualDurationSeconds) / 3600,
+    approvedHours: Math.max(0, record.creditedDurationSeconds) / 3600,
+    description: record.description ?? "",
     // The backend's business day is authoritative for "which day this counts
     // as"; the UTC date of the timestamp can fall on the previous day.
-    submittedAt: record.businessDate || businessDateTime(record.submittedAt).slice(0, 10),
-    status: auditStatus === "valid" ? "有效" : "已调整",
-    risk: "低风险",
-    confidence: 0.9,
-    proof: mediaIds.length ? mediaIds.map((_, index) => `凭证 ${index + 1}`) : [],
+    submittedAt:
+      record.businessDate || businessDateTime(record.submittedAt).slice(0, 10),
+    status:
+      auditStatus === "valid"
+        ? "有效"
+        : auditStatus === "invalid"
+          ? "已调整"
+          : "待审核",
+    risk: null,
+    confidence: null,
+    proof: mediaIds.length
+      ? mediaIds.map((_, index) => `凭证 ${index + 1}`)
+      : [],
     mediaIds,
-    locationExpired: false,
+    locationExpired: null,
     reviewComment: record.currentReview?.publicComment ?? undefined,
     source: "student",
     auditStatus,
     invalidReason: reasonCodeLabel(record.currentReview?.reasonCode),
-    auditRemark: record.currentReview?.reasonCode === "OTHER" ? (record.currentReview.publicComment ?? undefined) : undefined,
+    auditRemark:
+      record.currentReview?.reasonCode === "OTHER"
+        ? (record.currentReview.publicComment ?? undefined)
+        : undefined,
     version: record.version,
-    reviewVersion: record.currentReview?.result === "PENDING" || !record.currentReview ? 1 : 1,
+    reviewVersion: currentReviewVersion,
   };
 }
 
-/** Local联调 bridge: make-test-record.ps1 writes media ids here because record projection omits mediaIds. */
-async function loadDevRecordMediaMap(): Promise<Record<string, string[]>> {
-  try {
-    const response = await fetch("/.dev-record-media.json", { cache: "no-store" });
-    if (!response.ok) return {};
-    const parsed = (await response.json()) as Record<string, string[] | { mediaIds?: string[] }>;
-    const result: Record<string, string[]> = {};
-    for (const [recordId, value] of Object.entries(parsed)) {
-      if (Array.isArray(value)) result[recordId] = value;
-      else if (value?.mediaIds) result[recordId] = value.mediaIds;
-    }
-    return result;
-  } catch {
-    return {};
-  }
-}
-
 export async function loadSubmittedCheckins(): Promise<TeacherCheckinView[]> {
-  const [records, mediaMap] = await Promise.all([fetchSubmittedExerciseRecords(), loadDevRecordMediaMap()]);
+  const records = await fetchExerciseRecords();
   const detailed = await Promise.all(
     records.map(async (item) => {
-      try {
-        const detail = await fetchExerciseRecord(item.id);
-        const mediaIds = detail.mediaIds ?? item.mediaIds ?? mediaMap[item.id] ?? mediaMap[detail.id] ?? [];
-        return mapExerciseRecordToCheckin({ ...item, ...detail, mediaIds });
-      } catch {
-        return mapExerciseRecordToCheckin({ ...item, mediaIds: item.mediaIds ?? mediaMap[item.id] ?? [] });
-      }
+      const [detail, evidenceContext, latestReview] = await Promise.all([
+        fetchExerciseRecord(item.id),
+        fetchExerciseRecordEvidenceContext(item.id),
+        fetchLatestExerciseReview(item.id),
+      ]);
+      return mapExerciseRecordToCheckin(
+        { ...item, ...detail },
+        evidenceContext,
+        latestReview?.reviewVersion ?? 0,
+      );
     }),
   );
   return detailed;
@@ -487,18 +653,37 @@ export async function loadSubmittedCheckins(): Promise<TeacherCheckinView[]> {
 
 export function mapStudentScoreToGrade(
   score: StudentScore,
-  meta: { studentId: string; classSectionId: string; gender?: "男" | "女"; gradeGroup?: "大一/大二" | "大三/大四" },
+  meta: {
+    studentId: string;
+    classSectionId: string;
+    gender?: "男" | "女" | "其他" | "未知";
+    gradeGroup?: "大一/大二" | "大三/大四" | "未知";
+  },
 ): TeacherGradeView {
   return {
     id: score.id,
     studentId: meta.studentId,
     courseId: meta.classSectionId,
     enrollmentId: score.enrollmentId,
-    gender: meta.gender ?? "男",
-    gradeGroup: meta.gradeGroup ?? "大一/大二",
-    enduranceStatus: "NotRecorded",
+    gender: meta.gender ?? "未知",
+    gradeGroup: meta.gradeGroup ?? "未知",
+    enduranceStatus: "Unavailable",
     physicalScore: score.finalScore ?? score.baseScore ?? undefined,
-    published: Boolean(score.publishedAt) || score.status === "PUBLISHED" || score.status === "LOCKED",
+    published:
+      Boolean(score.publishedAt) ||
+      score.status === "PUBLISHED" ||
+      score.status === "LOCKED",
+    scoreStatus: score.status,
+    qualificationStatus: score.qualificationStatus,
+    validCourseDurationSeconds: score.validCourseDurationSeconds,
+    validGeneralDurationSeconds: score.validGeneralDurationSeconds,
+    totalValidDurationSeconds: score.totalValidDurationSeconds,
+    scoringSeconds: score.scoringSeconds,
+    excessSeconds: score.excessSeconds,
+    baseScore: score.baseScore,
+    adjustmentTotal: score.adjustmentTotal,
+    calculatedAt: score.calculatedAt,
+    publishedAt: score.publishedAt,
     version: score.version,
   };
 }
@@ -508,19 +693,62 @@ export async function loadTeacherGrades(
   classSectionId?: string,
 ): Promise<TeacherGradeView[]> {
   const scores = await fetchStudentScores(classSectionId);
-  if (!scores.length) return [];
-  const byEnrollment = new Map(students.map((student) => [student.enrollmentId, student]));
-  return scores.map((score) => {
+  const byEnrollment = new Map(
+    students.map((student) => [student.enrollmentId, student]),
+  );
+  const byScoreEnrollment = new Map(
+    scores.map((score) => [score.enrollmentId, score]),
+  );
+  const mapped = scores.map((score) => {
     const student = byEnrollment.get(score.enrollmentId);
     return mapStudentScoreToGrade(score, {
       studentId: student?.id ?? score.enrollmentId,
       classSectionId: student?.courseId ?? classSectionId ?? "",
-      gender: student?.gender === "女" ? "女" : "男",
+      gender: student?.gender ?? "未知",
     });
   });
+  for (const student of students) {
+    if (byScoreEnrollment.has(student.enrollmentId)) continue;
+    mapped.push({
+      id: `pending:${student.enrollmentId}`,
+      studentId: student.id,
+      courseId: student.courseId,
+      enrollmentId: student.enrollmentId,
+      gender: student.gender,
+      gradeGroup: "未知",
+      enduranceStatus: "Unavailable",
+      published: false,
+      version: student.version,
+    });
+  }
+  return mapped;
 }
 
-export function expectedReviewVersionOf(record: TeacherCheckinView | ExerciseRecord): number {
-  if ("reviewVersion" in record && typeof record.reviewVersion === "number") return record.reviewVersion;
-  return 1;
+export async function loadTeacherExemptions(): Promise<TeacherExemptionView[]> {
+  const applications = await fetchExemptionApplications();
+  return applications.map((application) => ({
+    id: application.id,
+    studentId: application.studentId,
+    courseId: application.classSectionId,
+    kind:
+      application.applicationType === "PHYSICAL_TEST"
+        ? "体测免测"
+        : application.applicationType === "EXERCISE_CHECK_IN"
+          ? "运动打卡减免"
+          : "特殊情况",
+    reason: application.reason,
+    material: application.mediaIds.map((_, index) => `凭证 ${index + 1}`),
+    mediaIds: [...application.mediaIds],
+    submittedAt: application.submittedAt ?? "",
+    status:
+      application.status === "APPROVED"
+        ? "approved"
+        : application.status === "REJECTED"
+          ? "rejected"
+          : application.status === "SUPPLEMENT_REQUIRED"
+            ? "supplement_required"
+            : "pending",
+    reviewComment: application.publicComment ?? undefined,
+    version: application.version,
+  }));
 }

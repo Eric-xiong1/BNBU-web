@@ -1,6 +1,6 @@
 # 教师端（Material UI）
 
-路径：`frontend/teacher/`  
+路径：`frontend/teacher/`
 演示：`index.html?demo=1`
 
 ## 角色入口

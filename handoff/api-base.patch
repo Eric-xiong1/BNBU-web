@@ -298,7 +298,7 @@ index f2f22c1..2bd11ca 100644
 @@ -285,12 +286,7 @@ export function PortalApp() {
      };
    }, [active, role, tabScrollTop]);
- 
+
 -  const authenticate = (forcedRole?: Role) => {
 -    const resolvedRole = forcedRole ?? (/admin|sys|^a\d+/i.test(account.trim()) ? "admin" : "teacher");
 -    if (!forcedRole && (!account.trim() || !password.trim())) {
@@ -329,7 +329,7 @@ index f2f22c1..2bd11ca 100644
 +    enterWorkspace(/admin|sys|^a\d+/i.test(account.trim()) ? "admin" : "teacher");
      return true;
    };
- 
+
 -  const submitLogin = () => {
 +  const submitLogin = async () => {
      if (isSubmitting) return;
@@ -355,7 +355,7 @@ index f2f22c1..2bd11ca 100644
 +      setIsSubmitting(false);
 +    }
    };
- 
+
    const logout = () => {
 +    if (hasApiSession()) void logoutApi();
      if (role === "admin") {
@@ -375,6 +375,5 @@ index f2f22c1..2bd11ca 100644
                  }}
                >
                  <label>
--- 
+--
 2.50.1.windows.1
-
