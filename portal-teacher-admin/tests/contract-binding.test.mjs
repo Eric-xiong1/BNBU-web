@@ -51,4 +51,8 @@ test("the client never re-derives a review state the Backend owns", async () => 
   assert.match(teacherData, /const result = record\.currentReview\?\.result;/);
   assert.match(teacherData, /if \(result === "VALID"\) return "valid";/);
   assert.match(teacherData, /if \(result === "INVALID"\) return "invalid";/);
+  assert.match(
+    teacherData,
+    /upper === "ACTIVE" \|\| upper === "UPCOMING"/,
+  );
 });

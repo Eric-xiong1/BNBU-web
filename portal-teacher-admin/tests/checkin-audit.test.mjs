@@ -83,4 +83,11 @@ test("shows system-valid records on the teacher audit landing page by default", 
   assert.match(workspace, /新提交默认有效/);
   assert.match(workspace, /手动标记为无效/);
   assert.match(workspace, /record\.auditStatus === "pending"/);
+  assert.match(workspace, /暂无打卡记录/);
+  assert.match(workspace, /切换到全部记录可回看已处理内容/);
+  assert.doesNotMatch(workspace, /切换到全部历史记录可回看已处理内容/);
+  assert.match(
+    workspace,
+    /该记录已判定无效，本页暂不支持改回有效/,
+  );
 });

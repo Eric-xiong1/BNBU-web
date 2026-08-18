@@ -656,6 +656,22 @@ export function mapServerStudent(me, profile, semester = null) {
   };
 }
 
+/**
+ * StudentScore carries baseScore/adjustmentTotal/finalScore — there is no
+ * `totalScore` or `score` field. Both stay nullable even once the score is
+ * PUBLISHED, so a missing value must read as "not calculated" rather than 0.
+ */
+export function mapPublishedScore(publishedScore) {
+  if (!publishedScore) {
+    return { totalScore: null, totalDisplay: tx("未开放", "Not available") };
+  }
+  const totalScore = publishedScore.finalScore ?? publishedScore.baseScore ?? null;
+  return {
+    totalScore,
+    totalDisplay: totalScore === null ? tx("待计算", "Not calculated") : String(totalScore),
+  };
+}
+
 /** Builds the workspace shape every screen already consumes from live data. */
 export async function loadApiWorkspace() {
   const me = await getMe();
@@ -740,9 +756,7 @@ export async function loadApiWorkspace() {
     : { windowMode: "unavailable", dateRangeStart: null, dateRangeEnd: null, dailyStartTime: "", dailyEndTime: "", excludedDates: [], semesterDeadline: null };
 
   const publishedScore = scores.find((s) => s.status === "PUBLISHED") || null;
-  const publishedTotal = publishedScore
-    ? (publishedScore.finalScore ?? publishedScore.baseScore ?? null)
-    : null;
+  const { totalScore, totalDisplay } = mapPublishedScore(publishedScore);
 
   return {
     workspace: {
@@ -764,14 +778,8 @@ export async function loadApiWorkspace() {
         studentId: profile.studentNumber,
         studentName: profile.fullName,
         visibleBlocks: [],
-        // StudentScore carries baseScore/adjustmentTotal/finalScore — there is
-        // no `totalScore` or `score` field. Both stay nullable even once the
-        // score is PUBLISHED, so a missing value must read as "not calculated"
-        // rather than as a zero.
-        totalScore: publishedTotal,
-        totalDisplay: publishedScore
-          ? (publishedTotal === null ? tx("待计算", "Not calculated") : String(publishedTotal))
-          : tx("未开放", "Not available"),
+        totalScore,
+        totalDisplay,
         isPassed: null,
         courseGradeStatus: publishedScore ? "published" : "rules_not_published",
         displayConfigVersion: 0,

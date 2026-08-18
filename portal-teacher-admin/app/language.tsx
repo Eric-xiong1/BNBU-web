@@ -256,10 +256,13 @@ const englishText: Record<string, string> = {
   "切换状态筛选查看其他打卡记录。":
     "Choose another status filter to view other check-in records.",
   暂无历史打卡记录: "No historical check-in records",
+  暂无打卡记录: "No check-in records",
   "学生提交后的记录会保留在此处。":
     "Submitted student records remain available here.",
   "切换到全部历史记录可回看已处理内容。":
     "Switch to all record history to review processed records.",
+  "切换到全部记录可回看已处理内容。":
+    "Switch to all records to review processed content.",
   "先查看全体学生的学时与系统辅助置信度，再进入个人详情，以列表或相册方式浏览全部打卡凭证。":
     "Start with all students’ credits and system confidence, then open a student record to view all evidence as a list or album.",
   查看学生打卡: "View student check-ins",
@@ -925,6 +928,8 @@ const englishText: Record<string, string> = {
   审核状态: "Review status",
   无效原因: "Reason for invalidation",
   "该记录已被判定为无效。": "This record has been marked invalid.",
+  "该记录已判定无效，本页暂不支持改回有效。":
+    "This record is invalid. Changing it back to valid is not supported on this page.",
   打卡审核汇总: "Check-in review summary",
   审核已完成: "Review complete",
   审核中: "Review in progress",

@@ -5,6 +5,7 @@ import {
   Copy,
   Download,
   Eye,
+  File as FileIcon,
   ListChecks,
   MapPin,
   Maximize2,
@@ -417,12 +418,17 @@ function AuditStatusSelector({
           // REVIEW_CHANGE_NOT_ALLOWED, so it is disabled instead.
           const unavailable =
             status === "valid" && record.auditStatus === "invalid";
+          const unavailableHint = unavailable
+            ? "该记录已判定无效，本页暂不支持改回有效。"
+            : undefined;
           return (
             <button
               type="button"
               role="radio"
               aria-checked={record.auditStatus === status}
               disabled={unavailable}
+              title={unavailableHint}
+              aria-description={unavailableHint}
               className={`audit-status-option is-${status} ${record.auditStatus === status ? "selected" : ""}`.trim()}
               key={status}
               onClick={() => onSelect(record, status)}
@@ -675,7 +681,13 @@ function CheckinEvidenceReviewer({
                   an unlabelled item would mislabel every WebM/MP4 the student
                   recorded, so the type is shown only when the name proves it. */}
               <span>
-                {isVideo ? <Play size={13} fill="currentColor" /> : "图"}
+                {isVideo ? (
+                  <Play size={13} fill="currentColor" />
+                ) : isImageMaterial(item) ? (
+                  "图"
+                ) : (
+                  <FileIcon size={13} />
+                )}
               </span>
               <b>{item}</b>
               <small>
@@ -3151,7 +3163,7 @@ export function TeacherWorkspace({
               <thead>
                 <tr>
                   <th>学生</th>
-                  <th>{showingHistory ? "历史记录" : "待审核记录"}</th>
+                  <th>{showingHistory ? "记录" : "待审核记录"}</th>
                   <th>剩余学时</th>
                   <th>
                     辅助置信度{" "}
@@ -3277,12 +3289,12 @@ export function TeacherWorkspace({
             {reviewRows.length === 0 && (
               <EmptyState
                 title={
-                  showingHistory ? "暂无历史打卡记录" : "当前筛选没有待审核记录"
+                  showingHistory ? "暂无打卡记录" : "当前筛选没有待审核记录"
                 }
                 description={
                   showingHistory
                     ? "学生提交后的记录会保留在此处。"
-                    : "切换到全部历史记录可回看已处理内容。"
+                    : "切换到全部记录可回看已处理内容。"
                 }
               />
             )}

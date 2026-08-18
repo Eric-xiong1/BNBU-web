@@ -427,7 +427,12 @@ const defaultWindow = {
 };
 
 function mapSectionStatus(status: string): "ACTIVE" | "ENDED" {
-  return status === "ACTIVE" ? "ACTIVE" : "ENDED";
+  const upper = status.toUpperCase();
+  // UPCOMING sections are not yet in session, but teachers still manage them
+  // on the active list. ARCHIVED/CLOSED (and any other non-active value) stay
+  // on the ended list.
+  if (upper === "ACTIVE" || upper === "UPCOMING") return "ACTIVE";
+  return "ENDED";
 }
 
 function formatTime(value: string | null | undefined): string {

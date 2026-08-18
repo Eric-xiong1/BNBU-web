@@ -580,7 +580,7 @@ function renderRecordsTab(app) {
     ${records.length ? `<div class="swiss-panel" style="padding:18px 20px">
       <div class="row">
         <div class="col grow" style="gap:3px">
-          <span class="label-medium text-muted">${tx("打卡时长", "Recorded hours")}</span>
+          <span class="label-medium text-muted">${tx("计入学时", "Credited hours")}</span>
           <span class="headline-medium text-on-surface">${hourText(totalHours)}</span>
         </div>
         <div class="col" style="align-items:flex-end;gap:4px">
@@ -603,7 +603,7 @@ function renderRecordsTab(app) {
         <div class="row">
           <span class="title-medium text-on-surface">${hourText(record.hours)}</span>
           <span style="width:6px"></span>
-          <span class="body-small text-muted">${tx("打卡时长", "Recorded hours")}</span>
+          <span class="body-small text-muted">${tx("计入学时", "Credited hours")}</span>
           <span class="grow"></span>
           ${record.reviewResult === "INVALID" || record.reviewResult === "PENDING"
             ? `${statusBadge(reviewStatusText(record))}<span style="width:8px"></span>`
@@ -706,7 +706,7 @@ function renderRecordDetail(app, record) {
       <span class="body-medium text-muted">${esc(taskTitle)}</span>
       <div class="course-divider" style="margin:20px 0 16px"></div>
       <span class="headline-medium text-on-surface">${hourText(record.hours)}</span>
-      <span class="label-medium text-muted">${tx("打卡时长", "Recorded hours")}</span>
+      <span class="label-medium text-muted">${tx("计入学时", "Credited hours")}</span>
     </div>
     <div class="row" style="padding-top:8px"><span class="title-medium text-on-surface grow">${tx("记录信息", "Record information")}</span></div>
     <div class="swiss-panel" style="padding:6px 18px">

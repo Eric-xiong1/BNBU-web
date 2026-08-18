@@ -21,7 +21,7 @@ import {
 } from "./js/session.js";
 import { createMockWorkspace, MOCK_INVITES, hourText } from "./js/data.js";
 import { canNormalizeCapturedImage, mimeEssence, validateProofFile } from "./js/proofs.js";
-import { mapServerRecord, mapServerStudent } from "./js/api.js";
+import { mapPublishedScore, mapServerRecord, mapServerStudent } from "./js/api.js";
 import { localStore } from "./js/store.js";
 
 const failures = [];
@@ -190,6 +190,24 @@ check("a teacher's INVALID verdict reaches the student verbatim", () => {
   // actual duration.
   assert.equal(record.hours, 0);
   assert.match(record.teacherPublicFeedback, /凭证无法证明运动过程/);
+});
+
+check("published scores read finalScore/baseScore and never invent a zero", () => {
+  const published = mapPublishedScore({
+    status: "PUBLISHED", finalScore: 86.5, baseScore: 80, adjustmentTotal: 6.5,
+  });
+  assert.equal(published.totalScore, 86.5);
+  assert.equal(published.totalDisplay, "86.5");
+
+  const pendingCalc = mapPublishedScore({
+    status: "PUBLISHED", finalScore: null, baseScore: null, adjustmentTotal: null,
+  });
+  assert.equal(pendingCalc.totalScore, null);
+  assert.equal(pendingCalc.totalDisplay, "待计算");
+
+  const unpublished = mapPublishedScore(null);
+  assert.equal(unpublished.totalScore, null);
+  assert.equal(unpublished.totalDisplay, "未开放");
 });
 
 check("store self-heals corrupted keys and merges overlay defaults", () => {
