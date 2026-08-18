@@ -78,10 +78,11 @@ npm run dev -- --port 4300
 ```bash
 npm run preview          # 学生端静态预览 :4174（同源转发 /api → :3000、/minio → :9000）
 npm run test:web         # 整站自检
-npm run test:student     # 学生端单元 + smoke（12 项）
-cd portal-teacher-admin && npm run typecheck   # 含 OpenAPI 合同一致性检查
+npm run test:student     # 学生端单元 + smoke（15 项）
+cd portal-teacher-admin && npm run contract:verify  # 校验快照 SHA-256 与规模
+cd portal-teacher-admin && npm run typecheck   # 含 contract:verify + OpenAPI 类型一致性检查
 cd portal-teacher-admin && npm run lint
-cd portal-teacher-admin && npm test            # 29 项，含生产构建
+cd portal-teacher-admin && npm test            # 32 项，含生产构建
 ```
 
 本地测试账号（全部为合成数据）：教师 `teacher.a.local.synthetic@bnbu.invalid`、管理员 `admin.local.synthetic@bnbu.invalid`（密码见 `联调环境与任务分工.md`）。
@@ -151,6 +152,47 @@ node handoff/make-test-record-15.cjs "http://127.0.0.1:3000/api/v1" "<psql.exe �
 - 待人工/待环境：真机浏览器（iOS Safari / Android Chrome）拍摄与权限矩阵、Staging 部署与 HTTPS、GitHub CI 门禁 —— 与两份检测报告结论一致。
 
 **回滚方式**：三个修复集中在单一提交 `fd4e3a2`，可独立 revert；合并本身可用 `git revert -m 1` 处理对应 merge 提交，不影响 Android 与 Backend。
+
+---
+
+## 2026-08-18 Contract 2.0.2 同步（PR #4）
+
+对应 Backend Release [`2.0.2-contract`](https://github.com/chchaiai/BNBU-Sports-Backend/releases/tag/2.0.2-contract)，PR：[#4](https://github.com/Eric-xiong1/BNBU-web/pull/4)（分支 `codex/sync-contract-2.0.2`）。基线与校验方式见上文「合同基线」。
+
+**合同核对结论**
+
+- Release 附件 `openapi.snapshot.yaml` 的 SHA-256 与公告一致，且与仓库内快照 **逐字节相同**（`cmp` 通过，323,046 字节）。
+- 规模 109 路径 / 126 操作 / 288 schema，与 `release-manifest.json` 一致；`openapi-typescript --check` 无差异。
+- 新增 `npm run contract:verify`（[scripts/verify-contract.mjs](portal-teacher-admin/scripts/verify-contract.mjs)）与 `tests/contract-binding.test.mjs`：此前仓库只校验「类型是否与本地快照匹配」，**无法发现本地快照本身被改过**。
+- 顺带发现：Backend 的 Release 只有 1.4.0 → 2.0.0 → 2.0.1 → 2.0.2，**没有 1.5.0-contract**。本仓库此前声称的 `1.5.0-contract` 基线来自 monorepo 工作副本，从未作为 Release 发布——那 55 项破坏性变化其实是 1.4.0→2.0.0 的，Web 端在「1.5」那轮已提前吸收了大部分。指纹校验就是为了让这类漂移不再无声发生。
+
+**默认有效语义落地**
+
+- 教师端审核选择器只提供「有效/无效」（`CreateReviewRequest.result` 枚举只有这两个），原来的「待审核」选项点击后被静默丢弃。
+- 无效记录上的「有效」置灰并给出说明：2.0.2 的 `INVALID → VALID` 只能走 `reviews/reopen`，直接追加只会返回 `REVIEW_CHANGE_NOT_ALLOWED`。
+- 删掉「没有审核意见即视为待审」的第二套状态推导，队列与统计一律读 `currentReview.result`。
+- 首页统计改为「打卡记录 / 涉及学生 / 已标记无效」，仅在存在历史遗留 `PENDING` 时置顶显示待审计数；「完成审核」按钮同理只在有历史遗留待审时出现。
+- 学生端记录卡片与详情展示后端返回的审核状态与教师意见——**此前教师判定 `INVALID` 对学生完全不可见**，学时会无声减少。
+
+**同轮修掉的既有缺陷**
+
+1. 学生端学时改为一律取 `creditedDurationSeconds`，不再用实际运动时长兜底；文案同步改为「计入学时」。
+2. 成绩总分改读合同定义的 `finalScore`/`baseScore`（合同没有 `totalScore`/`score`，原逻辑对已发布成绩恒为 0）。
+3. `EnrollmentStatus` 补 `WITHDRAWN`（原写成 `ENDED`，真实值会落到「成员关系已停用」）；`ClassSectionStatus` 补 `UPCOMING`/`ARCHIVED`，且 `UPCOMING` 教学班不再被当成已结束。
+4. 教师端凭证 tab 不再把未知类型一律标成「图片」——真实凭证只有 mediaId，此前所有视频都被标成图片。
+5. `npm run demo:setup` 不再在提交后追加 `VALID` 审核（2.0.2 会拒绝），改为第二条记录由教师追加 `INVALID`，两种状态都能造。
+
+**审核轮（何天一，`c2af546`）**
+
+补齐了默认有效改动后的文案与映射残留：空态/表头仍指向「历史记录」、学时文案、未知凭证图标、`UPCOMING` 运行时映射、置灰说明，并抽出 `mapPublishedScore` 加冒烟。其中置灰说明最初用 `aria-description` 承载，触发 `jsx-a11y/role-supports-aria-props` 告警且禁用按钮不可聚焦（tooltip 与该属性都到不了键盘/读屏用户），已改为可见提示文字，lint 恢复零告警。
+
+**验证**：`contract:verify` / `typecheck` / `lint`（0 告警）/ 门户 32 项（含生产构建）/ 学生端 15 项冒烟 / `test:web` 全部通过。
+
+**明确未做**
+
+- **`POST /exercise-records/{id}/reviews/reopen`**：教师误标无效后无法在页面内撤回。2.0.2 提供了该操作，但 Release 文档未要求客户端实现，且 `reason` 必填需要新弹窗——当前只把不可用的转换置灰并说明。是否实现待定。
+- 几个视图类型仍声明闭合 schema 没有的字段（`StudentProfile.primaryEmail`、`Semester.code/name`、`ExerciseRecord.studentRemark`），属既有历史债。
+- 独立仓库 `BNBU-Sports-Web-Teacher-and-Admin` 没有 openapi 目录、本地还有未推送提交，已被本仓库 `portal-teacher-admin/` 取代，建议归档，不要带进联调。
 
 ---
 

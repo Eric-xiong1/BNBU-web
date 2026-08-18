@@ -428,7 +428,6 @@ function AuditStatusSelector({
               aria-checked={record.auditStatus === status}
               disabled={unavailable}
               title={unavailableHint}
-              aria-description={unavailableHint}
               className={`audit-status-option is-${status} ${record.auditStatus === status ? "selected" : ""}`.trim()}
               key={status}
               onClick={() => onSelect(record, status)}
@@ -440,17 +439,25 @@ function AuditStatusSelector({
         })}
       </div>
       {record.auditStatus === "invalid" && (
-        <p className="record-invalid-reason">
-          {record.invalidReason ? (
-            <>
-              <span>无效原因</span>
-              {record.invalidReason}
-              {record.auditRemark ? `：${record.auditRemark}` : ""}
-            </>
-          ) : (
-            <span>该记录已被判定为无效。</span>
-          )}
-        </p>
+        <>
+          <p className="record-invalid-reason">
+            {record.invalidReason ? (
+              <>
+                <span>无效原因</span>
+                {record.invalidReason}
+                {record.auditRemark ? `：${record.auditRemark}` : ""}
+              </>
+            ) : (
+              <span>该记录已被判定为无效。</span>
+            )}
+          </p>
+          {/* A disabled button is not focusable, so a title tooltip never
+              reaches keyboard or screen-reader users. State the constraint in
+              the flow itself. */}
+          <p className="record-audit-hint">
+            该记录已判定无效，本页暂不支持改回有效。
+          </p>
+        </>
       )}
     </div>
   );
