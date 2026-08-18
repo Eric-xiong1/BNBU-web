@@ -176,7 +176,7 @@ node handoff/make-test-record-15.cjs "http://127.0.0.1:3000/api/v1" "<psql.exe �
 
 **同轮修掉的既有缺陷**
 
-1. 学生端学时改为一律取 `creditedDurationSeconds`，不再用实际运动时长兜底；文案同步改为「计入学时」。
+1. 学生端学时改为一律取 `creditedDurationSeconds`，不再用实际运动时长兜底；文案相应改为「计入学时」，被判定无效的记录则显示「未计入学时」——2.0.2 没有把无效记录的 `creditedDurationSeconds` 清零的手段（`creditedDurationOverrideSeconds` 在 ADR-047 前被禁），它是通过计分账本停止计入的，所以数字仍在但不能叫「已计入」。
 2. 成绩总分改读合同定义的 `finalScore`/`baseScore`（合同没有 `totalScore`/`score`，原逻辑对已发布成绩恒为 0）。
 3. `EnrollmentStatus` 补 `WITHDRAWN`（原写成 `ENDED`，真实值会落到「成员关系已停用」）；`ClassSectionStatus` 补 `UPCOMING`/`ARCHIVED`，且 `UPCOMING` 教学班不再被当成已结束。
 4. 教师端凭证 tab 不再把未知类型一律标成「图片」——真实凭证只有 mediaId，此前所有视频都被标成图片。
@@ -185,6 +185,8 @@ node handoff/make-test-record-15.cjs "http://127.0.0.1:3000/api/v1" "<psql.exe �
 **审核轮（何天一，`c2af546`）**
 
 补齐了默认有效改动后的文案与映射残留：空态/表头仍指向「历史记录」、学时文案、未知凭证图标、`UPCOMING` 运行时映射、置灰说明，并抽出 `mapPublishedScore` 加冒烟。其中置灰说明最初用 `aria-description` 承载，触发 `jsx-a11y/role-supports-aria-props` 告警且禁用按钮不可聚焦（tooltip 与该属性都到不了键盘/读屏用户），已改为可见提示文字，lint 恢复零告警。
+
+随后又跑了一轮对抗式复核（多视角 + 逐条反驳 + 变异测试），确认 3 项并修掉：① `assert.match(workspace, /暂无打卡记录/)` 是空断言——该子串本来就命中 `暂无打卡记录需要审核。` 这条 toast，把空态文案改回旧值它照样通过，已改为锚定整个三元表达式并补上表头断言；② `mapPublishedScore` 的冒烟没覆盖 `baseScore` 兜底和「已发布 0 分」，删掉兜底或把 `??` 换成 `||` 都不会失败，已补两条用例；③ 无效记录的卡片把学时标成「计入学时」，与上方汇总（明确排除无效记录）自相矛盾，已按记录状态分支。其余 9 项（`UPCOMING` 的显示归属、`aria-description` 等）经复核为不成立或已修。
 
 **验证**：`contract:verify` / `typecheck` / `lint`（0 告警）/ 门户 32 项（含生产构建）/ 学生端 15 项冒烟 / `test:web` 全部通过。
 

@@ -603,7 +603,7 @@ function renderRecordsTab(app) {
         <div class="row">
           <span class="title-medium text-on-surface">${hourText(record.hours)}</span>
           <span style="width:6px"></span>
-          <span class="body-small text-muted">${tx("计入学时", "Credited hours")}</span>
+          <span class="body-small text-muted">${creditLabel(record)}</span>
           <span class="grow"></span>
           ${record.reviewResult === "INVALID" || record.reviewResult === "PENDING"
             ? `${statusBadge(reviewStatusText(record))}<span style="width:8px"></span>`
@@ -660,6 +660,17 @@ function detailInfoRow(iconName, label, value, last = false) {
 // Contract 2.0.2: a submitted record is VALID immediately, and the only later
 // teacher action is appending INVALID. The student therefore has to be able to
 // see that verdict — it is the sole reason credited hours can drop.
+// A record keeps its creditedDurationSeconds after a teacher appends INVALID —
+// 2.0.2 has no mechanism to zero it (creditedDurationOverrideSeconds is blocked
+// until ADR-047), the hours stop counting through the score ledger instead. So
+// the number is real, but calling it "credited" on a rejected record would
+// contradict the total right above it, which excludes exactly those records.
+function creditLabel(record) {
+  return record.reviewResult === "INVALID"
+    ? tx("未计入学时", "Not credited")
+    : tx("计入学时", "Credited hours");
+}
+
 function reviewStatusText(record) {
   if (record.reviewResult === "VALID") return tx("有效", "Valid");
   if (record.reviewResult === "INVALID") return tx("无效", "Invalid");
@@ -706,7 +717,7 @@ function renderRecordDetail(app, record) {
       <span class="body-medium text-muted">${esc(taskTitle)}</span>
       <div class="course-divider" style="margin:20px 0 16px"></div>
       <span class="headline-medium text-on-surface">${hourText(record.hours)}</span>
-      <span class="label-medium text-muted">${tx("计入学时", "Credited hours")}</span>
+      <span class="label-medium text-muted">${creditLabel(record)}</span>
     </div>
     <div class="row" style="padding-top:8px"><span class="title-medium text-on-surface grow">${tx("记录信息", "Record information")}</span></div>
     <div class="swiss-panel" style="padding:6px 18px">

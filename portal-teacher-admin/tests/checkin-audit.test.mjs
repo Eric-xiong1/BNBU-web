@@ -83,7 +83,14 @@ test("shows system-valid records on the teacher audit landing page by default", 
   assert.match(workspace, /新提交默认有效/);
   assert.match(workspace, /手动标记为无效/);
   assert.match(workspace, /record\.auditStatus === "pending"/);
-  assert.match(workspace, /暂无打卡记录/);
+  // Anchored to the empty state itself: a bare /暂无打卡记录/ also matches the
+  // "暂无打卡记录需要审核。" toast, so it passed even before the copy was fixed.
+  assert.match(
+    workspace,
+    /showingHistory \? "暂无打卡记录" : "当前筛选没有待审核记录"/,
+  );
+  assert.doesNotMatch(workspace, /"暂无历史打卡记录"/);
+  assert.match(workspace, /<th>\{showingHistory \? "记录" : "待审核记录"\}<\/th>/);
   assert.match(workspace, /切换到全部记录可回看已处理内容/);
   assert.doesNotMatch(workspace, /切换到全部历史记录可回看已处理内容/);
   assert.match(

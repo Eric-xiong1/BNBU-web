@@ -173,10 +173,10 @@ check("a submitted record is valid on arrival and credits the server's hours", (
 });
 
 check("a teacher's INVALID verdict reaches the student verbatim", () => {
-  const record = mapServerRecord({
+  const invalidRecord = (creditedDurationSeconds) => mapServerRecord({
     id: "record-2", status: "REVIEWED", creditType: "GENERAL",
     classSectionId: "section-1", sportType: "BADMINTON", sportName: null,
-    actualDurationSeconds: 3900, creditedDurationSeconds: 0,
+    actualDurationSeconds: 3900, creditedDurationSeconds,
     businessDate: "2026-08-18", submittedAt: "2026-08-18T02:05:00Z",
     description: "羽毛球专项练习",
     currentReview: {
@@ -185,11 +185,19 @@ check("a teacher's INVALID verdict reaches the student verbatim", () => {
     },
   });
 
-  assert.equal(record.reviewResult, "INVALID");
-  // The server credited nothing; the client must not invent hours from the
-  // actual duration.
-  assert.equal(record.hours, 0);
-  assert.match(record.teacherPublicFeedback, /凭证无法证明运动过程/);
+  // 2.0.2 has no way for an INVALID review to zero creditedDurationSeconds
+  // (creditedDurationOverrideSeconds is blocked until ADR-047), so a rejected
+  // record normally keeps the credit it was submitted with — exactly what
+  // `npm run demo:setup` seeds. The client passes the server value through and
+  // leaves the exclusion to the review result.
+  const stillCredited = invalidRecord(3600);
+  assert.equal(stillCredited.reviewResult, "INVALID");
+  assert.equal(stillCredited.hours, 1);
+  assert.match(stillCredited.teacherPublicFeedback, /凭证无法证明运动过程/);
+
+  // And when the server credits nothing, the client must not invent hours from
+  // the actual duration.
+  assert.equal(invalidRecord(0).hours, 0);
 });
 
 check("published scores read finalScore/baseScore and never invent a zero", () => {
@@ -198,6 +206,21 @@ check("published scores read finalScore/baseScore and never invent a zero", () =
   });
   assert.equal(published.totalScore, 86.5);
   assert.equal(published.totalDisplay, "86.5");
+
+  // finalScore is nullable even once PUBLISHED; baseScore is the fallback.
+  const baseOnly = mapPublishedScore({
+    status: "PUBLISHED", finalScore: null, baseScore: 78, adjustmentTotal: null,
+  });
+  assert.equal(baseOnly.totalScore, 78);
+  assert.equal(baseOnly.totalDisplay, "78");
+
+  // A published 0 is a legal score (DecimalScore has no minimum) and must not
+  // be swallowed by a truthiness fallback.
+  const publishedZero = mapPublishedScore({
+    status: "PUBLISHED", finalScore: 0, baseScore: 80, adjustmentTotal: -80,
+  });
+  assert.equal(publishedZero.totalScore, 0);
+  assert.equal(publishedZero.totalDisplay, "0");
 
   const pendingCalc = mapPublishedScore({
     status: "PUBLISHED", finalScore: null, baseScore: null, adjustmentTotal: null,

@@ -246,7 +246,6 @@ const englishText: Record<string, string> = {
   需要关注记录: "Records needing attention",
   全部待审核记录: "All pending records",
   低置信度记录: "Low-confidence records",
-  全部历史记录: "All record history",
   全部记录: "All records",
   历史: "history",
   记录: "records",
@@ -255,12 +254,9 @@ const englishText: Record<string, string> = {
   当前筛选没有待审核记录: "No pending records match this filter",
   "切换状态筛选查看其他打卡记录。":
     "Choose another status filter to view other check-in records.",
-  暂无历史打卡记录: "No historical check-in records",
   暂无打卡记录: "No check-in records",
   "学生提交后的记录会保留在此处。":
     "Submitted student records remain available here.",
-  "切换到全部历史记录可回看已处理内容。":
-    "Switch to all record history to review processed records.",
   "切换到全部记录可回看已处理内容。":
     "Switch to all records to review processed content.",
   "先查看全体学生的学时与系统辅助置信度，再进入个人详情，以列表或相册方式浏览全部打卡凭证。":
