@@ -1019,7 +1019,7 @@ export function TeacherWorkspace({
   const [checkinDetailView, setCheckinDetailView] =
     useState<CheckinDetailView>("list");
   const [checkinReviewFilter, setCheckinReviewFilter] =
-    useState<CheckinReviewFilter>("all");
+    useState<CheckinReviewFilter>("history");
   const [checkinAuditFilter, setCheckinAuditFilter] =
     useState<CheckinAuditFilter>("all");
   const [pendingRecordFocusId, setPendingRecordFocusId] = useState<
@@ -3066,7 +3066,7 @@ export function TeacherWorkspace({
                   : []),
                 {
                   value: "history",
-                  label: "全部历史记录",
+                  label: "全部记录",
                   count: records.length,
                 },
               ]}
@@ -3077,8 +3077,8 @@ export function TeacherWorkspace({
               <span aria-hidden="true">i</span>
               <p>
                 {mode === "demo"
-                  ? "辅助置信度仅用于排序与提示，最终审核结果仍由教师确认。"
-                  : "真实服务端当前不返回风险或置信度；请依据记录与受保护凭证人工审核。"}
+                  ? "新提交默认有效；辅助置信度仅用于发现异常，教师可将问题记录标记为无效。"
+                  : "新提交默认有效；如凭证存在问题，请进入记录并手动标记为无效。"}
               </p>
             </div>
           }

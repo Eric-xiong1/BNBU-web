@@ -764,8 +764,8 @@ export interface paths {
         readonly get: operations["listExerciseRecordReviews"];
         readonly put?: never;
         /**
-         * Append a VALID or INVALID review decision
-         * @description creditedDurationOverrideSeconds must be null until ADR-047 is accepted.
+         * Append an INVALID decision for a current VALID record, or resolve legacy PENDING
+         * @description New submissions are system-valid by default. The responsible teacher may append INVALID when a problem is found. Legacy or explicitly reopened PENDING records may still be resolved as VALID or INVALID. Existing ReviewRecord rows are never overwritten. creditedDurationOverrideSeconds must be null until ADR-047 is accepted.
          */
         readonly post: operations["reviewExerciseRecord"];
         readonly delete?: never;
@@ -800,7 +800,7 @@ export interface paths {
         };
         readonly get?: never;
         readonly put?: never;
-        /** Submit a draft and atomically create ReviewRecord v1 PENDING */
+        /** Submit a draft and atomically create a system VALID ReviewRecord */
         readonly post: operations["submitExerciseRecord"];
         readonly delete?: never;
         readonly options?: never;
@@ -3281,7 +3281,7 @@ export interface components {
             /** Format: date-time */
             readonly reviewedAt: string | null;
             readonly reviewVersion: number;
-            /** @description Null for initial and reopened PENDING rows; required for teacher-created VALID or INVALID rows. */
+            /** @description Null for the initial system VALID row and legacy system PENDING rows; required for teacher-created VALID or INVALID rows. */
             readonly teacherId: components["schemas"]["OpaqueId"] | null;
         };
         readonly ReviewResponse: {
@@ -5905,9 +5905,9 @@ export interface operations {
                      *           "actualDurationSeconds": 5400,
                      *           "pausedDurationSeconds": 600,
                      *           "creditedDurationSeconds": 3600,
-                     *           "status": "SUBMITTED",
+                     *           "status": "REVIEWED",
                      *           "currentReview": {
-                     *             "result": "PENDING",
+                     *             "result": "VALID",
                      *             "reasonCode": null,
                      *             "publicComment": null
                      *           },

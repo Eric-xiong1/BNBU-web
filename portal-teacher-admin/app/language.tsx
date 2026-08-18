@@ -245,6 +245,7 @@ const englishText: Record<string, string> = {
   全部待审核记录: "All pending records",
   低置信度记录: "Low-confidence records",
   全部历史记录: "All record history",
+  全部记录: "All records",
   历史: "history",
   记录: "records",
   历史记录: "Record history",
@@ -1035,6 +1036,8 @@ const englishText: Record<string, string> = {
 
   "辅助置信度仅用于排序与提示，最终审核结果仍由教师确认。":
     "Assistance confidence is used only for sorting and guidance; the teacher confirms the final review result.",
+  "新提交默认有效；辅助置信度仅用于发现异常，教师可将问题记录标记为无效。":
+    "New submissions are valid by default. Assistance confidence only helps identify anomalies, and teachers can mark problematic records invalid.",
   打卡审核列表: "Check-in review list",
   条待审核记录: "pending records",
   涉及: "Involving",
@@ -1441,6 +1444,8 @@ const englishText: Record<string, string> = {
     "Approval changes only the application status; the contract does not automatically create a score or duration offset.",
   "真实服务端当前不返回风险或置信度；请依据记录与受保护凭证人工审核。":
     "The live server does not return risk or confidence values. Review the record and protected evidence manually.",
+  "新提交默认有效；如凭证存在问题，请进入记录并手动标记为无效。":
+    "New submissions are valid by default. If the evidence has a problem, open the record and mark it invalid manually.",
   "服务端未提供": "Not provided by the server",
   "风险辅助": "Risk assistance",
   "服务端正式审核": "Authoritative server review",
