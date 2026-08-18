@@ -1,4 +1,4 @@
-// Contract 1.5 email-only student verification-code sign-in.
+// Contract 2.0.2 email-only student verification-code sign-in.
 
 import { t, tx } from "../i18n.js";
 import { icon } from "../icons.js";

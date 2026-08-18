@@ -6,6 +6,7 @@
   "sourcePath": "docs/backend-contracts/openapi.yaml",
   "contractVersion": "2.0.2-contract",
   "sha256": "853e7f5efadb10dcbbe0f446c4c60962ce2fd864360a156343b5740d0c1761a4",
+  "byteLength": 323046,
   "operationCount": 126,
   "schemaCount": 288,
   "generatedTypesPath": "app/openapi.generated.ts",

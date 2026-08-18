@@ -1,4 +1,4 @@
-// Contract 1.5 proof-file rules. These functions stay DOM-free so the student
+// Contract 2.0.2 proof-file rules. These functions stay DOM-free so the student
 // smoke suite can run them directly in Node.
 
 // Mirrors the current Backend 1.5 transport configuration. These are transport
@@ -60,7 +60,7 @@ export function canNormalizeCapturedImage(file) {
 
 /**
  * Validate the final bytes that will be uploaded. MIME is mandatory and must
- * match the exact Contract 1.5 transport allowlist; extensions never authorize
+ * match the exact Contract 2.0.2 transport allowlist; extensions never authorize
  * a file and unknown/empty video types are never relabelled as MP4.
  *
  * @param {{type?: string, size: number}} file

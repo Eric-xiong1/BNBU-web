@@ -84,7 +84,7 @@ async function refreshStillWorks(credentials) {
   }
 }
 
-async function seedRecord(studentToken, enrollmentId, { sportType, description, review }, teacherToken) {
+async function seedRecord(studentToken, enrollmentId, { sportType, description, invalid }, teacherToken) {
   const session = await api("/exercise-sessions", {
     method: "POST", token: studentToken,
     body: { enrollmentId, clientObservedAt: new Date().toISOString() },
@@ -112,7 +112,7 @@ COMMIT;`);
     body: {
       sessionId: session.id, businessPurpose: "EXERCISE_RECORD", mediaType: "IMAGE",
       mimeType: "image/png", fileSizeBytes: png.length,
-      // Contract 1.5 起必须申报文件 SHA-256，后端会与实际上传内容比对。
+      // Contract 2.0.2（自 1.5 起）必须申报文件 SHA-256，后端会与实际上传内容比对。
       declaredContentSha256: require("crypto").createHash("sha256").update(png).digest("hex"),
       captureSource: "IN_APP_CAMERA", durationSeconds: null,
     },
@@ -147,10 +147,19 @@ COMMIT;`);
     }
     throw error;
   }
-  if (review) {
+  // Contract 2.0.2：提交本身就原子写入了 result=VALID、teacherId=null 的系统审核行
+  // （reviewVersion=1），记录直接进入 REVIEWED/VALID。教师端唯一的审核动作是事后追加
+  // INVALID，所以这里只在需要「被判定无效」的样例数据时才调审核接口。
+  if (invalid) {
     await api(`/exercise-records/${record.id}/reviews`, {
       method: "POST", token: teacherToken,
-      body: { result: "VALID", publicComment: "记录有效，已计入运动时长。", expectedReviewVersion: 1, expectedVersion: submitted.version },
+      body: {
+        result: "INVALID",
+        reasonCode: "INSUFFICIENT_EVIDENCE",
+        reason: "演示数据：凭证无法证明运动过程",
+        publicComment: "凭证无法证明运动过程，请重新打卡。",
+        expectedReviewVersion: 1, expectedVersion: submitted.version,
+      },
     });
   }
   return record.id;
@@ -180,7 +189,7 @@ COMMIT;`);
   const studentToken = joined.authSession.accessToken;
   console.log(`  已建号并入班：${identity.fullName} / ${studentNumber}`);
 
-  // Contract 1.5：新学生在完成邮箱验证前不是 ACTIVE，无法开始运动会话，
+  // Contract 2.0.2：新学生在完成邮箱验证前不是 ACTIVE，无法开始运动会话，
   // 学生端也会把未绑邮箱的账号拦在「完成邮箱验证」页。本地没有邮件服务
   // （Mailpit），这里直接激活并绑定已验证的合成邮箱——仅限本地演示数据。
   if (psqlAvailable()) {
@@ -192,14 +201,14 @@ UPDATE users SET status = 'ACTIVE',
   email_verified_at = NOW()
 WHERE id = '${joined.authSession.user.id}';
 COMMIT;`);
-    console.log("  已本地激活并绑定合成邮箱（替代 Contract 1.5 的邮箱验证，仅本地）");
+    console.log("  已本地激活并绑定合成邮箱（替代 Contract 2.0.2 的邮箱验证，仅本地）");
   } else {
     console.log("  警告：未找到本机 psql，无法激活演示账号；登录可用但打卡会被 USER_STATUS_NOT_ACTIVE 拒绝。");
   }
-  await seedRecord(studentToken, joined.enrollment.id, { sportType: "RUNNING", description: "晨跑 5 公里", review: true }, teacher.accessToken);
-  console.log("  已生成 1 条已通过审核的打卡记录");
-  await seedRecord(studentToken, joined.enrollment.id, { sportType: "BADMINTON", description: "羽毛球专项练习", review: false }, teacher.accessToken)
-    .then(() => console.log("  已生成 1 条待教师审核的打卡记录"))
+  await seedRecord(studentToken, joined.enrollment.id, { sportType: "RUNNING", description: "晨跑 5 公里" }, teacher.accessToken);
+  console.log("  已生成 1 条有效打卡记录（提交即有效，系统审核行 VALID）");
+  await seedRecord(studentToken, joined.enrollment.id, { sportType: "BADMINTON", description: "羽毛球专项练习", invalid: true }, teacher.accessToken)
+    .then(() => console.log("  已生成 1 条被教师判定无效的打卡记录"))
     .catch((error) => {
       // One record per day per enrollment is the backend rule; not fatal.
       if (error.code === "EXERCISE_RECORD_DAILY_LIMIT_REACHED" || error.code === "EXERCISE_RECORD_ALREADY_EXISTS_FOR_SESSION") {

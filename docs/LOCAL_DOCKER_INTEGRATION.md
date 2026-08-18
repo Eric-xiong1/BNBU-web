@@ -5,7 +5,7 @@
 Express Mock Backend，也不要把真实学生数据、`.env`、密码、Token、数据库连接串、
 `storageKey` 或签名 URL 写入日志或提交到 Git。
 
-## 1. 启动 Backend 1.5 基础设施
+## 1. 启动 Backend 2.0.2 基础设施
 
 在独立的 `BNBU-Sports-Backend` 仓库根目录执行：
 

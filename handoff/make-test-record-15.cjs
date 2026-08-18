@@ -1,7 +1,9 @@
-// Contract 1.5 版造数脚本：生成一条「学生已提交、待教师审核」的打卡记录。
+// Contract 2.0.2 造数脚本：生成一条「学生已提交、系统判定有效」的打卡记录。
+// 2.0.2 起提交即原子写入 result=VALID 的系统审核行，记录直接是 REVIEWED/VALID，
+// 不再有「待教师审核」这一步；教师只在发现问题时追加 INVALID。
 // 与旧版 make-test-record.ps1 的差异：
 //   - 入班后把合成学生直接置为 ACTIVE（1.5 起新学生需邮箱验证，本机无 Mailpit）
-//   - media-uploads 携带 1.5 必填的 declaredContentSha256
+//   - media-uploads 携带 1.5 起必填的 declaredContentSha256
 // 仅限本地合成数据。用法：node make-record-15.cjs <apiBase> <psqlPath> <pgPort> <pgPassword>
 const { execFileSync } = require("child_process");
 const crypto = require("crypto");
@@ -60,7 +62,7 @@ function psql(sql) {
   const enrollmentId = joined.enrollment.id;
   const studentUserId = joined.authSession.user.id;
 
-  // Contract 1.5 起新学生停留在待邮箱验证状态；本机无 Mailpit，直接激活（仅本地合成数据）
+  // Contract 1.5 起新学生停留在待邮箱验证状态（2.0.2 仍然如此）；本机无 Mailpit，直接激活（仅本地合成数据）
   psql(`BEGIN; SET LOCAL session_replication_role = replica;
 UPDATE users SET status = 'ACTIVE' WHERE id = '${studentUserId}';
 COMMIT;`);
@@ -118,10 +120,10 @@ COMMIT;`);
   });
 
   console.log("========================================");
-  console.log("待审核记录已生成！");
+  console.log("打卡记录已生成（提交即有效）！");
   console.log(`  学生：${fullName}（学号 ${studentNumber}）`);
   console.log(`  项目：${sportZh} · 计入 ${submitted.creditedDurationSeconds / 3600} 小时 · 1 张照片`);
-  console.log(`  记录状态：${submitted.status}`);
+  console.log(`  记录状态：${submitted.status} · 审核结果：${submitted.currentReview?.result ?? "—"}`);
   console.log(`  记录 ID：${submitted.id}`);
   console.log("========================================");
 })().catch((error) => { console.error("失败：" + error.message); process.exit(1); });

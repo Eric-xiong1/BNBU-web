@@ -7,7 +7,7 @@
 
 import { tx, currentLocale } from "../i18n.js";
 import { icon } from "../icons.js";
-import { esc, spinner, emptyPlaceholder, validationPanel, sectionTitle } from "../ui.js";
+import { esc, spinner, emptyPlaceholder, validationPanel, sectionTitle, statusBadge } from "../ui.js";
 import { hourText } from "../data.js";
 import { canNormalizeCapturedImage, validateProofFile } from "../proofs.js";
 import {
@@ -605,6 +605,9 @@ function renderRecordsTab(app) {
           <span style="width:6px"></span>
           <span class="body-small text-muted">${tx("打卡时长", "Recorded hours")}</span>
           <span class="grow"></span>
+          ${record.reviewResult === "INVALID" || record.reviewResult === "PENDING"
+            ? `${statusBadge(reviewStatusText(record))}<span style="width:8px"></span>`
+            : ""}
           <span class="label-medium text-muted">${creditTypeLabel(record.creditType)}</span>
         </div>
         <div class="course-divider"></div>
@@ -654,6 +657,16 @@ function detailInfoRow(iconName, label, value, last = false) {
     </div>${last ? "" : `<div class="course-divider"></div>`}`;
 }
 
+// Contract 2.0.2: a submitted record is VALID immediately, and the only later
+// teacher action is appending INVALID. The student therefore has to be able to
+// see that verdict — it is the sole reason credited hours can drop.
+function reviewStatusText(record) {
+  if (record.reviewResult === "VALID") return tx("有效", "Valid");
+  if (record.reviewResult === "INVALID") return tx("无效", "Invalid");
+  if (record.reviewResult === "PENDING") return tx("待审核", "Under review");
+  return null;
+}
+
 function recordDetailTime(value) {
   if (!value) return tx("未提供", "Not available");
   const date = new Date(value);
@@ -697,6 +710,7 @@ function renderRecordDetail(app, record) {
     </div>
     <div class="row" style="padding-top:8px"><span class="title-medium text-on-surface grow">${tx("记录信息", "Record information")}</span></div>
     <div class="swiss-panel" style="padding:6px 18px">
+      ${reviewStatusText(record) ? detailInfoRow("info-outline", tx("审核状态", "Review status"), reviewStatusText(record)) : ""}
       ${detailInfoRow("timer", tx("提交时间", "Submitted"), record.submittedAt)}
       ${detailInfoRow("timer", tx("开始时间", "Started"), recordDetailTime(record.startTime))}
       ${detailInfoRow("timer", tx("结束时间", "Ended"), recordDetailTime(record.endTime))}
@@ -705,6 +719,9 @@ function renderRecordDetail(app, record) {
       ${detailInfoRow("info-outline", tx("打卡类别", "Check-in category"), creditTypeLabel(record.creditType))}
       ${detailInfoRow("attach-file", tx("凭证", "Proof"), proofSummaryText(record), true)}
     </div>
+    ${record.teacherPublicFeedback ? `
+      <div class="row" style="padding-top:8px"><span class="title-medium text-on-surface grow">${tx("审核结果", "Review result")}</span></div>
+      <div class="swiss-panel"><span class="body-medium text-on-surface">${esc(record.teacherPublicFeedback)}</span></div>` : ""}
     ${record.note ? `
       <div class="row" style="padding-top:8px"><span class="title-medium text-on-surface grow">${tx("运动说明", "Exercise notes")}</span></div>
       <div class="swiss-panel"><span class="body-medium text-on-surface">${esc(record.note)}</span></div>` : ""}

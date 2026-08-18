@@ -1,4 +1,4 @@
-// Smoke test for the Contract 1.5 Web student client.
+// Smoke test for the Contract 2.0.2 Web student client.
 // Exercises the framework-free logic modules (i18n, session policy, synthetic
 // fixtures, API projection mapping, proof rules, local store) without a DOM.
 
@@ -21,7 +21,7 @@ import {
 } from "./js/session.js";
 import { createMockWorkspace, MOCK_INVITES, hourText } from "./js/data.js";
 import { canNormalizeCapturedImage, mimeEssence, validateProofFile } from "./js/proofs.js";
-import { mapServerStudent } from "./js/api.js";
+import { mapServerRecord, mapServerStudent } from "./js/api.js";
 import { localStore } from "./js/store.js";
 
 const failures = [];
@@ -117,7 +117,7 @@ check("time window blocks excluded dates and passed deadlines", () => {
   assert.ok(pastDeadline && pastDeadline.includes("2026-07-28"));
 });
 
-check("proof rules follow the exact Contract 1.5 media allowlist", () => {
+check("proof rules follow the exact Contract 2.0.2 media allowlist", () => {
   assert.equal(mimeEssence("video/webm;codecs=vp8,opus"), "video/webm");
   assert.deepEqual(validateProofFile({ type: "image/jpeg", size: 100 }, "image"), {
     ok: true, extension: "jpg", mimeType: "image/jpeg", durationSeconds: null,
@@ -143,7 +143,7 @@ check("proof rules follow the exact Contract 1.5 media allowlist", () => {
   assert.deepEqual(validateProofFile({ type: "video/mp4", size: 536_870_913 }, "video", { durationSeconds: 10 }), { ok: false, error: "size" });
 });
 
-check("/me mapping uses Contract 1.5 masked email and verification fields", () => {
+check("/me mapping uses the Contract 2.0.2 masked email and verification fields", () => {
   const student = mapServerStudent(
     { user: { primaryEmailMasked: "s***@example.edu", emailVerified: true, version: 4, status: "ACTIVE" } },
     { studentNumber: "00001234", fullName: "Synthetic Student", gender: "FEMALE", gradeYear: 2026, collegeName: null, administrativeClassName: null },
@@ -153,6 +153,43 @@ check("/me mapping uses Contract 1.5 masked email and verification fields", () =
   assert.equal(student.email, "s***@example.edu");
   assert.equal(student.emailVerified, true);
   assert.equal(student.userVersion, 4);
+});
+
+check("a submitted record is valid on arrival and credits the server's hours", () => {
+  // Contract 2.0.2: /submit atomically appends the system ReviewRecord v1
+  // (result VALID, teacherId null) and the record becomes REVIEWED.
+  const record = mapServerRecord({
+    id: "record-1", status: "REVIEWED", creditType: "GENERAL",
+    classSectionId: "section-1", sportType: "RUNNING", sportName: null,
+    actualDurationSeconds: 3900, creditedDurationSeconds: 3600,
+    businessDate: "2026-08-18", submittedAt: "2026-08-18T02:05:00Z",
+    description: "晨跑 5 公里",
+    currentReview: { result: "VALID", reasonCode: null, publicComment: null },
+  });
+
+  assert.equal(record.reviewResult, "VALID");
+  assert.equal(record.hours, 1);
+  assert.match(record.teacherPublicFeedback, /记录有效/);
+});
+
+check("a teacher's INVALID verdict reaches the student verbatim", () => {
+  const record = mapServerRecord({
+    id: "record-2", status: "REVIEWED", creditType: "GENERAL",
+    classSectionId: "section-1", sportType: "BADMINTON", sportName: null,
+    actualDurationSeconds: 3900, creditedDurationSeconds: 0,
+    businessDate: "2026-08-18", submittedAt: "2026-08-18T02:05:00Z",
+    description: "羽毛球专项练习",
+    currentReview: {
+      result: "INVALID", reasonCode: "INSUFFICIENT_EVIDENCE",
+      publicComment: "凭证无法证明运动过程，请重新打卡。",
+    },
+  });
+
+  assert.equal(record.reviewResult, "INVALID");
+  // The server credited nothing; the client must not invent hours from the
+  // actual duration.
+  assert.equal(record.hours, 0);
+  assert.match(record.teacherPublicFeedback, /凭证无法证明运动过程/);
 });
 
 check("store self-heals corrupted keys and merges overlay defaults", () => {

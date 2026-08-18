@@ -6,16 +6,46 @@
 
 ```text
 bnbuSystem/
-├── frontend/             前端展示层 — 学生端（✅ 已接统一后端，Contract 1.5）；根 SPA 与 teacher/ 为旧版，已弃用
-├── portal-teacher-admin/ 教师端 + 管理员端门户（✅ 已接统一后端真实 API，Contract 1.5）
+├── frontend/             前端展示层 — 学生端（✅ 已接统一后端，Contract 2.0.2）；根 SPA 与 teacher/ 为旧版，已弃用
+├── portal-teacher-admin/ 教师端 + 管理员端门户（✅ 已接统一后端真实 API，Contract 2.0.2）
 ├── handoff/              联调交接包 — 一键装环境脚本、造测试数据脚本、api-base 补丁、任务分工文档
 ├── backend/              旧业务逻辑层（Express Mock，已被 BNBU-Sports-Backend 统一后端取代）
 ├── database/             旧数据存储层 — MySQL DDL、种子脚本（已弃用）
 └── docs/                 交付、验收与设计文档
 ```
 
-> 当前权威后端是独立仓库 [chchaiai/BNBU-Sports-Backend](https://github.com/chchaiai/BNBU-Sports-Backend)（NestJS + PostgreSQL，`/api/v1`，Contract 1.5）。
+> 当前权威后端是独立仓库 [chchaiai/BNBU-Sports-Backend](https://github.com/chchaiai/BNBU-Sports-Backend)（NestJS + PostgreSQL，`/api/v1`，Contract 2.0.2）。
 > 旧的 `backend/`（Express Mock）与 `database/`（MySQL）目录仅作历史参考，日常开发不再使用。
+
+## 合同基线（Contract Baseline）
+
+| 项 | 值 |
+|----|----|
+| 版本 | `2.0.2-contract` |
+| 快照 | [portal-teacher-admin/openapi/openapi.snapshot.yaml](portal-teacher-admin/openapi/openapi.snapshot.yaml)（323,046 字节，`.gitattributes` 锁 LF） |
+| SHA-256 | `853e7f5efadb10dcbbe0f446c4c60962ce2fd864360a156343b5740d0c1761a4` |
+| 来源 | [Backend Release 2.0.2-contract](https://github.com/chchaiai/BNBU-Sports-Backend/releases/tag/2.0.2-contract)，源提交 `bec7aac06f53e71cef5e969359a032a8f054be79` |
+| 规模 | 109 路径 / 126 操作 / 288 schema |
+
+仓库里的快照与 Release 附件逐字节一致。校验命令：
+
+```bash
+cd portal-teacher-admin && npm run contract:verify
+```
+
+该命令会重新计算 SHA-256、比对 `openapi/contract.json` 声明的版本与规模；`npm run contract:check` 在它之后再跑一次
+`openapi-typescript --check`，确保 `app/openapi.generated.ts` 就是这份快照生成的类型。两者都进了
+`npm run typecheck` 和 `npm test`（`tests/contract-binding.test.mjs`）。
+
+### 2.0.2 的关键业务变化：打卡记录默认有效
+
+- 学生提交打卡后，**后端原子追加一条 `result=VALID`、`teacherId=null` 的系统审核行（reviewVersion=1）**，记录直接进入
+  `REVIEWED`/`VALID`，学时立即入账。
+- 教师端默认看到的就是「有效」；教师只在发现问题时追加 `INVALID`（`POST /exercise-records/{id}/reviews`，
+  `result` 枚举只有 `VALID`/`INVALID`）。
+- **不再需要教师逐条确认**记录才生效。`PENDING` 只可能出现在历史遗留记录，或调用
+  `POST /exercise-records/{id}/reviews/reopen` 之后。
+- 三端（Web / Android / iOS）一律直接使用后端返回的 `currentReview.result`，**客户端不得再推导第二套审核状态**。
 
 ## 快速启动
 
@@ -67,13 +97,14 @@ npm run demo:setup
 
 之后打开学生端 → 直接登录 → 「体验账号登录」即可进入（账号走真实入班流程创建、本地激活并绑定合成邮箱，数据全部来自真实后端；重建用 `npm run demo:setup -- --force`）。体验账号的合成邮箱（`demo.student.<学号>@bnbu.invalid`）也可以用于方式 1。
 
-造一条「待教师审核」的真实打卡记录（含照片凭证）用 [handoff/make-test-record-15.cjs](handoff/make-test-record-15.cjs)：
+造一条真实打卡记录（含照片凭证；2.0.2 下提交即为有效）用 [handoff/make-test-record-15.cjs](handoff/make-test-record-15.cjs)：
 
 ```bash
 node handoff/make-test-record-15.cjs "http://127.0.0.1:3000/api/v1" "<psql.exe 路径>" 5433 "<pg_migrator 密码>"
 ```
 
-（旧版 `make-test-record.ps1` 是 Contract 1.4 时代的，媒体上传缺 `declaredContentSha256`、新学生未激活会失败，已被 1.5 版取代。）
+（旧版 `make-test-record.ps1` 是 Contract 1.4 时代的，媒体上传缺 `declaredContentSha256`、新学生未激活会失败，已被本脚本取代。）
+需要一条「被教师判定无效」的样例记录时，用 `npm run demo:setup`：它的第二条记录会由教师追加 `INVALID`。
 
 ---
 
@@ -108,11 +139,11 @@ node handoff/make-test-record-15.cjs "http://127.0.0.1:3000/api/v1" "<psql.exe �
 **2026-08-15 负责人验收轮补充修复**
 
 4. **成绩管理表格右侧三列互相叠字**：旧版 4 列成绩表的列宽百分比（前四列合计 86%）被新版 8 列服务端成绩表继承，「总有效时长/最终分数/成绩状态」被压到没有宽度。已把百分比规则限定给旧表专用，新表自动布局并加宽最小宽度，1280 与 1920 宽度下实测零重叠。
-5. **学生端本地登录打通**：`npm run demo:setup` 修好并适配 Contract 1.5（新学生本地激活 + 绑定已验证合成邮箱 + 媒体申报 SHA-256），体验账号登录 → 学生主页学时进度实测可用。邮箱验证码登录仍需邮件服务（见已知限制）。
+5. **学生端本地登录打通**：`npm run demo:setup` 修好并适配 Contract 1.5（2.0.2 下已随合同同步更新）（新学生本地激活 + 绑定已验证合成邮箱 + 媒体申报 SHA-256），体验账号登录 → 学生主页学时进度实测可用。邮箱验证码登录仍需邮件服务（见已知限制）。
 
 **已知限制与技术债（不阻塞本版，按优先级）**
 
-- P1 后端/合同：教师首次审核必须传 `expectedReviewVersion: 1`（学生提交时后端自动建 reviewVersion=1 的 PENDING 行），但记录投影的 `currentReview` 不含 reviewVersion —— 门户靠审核历史接口取到，链路能通，但建议后端在投影中补该字段以消除额外请求。
+- P1 后端/合同：教师首次审核必须传 `expectedReviewVersion: 1`（学生提交时后端自动建 reviewVersion=1 的审核行 —— 2.0.2 起该行是系统 `VALID`，此前是 `PENDING`），但记录投影的 `currentReview` 不含 reviewVersion —— 门户靠审核历史接口取到，链路能通，但建议后端在投影中补该字段以消除额外请求。
 - ~~P1 环境：学生邮箱验证码登录本机不可用~~ **已解决（2026-08-15）**：Mailpit v1.30.7 已装到 `local-infra\mailpit\`，`start-all.ps1` 会自动启动；邮箱验证码登录全链路（请求码 → Mailpit 收信 → 验证 → 学生主页）已实测通过。新入班学生仍需完成邮箱验证才是 ACTIVE（真实流程），本地演示账号由 `demo:setup` 直接激活。
 - P2 性能：审核页对每条记录发 3 个详情请求（详情/凭证上下文/最新审核），57 条记录 ≈ 170+ 请求，首屏加载约 15–20 秒。建议后端提供批量投影或列表内嵌字段。
 - P2 稳定性：`vinext dev` 开发服务器在多次热更新后不稳定（本轮出现 3 次）：可能直接退出，也可能自行「内部重启」后**丢失 API 代理** —— 症状是页面能打开但登录报「HTTP 404，requestId 未提供」（请求根本没到后端）。解决办法：结束 4300 端口的 node 进程后重新 `npm run dev -- --port 4300`；生产构建不受影响。
