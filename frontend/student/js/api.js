@@ -740,6 +740,9 @@ export async function loadApiWorkspace() {
     : { windowMode: "unavailable", dateRangeStart: null, dateRangeEnd: null, dailyStartTime: "", dailyEndTime: "", excludedDates: [], semesterDeadline: null };
 
   const publishedScore = scores.find((s) => s.status === "PUBLISHED") || null;
+  const publishedTotal = publishedScore
+    ? (publishedScore.finalScore ?? publishedScore.baseScore ?? null)
+    : null;
 
   return {
     workspace: {
@@ -761,8 +764,14 @@ export async function loadApiWorkspace() {
         studentId: profile.studentNumber,
         studentName: profile.fullName,
         visibleBlocks: [],
-        totalScore: publishedScore ? Number(publishedScore.totalScore ?? publishedScore.score ?? null) : null,
-        totalDisplay: publishedScore ? String(publishedScore.totalScore ?? publishedScore.score ?? "") : tx("未开放", "Not available"),
+        // StudentScore carries baseScore/adjustmentTotal/finalScore — there is
+        // no `totalScore` or `score` field. Both stay nullable even once the
+        // score is PUBLISHED, so a missing value must read as "not calculated"
+        // rather than as a zero.
+        totalScore: publishedTotal,
+        totalDisplay: publishedScore
+          ? (publishedTotal === null ? tx("待计算", "Not calculated") : String(publishedTotal))
+          : tx("未开放", "Not available"),
         isPassed: null,
         courseGradeStatus: publishedScore ? "published" : "rules_not_published",
         displayConfigVersion: 0,
