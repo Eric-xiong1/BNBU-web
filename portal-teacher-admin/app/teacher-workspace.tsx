@@ -5,6 +5,7 @@ import {
   Copy,
   Download,
   Eye,
+  File as FileIcon,
   ListChecks,
   MapPin,
   Maximize2,
@@ -381,6 +382,12 @@ const auditStatusLabels: Record<AuditStatus, string> = {
   invalid: statusLabel("invalid", "audit"),
 };
 
+// Contract 2.0.2 lets a teacher append only VALID or INVALID
+// (CreateReviewRequest.result is `enum: [VALID, INVALID]`), and a submission
+// already arrives VALID. 待审核 therefore stays a read-only state that only
+// legacy rows can be in — offering it as a choice would be a dead control.
+const auditDecisionOptions: AuditStatus[] = ["valid", "invalid"];
+
 function AuditStatusSelector({
   record,
   onSelect,
@@ -403,26 +410,54 @@ function AuditStatusSelector({
         role="radiogroup"
         aria-label={`${record.sport}审核状态`}
       >
-        {(Object.keys(auditStatusLabels) as AuditStatus[]).map((status) => (
-          <button
-            type="button"
-            role="radio"
-            aria-checked={record.auditStatus === status}
-            className={`audit-status-option is-${status} ${record.auditStatus === status ? "selected" : ""}`.trim()}
-            key={status}
-            onClick={() => onSelect(record, status)}
-          >
-            <span aria-hidden="true" />
-            {auditStatusLabels[status]}
-          </button>
-        ))}
+        {auditDecisionOptions.map((status) => {
+          // POST /exercise-records/{id}/reviews accepts VALID only to resolve a
+          // legacy PENDING row; Contract 2.0.2 routes INVALID -> VALID through
+          // the separate reviews/reopen operation, which this portal does not
+          // implement. Offering the move would only produce
+          // REVIEW_CHANGE_NOT_ALLOWED, so it is disabled instead.
+          const unavailable =
+            status === "valid" && record.auditStatus === "invalid";
+          const unavailableHint = unavailable
+            ? "该记录已判定无效，本页暂不支持改回有效。"
+            : undefined;
+          return (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={record.auditStatus === status}
+              disabled={unavailable}
+              title={unavailableHint}
+              className={`audit-status-option is-${status} ${record.auditStatus === status ? "selected" : ""}`.trim()}
+              key={status}
+              onClick={() => onSelect(record, status)}
+            >
+              <span aria-hidden="true" />
+              {auditStatusLabels[status]}
+            </button>
+          );
+        })}
       </div>
-      {record.auditStatus === "invalid" && record.invalidReason && (
-        <p className="record-invalid-reason">
-          <span>无效原因</span>
-          {record.invalidReason}
-          {record.auditRemark ? `：${record.auditRemark}` : ""}
-        </p>
+      {record.auditStatus === "invalid" && (
+        <>
+          <p className="record-invalid-reason">
+            {record.invalidReason ? (
+              <>
+                <span>无效原因</span>
+                {record.invalidReason}
+                {record.auditRemark ? `：${record.auditRemark}` : ""}
+              </>
+            ) : (
+              <span>该记录已被判定为无效。</span>
+            )}
+          </p>
+          {/* A disabled button is not focusable, so a title tooltip never
+              reaches keyboard or screen-reader users. State the constraint in
+              the flow itself. */}
+          <p className="record-audit-hint">
+            该记录已判定无效，本页暂不支持改回有效。
+          </p>
+        </>
       )}
     </div>
   );
@@ -486,14 +521,19 @@ function CheckinAuditSummary({
           </span>
         </div>
       </div>
-      <button
-        className="primary-button audit-complete-button"
-        type="button"
-        disabled={disabled}
-        onClick={onComplete}
-      >
-        {completed ? "重新确认完成" : "完成审核"}
-      </button>
+      {/* Under Contract 2.0.2 a submission is already VALID, so there is no
+          "confirm the review" step left. The action only appears while legacy
+          rows still carry a PENDING result. */}
+      {summary.pendingCount > 0 && (
+        <button
+          className="primary-button audit-complete-button"
+          type="button"
+          disabled={disabled}
+          onClick={onComplete}
+        >
+          完成审核
+        </button>
+      )}
     </section>
   );
 }
@@ -643,11 +683,23 @@ function CheckinEvidenceReviewer({
               className={selected ? "is-selected" : ""}
               onClick={() => onProofChange(index)}
             >
+              {/* Real evidence arrives as opaque media ids ("凭证 1"), because
+                  /evidence-context returns identifiers only. Claiming 图片 for
+                  an unlabelled item would mislabel every WebM/MP4 the student
+                  recorded, so the type is shown only when the name proves it. */}
               <span>
-                {isVideo ? <Play size={13} fill="currentColor" /> : "图"}
+                {isVideo ? (
+                  <Play size={13} fill="currentColor" />
+                ) : isImageMaterial(item) ? (
+                  "图"
+                ) : (
+                  <FileIcon size={13} />
+                )}
               </span>
               <b>{item}</b>
-              <small>{isVideo ? "视频" : "图片"}</small>
+              <small>
+                {isVideo ? "视频" : isImageMaterial(item) ? "图片" : "凭证"}
+              </small>
             </button>
           );
         })}
@@ -1019,7 +1071,7 @@ export function TeacherWorkspace({
   const [checkinDetailView, setCheckinDetailView] =
     useState<CheckinDetailView>("list");
   const [checkinReviewFilter, setCheckinReviewFilter] =
-    useState<CheckinReviewFilter>("all");
+    useState<CheckinReviewFilter>("history");
   const [checkinAuditFilter, setCheckinAuditFilter] =
     useState<CheckinAuditFilter>("all");
   const [pendingRecordFocusId, setPendingRecordFocusId] = useState<
@@ -1702,7 +1754,7 @@ export function TeacherWorkspace({
           windowMode === "unavailable" ? "UNAVAILABLE" : "AVAILABLE",
         checkInStartDate: dateRangeStart,
         checkInEndDate: dateRangeEnd,
-        // Contract 1.5 accepts organization-local wall clock, which is exactly
+        // Contract 2.0.2 accepts organization-local wall clock, which is exactly
         // what <input type="time"> produces.
         dailyStartTime,
         dailyEndTime,
@@ -2959,17 +3011,19 @@ export function TeacherWorkspace({
 
   const renderCheckins = () => {
     if (!selectedCheckinStudent || !selectedCheckinSummary) {
-      const recordsWithoutLegacyReview = records.filter(
-        (record) => !record.reviewComment,
+      // Every row carries the server's review result (teacher-data.ts derives
+      // auditStatus from currentReview.result), so the queue is read from that
+      // single source. Guessing "unreviewed" from a missing comment would be a
+      // second state derivation, which Contract 2.0.2 forbids.
+      const pendingRecords = records.filter(
+        (record) => record.auditStatus === "pending",
       );
-      const pendingRecords = records.every(
-        (record) => record.auditStatus !== undefined,
-      )
-        ? records.filter((record) => record.auditStatus === "pending")
-        : recordsWithoutLegacyReview;
+      const invalidRecords = records.filter(
+        (record) => record.auditStatus === "invalid",
+      );
       const lowConfidenceRecords =
         mode === "demo"
-          ? pendingRecords.filter((record) => (record.confidence ?? 1) < 0.7)
+          ? records.filter((record) => (record.confidence ?? 1) < 0.7)
           : [];
       const showingHistory = checkinReviewFilter === "history";
       const visibleRecords = showingHistory
@@ -2978,7 +3032,7 @@ export function TeacherWorkspace({
           ? lowConfidenceRecords
           : pendingRecords;
       const involvedStudentIds = new Set(
-        pendingRecords.map((record) => record.studentId),
+        records.map((record) => record.studentId),
       );
       const visibleStudentIds = new Set(
         visibleRecords.map((record) => record.studentId),
@@ -3015,13 +3069,30 @@ export function TeacherWorkspace({
               <PageSummaryMetrics
                 ariaLabel="打卡审核核心统计"
                 items={[
-                  { label: "待审核记录", value: pendingRecords.length },
+                  // Only three tiles render, so the third one shows whatever
+                  // actually needs the teacher: legacy rows still waiting for a
+                  // decision first, then the records they have invalidated.
+                  { label: "打卡记录", value: records.length },
                   { label: "涉及学生", value: involvedStudentIds.size },
-                  {
-                    label: "需要关注记录",
-                    value: lowConfidenceRecords.length,
-                    tone: lowConfidenceRecords.length ? "attention" : "default",
-                  },
+                  pendingRecords.length
+                    ? {
+                        label: "待审核记录",
+                        value: pendingRecords.length,
+                        tone: "attention",
+                      }
+                    : mode === "demo"
+                      ? {
+                          label: "需要关注记录",
+                          value: lowConfidenceRecords.length,
+                          tone: lowConfidenceRecords.length
+                            ? "attention"
+                            : "default",
+                        }
+                      : {
+                          label: "已标记无效",
+                          value: invalidRecords.length,
+                          tone: invalidRecords.length ? "attention" : "default",
+                        },
                 ]}
               />
               {mode === "demo" && (
@@ -3052,7 +3123,7 @@ export function TeacherWorkspace({
               options={[
                 {
                   value: "all",
-                  label: "全部待审核记录",
+                  label: "待审核记录（历史遗留）",
                   count: pendingRecords.length,
                 },
                 ...(mode === "demo"
@@ -3066,7 +3137,7 @@ export function TeacherWorkspace({
                   : []),
                 {
                   value: "history",
-                  label: "全部历史记录",
+                  label: "全部记录",
                   count: records.length,
                 },
               ]}
@@ -3077,8 +3148,8 @@ export function TeacherWorkspace({
               <span aria-hidden="true">i</span>
               <p>
                 {mode === "demo"
-                  ? "辅助置信度仅用于排序与提示，最终审核结果仍由教师确认。"
-                  : "真实服务端当前不返回风险或置信度；请依据记录与受保护凭证人工审核。"}
+                  ? "新提交默认有效；辅助置信度仅用于发现异常，教师可将问题记录标记为无效。"
+                  : "新提交默认有效；如凭证存在问题，请进入记录并手动标记为无效。"}
               </p>
             </div>
           }
@@ -3090,7 +3161,7 @@ export function TeacherWorkspace({
                   whole-sentence English rules. */}
               <span>
                 {showingHistory
-                  ? `显示 ${visibleRecords.length} 条历史记录`
+                  ? `显示 ${visibleRecords.length} 条记录`
                   : `显示 ${visibleRecords.length} 条待审核记录`}
               </span>
               <span>涉及 {reviewRows.length} 名学生</span>
@@ -3099,7 +3170,7 @@ export function TeacherWorkspace({
               <thead>
                 <tr>
                   <th>学生</th>
-                  <th>{showingHistory ? "历史记录" : "待审核记录"}</th>
+                  <th>{showingHistory ? "记录" : "待审核记录"}</th>
                   <th>剩余学时</th>
                   <th>
                     辅助置信度{" "}
@@ -3225,12 +3296,12 @@ export function TeacherWorkspace({
             {reviewRows.length === 0 && (
               <EmptyState
                 title={
-                  showingHistory ? "暂无历史打卡记录" : "当前筛选没有待审核记录"
+                  showingHistory ? "暂无打卡记录" : "当前筛选没有待审核记录"
                 }
                 description={
                   showingHistory
                     ? "学生提交后的记录会保留在此处。"
-                    : "切换到全部历史记录可回看已处理内容。"
+                    : "切换到全部记录可回看已处理内容。"
                 }
               />
             )}

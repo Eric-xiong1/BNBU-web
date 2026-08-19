@@ -4046,6 +4046,18 @@ button:disabled {
   font-weight: 800;
 }
 
+/* Why the 有效 option is disabled on an invalid record. The tooltip on a
+   disabled button never reaches keyboard users, so the same sentence is shown
+   here for everyone. */
+.record-audit-hint {
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  color: var(--color-on-surface-variant);
+  font-size: 8px;
+  line-height: 1.45;
+  opacity: 0.85;
+}
+
 .checkin-album-record {
   grid-template-columns: 54px minmax(150px, 1fr) minmax(130px, 0.38fr) minmax(
       235px,

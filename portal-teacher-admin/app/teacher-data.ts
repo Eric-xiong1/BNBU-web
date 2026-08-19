@@ -92,7 +92,7 @@ export async function createClassSection(
 }
 
 /**
- * Persists the check-in window a teacher configured. Contract 1.5 accepts both
+ * Persists the check-in window a teacher configured. Contract 2.0.2 accepts both
  * organization-local wall clock ("HH:MM") and RFC3339 time for the daily
  * fields; the portal's <input type="time"> already produces wall clock.
  * Course/other hour targets are ScoreRule concerns and stay out of this call.
@@ -427,7 +427,12 @@ const defaultWindow = {
 };
 
 function mapSectionStatus(status: string): "ACTIVE" | "ENDED" {
-  return status === "ACTIVE" ? "ACTIVE" : "ENDED";
+  const upper = status.toUpperCase();
+  // UPCOMING sections are not yet in session, but teachers still manage them
+  // on the active list. ARCHIVED/CLOSED (and any other non-active value) stay
+  // on the ended list.
+  if (upper === "ACTIVE" || upper === "UPCOMING") return "ACTIVE";
+  return "ENDED";
 }
 
 function formatTime(value: string | null | undefined): string {
@@ -512,7 +517,10 @@ function mapEnrollmentStatus(status: string): TeacherStudentView["status"] {
   const upper = status.toUpperCase();
   if (upper === "ACTIVE") return "active";
   if (upper === "REMOVED") return "removed";
-  if (upper === "ENDED" || upper === "EXITED") return "exited";
+  // WITHDRAWN is the contract's member (EnrollmentStatus enum
+  // [ACTIVE, WITHDRAWN, REMOVED]); ENDED/EXITED are tolerated legacy spellings.
+  if (upper === "WITHDRAWN" || upper === "ENDED" || upper === "EXITED")
+    return "exited";
   return "disabled";
 }
 

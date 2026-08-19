@@ -1,4 +1,4 @@
-// Real backend client for the unified BNBU Sports backend (Contract 1.5,
+// Real backend client for the unified BNBU Sports backend (Contract 2.0.2,
 // NestJS `/api/v1`). Envelope: success `{data, meta}` / error
 // `{code, message, details, requestId, timestamp}`. Student sessions are
 // established by the student email challenge flow or by the QR/invite join
@@ -135,7 +135,7 @@ export function apiErrorText(error) {
     return tx("网络连接失败，请确认后端服务已启动。", "Network connection failed. Make sure the backend service is running.");
   }
   if (isUnsupported(error)) return tx("该功能暂未开放。", "This feature is not yet available.");
-  // Keys are the backend's stable Contract 1.5 error codes.
+  // Keys are the backend's stable Contract 2.0.2 error codes.
   const known = {
     // Auth / session
     AUTH_REQUIRED: tx("请先登录后再继续操作。", "Sign in before continuing."),
@@ -227,7 +227,7 @@ export function apiErrorText(error) {
     MEDIA_VERIFICATION_INCOMPLETE: tx("凭证校验尚未完成，请稍候。", "Proof verification is not finished yet."),
     MEDIA_TRANSITION_NOT_ALLOWED: tx("凭证当前状态不支持该操作。", "This action is not allowed for the proof's current state."),
     MEDIA_FAILURE_NOT_RETRYABLE: tx("该凭证上传失败且无法重试，请重新拍摄。", "This upload failed permanently. Capture it again."),
-    // System mode (Contract 1.5 documents the full 503 family)
+    // System mode (Contract 2.0.2 documents the full 503 family)
     SYSTEM_READ_ONLY: tx("系统当前为只读模式，暂时无法提交。", "The system is read-only right now, so changes cannot be saved."),
     SYSTEM_MAINTENANCE: tx("系统正在维护中，请稍后再试。", "The system is under maintenance. Try again later."),
     SYSTEM_SERVICE_UNAVAILABLE: tx("依赖服务暂时不可用，请稍后再试。", "A required service is unavailable. Try again later."),
@@ -432,7 +432,7 @@ export async function uploadMediaDraft(serverSessionId, draft, blob) {
   const verdict = validateProofFile(blob, draft.type, { durationSeconds: draft.durationSeconds });
   if (!verdict.ok) {
     const code = verdict.error === "duration" ? "MEDIA_VIDEO_DURATION_EXCEEDED" : verdict.error === "size" ? "MEDIA_SIZE_EXCEEDED" : "MEDIA_TYPE_NOT_ALLOWED";
-    throw new ApiError(422, { code, message: "Media draft failed Contract 1.5 validation" });
+    throw new ApiError(422, { code, message: "Media draft failed Contract 2.0.2 validation" });
   }
 
   const declaredContentSha256 = await sha256Hex(blob);
@@ -610,7 +610,11 @@ export function mapServerRecord(record, { courseIdBySection = {} } = {}) {
     courseId: record.creditType === "COURSE_RELATED" ? (courseIdBySection[record.classSectionId] || null) : null,
     taskTitle: record.description || tx("运动打卡", "Exercise check-in"),
     creditType: record.creditType === "COURSE_RELATED" ? "course" : "general",
-    hours: credited > 0 ? credited : Math.round(actual * 10) / 10,
+    // creditedDurationSeconds is the Backend's authoritative credit. Falling
+    // back to the actual duration would be a second, client-side derivation of
+    // a value only the server owns (Contract 2.0.2). The raw activity time is
+    // still available below as actualDurationSeconds.
+    hours: credited,
     // The backend's business day (Beijing). Daily rules are evaluated against
     // this, never against the device date.
     businessDate: record.businessDate,
@@ -632,7 +636,7 @@ export function mapServerRecord(record, { courseIdBySection = {} } = {}) {
   };
 }
 
-/** Maps the exact Contract 1.5 `/me` projection without inventing plaintext contacts. */
+/** Maps the exact Contract 2.0.2 `/me` projection without inventing plaintext contacts. */
 export function mapServerStudent(me, profile, semester = null) {
   return {
     id: profile.studentNumber,
@@ -649,6 +653,22 @@ export function mapServerStudent(me, profile, semester = null) {
     currentAcademicYear: semester?.academicYear || "",
     gradeCalculatedAt: "",
     accountStatus: me.user?.status || "ACTIVE",
+  };
+}
+
+/**
+ * StudentScore carries baseScore/adjustmentTotal/finalScore — there is no
+ * `totalScore` or `score` field. Both stay nullable even once the score is
+ * PUBLISHED, so a missing value must read as "not calculated" rather than 0.
+ */
+export function mapPublishedScore(publishedScore) {
+  if (!publishedScore) {
+    return { totalScore: null, totalDisplay: tx("未开放", "Not available") };
+  }
+  const totalScore = publishedScore.finalScore ?? publishedScore.baseScore ?? null;
+  return {
+    totalScore,
+    totalDisplay: totalScore === null ? tx("待计算", "Not calculated") : String(totalScore),
   };
 }
 
@@ -736,6 +756,7 @@ export async function loadApiWorkspace() {
     : { windowMode: "unavailable", dateRangeStart: null, dateRangeEnd: null, dailyStartTime: "", dailyEndTime: "", excludedDates: [], semesterDeadline: null };
 
   const publishedScore = scores.find((s) => s.status === "PUBLISHED") || null;
+  const { totalScore, totalDisplay } = mapPublishedScore(publishedScore);
 
   return {
     workspace: {
@@ -757,8 +778,8 @@ export async function loadApiWorkspace() {
         studentId: profile.studentNumber,
         studentName: profile.fullName,
         visibleBlocks: [],
-        totalScore: publishedScore ? Number(publishedScore.totalScore ?? publishedScore.score ?? null) : null,
-        totalDisplay: publishedScore ? String(publishedScore.totalScore ?? publishedScore.score ?? "") : tx("未开放", "Not available"),
+        totalScore,
+        totalDisplay,
         isPassed: null,
         courseGradeStatus: publishedScore ? "published" : "rules_not_published",
         displayConfigVersion: 0,

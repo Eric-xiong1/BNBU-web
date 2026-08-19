@@ -1,4 +1,4 @@
-// Contract 1.5 email-only first binding and verified-email change flow.
+// Contract 2.0.2 email-only first binding and verified-email change flow.
 
 import { tx } from "../i18n.js";
 import { icon } from "../icons.js";

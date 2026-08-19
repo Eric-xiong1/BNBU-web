@@ -1,4 +1,4 @@
-// Smoke test for the Contract 1.5 Web student client.
+// Smoke test for the Contract 2.0.2 Web student client.
 // Exercises the framework-free logic modules (i18n, session policy, synthetic
 // fixtures, API projection mapping, proof rules, local store) without a DOM.
 
@@ -21,7 +21,7 @@ import {
 } from "./js/session.js";
 import { createMockWorkspace, MOCK_INVITES, hourText } from "./js/data.js";
 import { canNormalizeCapturedImage, mimeEssence, validateProofFile } from "./js/proofs.js";
-import { mapServerStudent } from "./js/api.js";
+import { mapPublishedScore, mapServerRecord, mapServerStudent } from "./js/api.js";
 import { localStore } from "./js/store.js";
 
 const failures = [];
@@ -117,7 +117,7 @@ check("time window blocks excluded dates and passed deadlines", () => {
   assert.ok(pastDeadline && pastDeadline.includes("2026-07-28"));
 });
 
-check("proof rules follow the exact Contract 1.5 media allowlist", () => {
+check("proof rules follow the exact Contract 2.0.2 media allowlist", () => {
   assert.equal(mimeEssence("video/webm;codecs=vp8,opus"), "video/webm");
   assert.deepEqual(validateProofFile({ type: "image/jpeg", size: 100 }, "image"), {
     ok: true, extension: "jpg", mimeType: "image/jpeg", durationSeconds: null,
@@ -143,7 +143,7 @@ check("proof rules follow the exact Contract 1.5 media allowlist", () => {
   assert.deepEqual(validateProofFile({ type: "video/mp4", size: 536_870_913 }, "video", { durationSeconds: 10 }), { ok: false, error: "size" });
 });
 
-check("/me mapping uses Contract 1.5 masked email and verification fields", () => {
+check("/me mapping uses the Contract 2.0.2 masked email and verification fields", () => {
   const student = mapServerStudent(
     { user: { primaryEmailMasked: "s***@example.edu", emailVerified: true, version: 4, status: "ACTIVE" } },
     { studentNumber: "00001234", fullName: "Synthetic Student", gender: "FEMALE", gradeYear: 2026, collegeName: null, administrativeClassName: null },
@@ -153,6 +153,84 @@ check("/me mapping uses Contract 1.5 masked email and verification fields", () =
   assert.equal(student.email, "s***@example.edu");
   assert.equal(student.emailVerified, true);
   assert.equal(student.userVersion, 4);
+});
+
+check("a submitted record is valid on arrival and credits the server's hours", () => {
+  // Contract 2.0.2: /submit atomically appends the system ReviewRecord v1
+  // (result VALID, teacherId null) and the record becomes REVIEWED.
+  const record = mapServerRecord({
+    id: "record-1", status: "REVIEWED", creditType: "GENERAL",
+    classSectionId: "section-1", sportType: "RUNNING", sportName: null,
+    actualDurationSeconds: 3900, creditedDurationSeconds: 3600,
+    businessDate: "2026-08-18", submittedAt: "2026-08-18T02:05:00Z",
+    description: "晨跑 5 公里",
+    currentReview: { result: "VALID", reasonCode: null, publicComment: null },
+  });
+
+  assert.equal(record.reviewResult, "VALID");
+  assert.equal(record.hours, 1);
+  assert.match(record.teacherPublicFeedback, /记录有效/);
+});
+
+check("a teacher's INVALID verdict reaches the student verbatim", () => {
+  const invalidRecord = (creditedDurationSeconds) => mapServerRecord({
+    id: "record-2", status: "REVIEWED", creditType: "GENERAL",
+    classSectionId: "section-1", sportType: "BADMINTON", sportName: null,
+    actualDurationSeconds: 3900, creditedDurationSeconds,
+    businessDate: "2026-08-18", submittedAt: "2026-08-18T02:05:00Z",
+    description: "羽毛球专项练习",
+    currentReview: {
+      result: "INVALID", reasonCode: "INSUFFICIENT_EVIDENCE",
+      publicComment: "凭证无法证明运动过程，请重新打卡。",
+    },
+  });
+
+  // 2.0.2 has no way for an INVALID review to zero creditedDurationSeconds
+  // (creditedDurationOverrideSeconds is blocked until ADR-047), so a rejected
+  // record normally keeps the credit it was submitted with — exactly what
+  // `npm run demo:setup` seeds. The client passes the server value through and
+  // leaves the exclusion to the review result.
+  const stillCredited = invalidRecord(3600);
+  assert.equal(stillCredited.reviewResult, "INVALID");
+  assert.equal(stillCredited.hours, 1);
+  assert.match(stillCredited.teacherPublicFeedback, /凭证无法证明运动过程/);
+
+  // And when the server credits nothing, the client must not invent hours from
+  // the actual duration.
+  assert.equal(invalidRecord(0).hours, 0);
+});
+
+check("published scores read finalScore/baseScore and never invent a zero", () => {
+  const published = mapPublishedScore({
+    status: "PUBLISHED", finalScore: 86.5, baseScore: 80, adjustmentTotal: 6.5,
+  });
+  assert.equal(published.totalScore, 86.5);
+  assert.equal(published.totalDisplay, "86.5");
+
+  // finalScore is nullable even once PUBLISHED; baseScore is the fallback.
+  const baseOnly = mapPublishedScore({
+    status: "PUBLISHED", finalScore: null, baseScore: 78, adjustmentTotal: null,
+  });
+  assert.equal(baseOnly.totalScore, 78);
+  assert.equal(baseOnly.totalDisplay, "78");
+
+  // A published 0 is a legal score (DecimalScore has no minimum) and must not
+  // be swallowed by a truthiness fallback.
+  const publishedZero = mapPublishedScore({
+    status: "PUBLISHED", finalScore: 0, baseScore: 80, adjustmentTotal: -80,
+  });
+  assert.equal(publishedZero.totalScore, 0);
+  assert.equal(publishedZero.totalDisplay, "0");
+
+  const pendingCalc = mapPublishedScore({
+    status: "PUBLISHED", finalScore: null, baseScore: null, adjustmentTotal: null,
+  });
+  assert.equal(pendingCalc.totalScore, null);
+  assert.equal(pendingCalc.totalDisplay, "待计算");
+
+  const unpublished = mapPublishedScore(null);
+  assert.equal(unpublished.totalScore, null);
+  assert.equal(unpublished.totalDisplay, "未开放");
 });
 
 check("store self-heals corrupted keys and merges overlay defaults", () => {

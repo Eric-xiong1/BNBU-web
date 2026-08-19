@@ -64,7 +64,7 @@ test("maps backend sport enums to the localized teacher label", () => {
   assert.equal(checkin.status, "有效");
 });
 
-test("keeps reviewed records reachable from the teacher audit landing page", async () => {
+test("shows system-valid records on the teacher audit landing page by default", async () => {
   const workspace = await readFile(
     new URL("../app/teacher-workspace.tsx", import.meta.url),
     "utf8",
@@ -73,9 +73,28 @@ test("keeps reviewed records reachable from the teacher audit landing page", asy
   assert.match(workspace, /type CheckinReviewFilter = "all" \| "low_confidence" \| "history"/);
   assert.match(
     workspace,
-    /label:\s*"全部历史记录",\s*count:\s*records\.length/,
+    /useState<CheckinReviewFilter>\("history"\)/,
+  );
+  assert.match(
+    workspace,
+    /label:\s*"全部记录",\s*count:\s*records\.length/,
   );
   assert.match(workspace, /showingHistory\s*\?\s*records/);
-  assert.match(workspace, /切换到全部历史记录可回看已处理内容/);
+  assert.match(workspace, /新提交默认有效/);
+  assert.match(workspace, /手动标记为无效/);
   assert.match(workspace, /record\.auditStatus === "pending"/);
+  // Anchored to the empty state itself: a bare /暂无打卡记录/ also matches the
+  // "暂无打卡记录需要审核。" toast, so it passed even before the copy was fixed.
+  assert.match(
+    workspace,
+    /showingHistory \? "暂无打卡记录" : "当前筛选没有待审核记录"/,
+  );
+  assert.doesNotMatch(workspace, /"暂无历史打卡记录"/);
+  assert.match(workspace, /<th>\{showingHistory \? "记录" : "待审核记录"\}<\/th>/);
+  assert.match(workspace, /切换到全部记录可回看已处理内容/);
+  assert.doesNotMatch(workspace, /切换到全部历史记录可回看已处理内容/);
+  assert.match(
+    workspace,
+    /该记录已判定无效，本页暂不支持改回有效/,
+  );
 });

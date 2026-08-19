@@ -1,4 +1,4 @@
-// Shared API client for the unified BNBU Sports backend (Contract 1.5, /api/v1).
+// Shared API client for the unified BNBU Sports backend (Contract 2.0.2, /api/v1).
 // Teacher and admin workspaces both build on this module; keep it UI-free.
 //
 // Contract rules baked in here so pages never re-implement them:
@@ -227,7 +227,7 @@ export function apiErrorText(error: unknown, locale: "zh" | "en" = "zh"): string
     CONFLICT_RESOURCE_ALREADY_EXISTS: "该资源已存在。",
     CONFLICT_STATE_TRANSITION: "当前状态不支持该操作。",
     CONFLICT_UNSUPPORTED_RESOURCE_STATE: "当前状态不支持该操作。",
-    // Contract 1.5 documents the full 503 SystemMode family.
+    // Contract 2.0.2 documents the full 503 SystemMode family.
     SYSTEM_READ_ONLY: "系统当前为只读模式，暂时无法保存修改。",
     SYSTEM_MAINTENANCE: "系统正在维护中，请稍后再试。",
     SYSTEM_SERVICE_UNAVAILABLE: "依赖服务暂时不可用，请稍后再试。",

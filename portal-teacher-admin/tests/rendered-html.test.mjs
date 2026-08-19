@@ -161,17 +161,23 @@ test("keeps teacher overview metrics single-sourced and separate from status fil
     /students\.filter\(\s*\(student\)\s*=>\s*student\.status === "active",?\s*\)\.length/,
   );
   assert.doesNotMatch(workspace, /pendingRequests\.length|renderJoinRequests|join-review/);
+  assert.match(workspace, /label: "打卡记录"/);
   assert.match(workspace, /label: "待审核记录"/);
+  assert.match(workspace, /label: "已标记无效"/);
   assert.match(workspace, /label: "涉及学生"/);
   assert.match(workspace, /label: "需要关注记录"/);
   assert.match(workspace, /label: "全部申请"/);
+  // Contract 2.0.2: the queue and the headline both read the server's review
+  // result. Inferring "unreviewed" from a missing comment would be a second
+  // derivation of state the Backend owns.
+  assert.doesNotMatch(workspace, /!record\.reviewComment/);
   assert.match(
     workspace,
-    /records\.filter\(\s*\(record\)\s*=>\s*!record\.reviewComment,?\s*\)/,
+    /const pendingRecords = records\.filter\(\s*\(record\)\s*=>\s*record\.auditStatus === "pending",?\s*\)/,
   );
   assert.match(
     workspace,
-    /new Set\(\s*pendingRecords\.map\(\s*\(record\)\s*=>\s*record\.studentId,?\s*\),?\s*\)/,
+    /new Set\(\s*records\.map\(\s*\(record\)\s*=>\s*record\.studentId,?\s*\),?\s*\)/,
   );
   assert.doesNotMatch(workspace, /学生管理摘要|打卡审核摘要|免测与组织认证摘要|入班审核摘要|成绩完整度|本学期已通过/);
 
