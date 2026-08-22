@@ -1,5 +1,5 @@
 // UI adapter shapes used by the teacher workspace.
-// Canonical Contract 2.0.2 models are generated in openapi.generated.ts; keep
+// Canonical Contract 1.5 models are generated in openapi.generated.ts; keep
 // additions here limited to explicit view-only compatibility fields.
 
 import type { components } from "./openapi.generated";
@@ -19,17 +19,8 @@ export type ReviewExemptionApplicationBody =
 
 export type OpaqueId = string;
 
-// Enum members mirror the contract schemas of the same name
-// (ClassSectionStatus, EnrollmentStatus, ExerciseRecordStatus, ReviewResult,
-// ReviewReasonCode in openapi.snapshot.yaml). The trailing `string` keeps the
-// client tolerant of values a newer contract may add.
-export type ClassSectionStatus =
-  | "UPCOMING"
-  | "ACTIVE"
-  | "CLOSED"
-  | "ARCHIVED"
-  | string;
-export type EnrollmentStatus = "ACTIVE" | "WITHDRAWN" | "REMOVED" | string;
+export type ClassSectionStatus = "ACTIVE" | "CLOSED" | string;
+export type EnrollmentStatus = "ACTIVE" | "ENDED" | "REMOVED" | string;
 export type ExerciseRecordStatus = "DRAFT" | "SUBMITTED" | "REVIEWED" | "CANCELLED" | string;
 export type ReviewResult = "PENDING" | "VALID" | "INVALID";
 export type ReviewReasonCode =

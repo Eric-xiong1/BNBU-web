@@ -5,6 +5,7 @@ const path = require("path");
 const host = process.env.HOST || "127.0.0.1";
 const port = Number(process.env.PORT || 4174);
 const root = __dirname;
+const studentRoot = path.join(root, "student");
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -52,6 +53,17 @@ function resolveFile(requestUrl) {
   }
 
   if (pathname.includes("\0")) return null;
+  // Mirror staging Nginx for Student Web deep links. The deployed portal is
+  // rooted at the student directory, so its HTML intentionally uses /css and
+  // /js assets even when the entry URL is /join/{opaque-token}.
+  if (/^\/join\/[^/]+$/.test(pathname)) {
+    return path.join(studentRoot, "index.html");
+  }
+  if (["/css/", "/js/", "/assets/"].some((prefix) => pathname.startsWith(prefix))) {
+    const studentFile = path.resolve(studentRoot, `.${pathname}`);
+    if (!studentFile.startsWith(studentRoot + path.sep)) return null;
+    return studentFile;
+  }
   const relativePath = pathname === "/" ? "index.html" : `.${pathname}`;
   const filePath = path.resolve(root, relativePath);
   if (!filePath.startsWith(root + path.sep) && filePath !== root) return null;

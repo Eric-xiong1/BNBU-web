@@ -240,12 +240,11 @@ const englishText: Record<string, string> = {
   待审核记录状态筛选: "Pending record filters",
   打卡记录视图筛选: "Check-in record view filters",
   待审核记录: "Pending records",
-  "待审核记录（历史遗留）": "Pending records (legacy)",
-  已标记无效: "Marked invalid",
   涉及学生: "Students involved",
   需要关注记录: "Records needing attention",
   全部待审核记录: "All pending records",
   低置信度记录: "Low-confidence records",
+  全部历史记录: "All record history",
   全部记录: "All records",
   历史: "history",
   记录: "records",
@@ -254,11 +253,11 @@ const englishText: Record<string, string> = {
   当前筛选没有待审核记录: "No pending records match this filter",
   "切换状态筛选查看其他打卡记录。":
     "Choose another status filter to view other check-in records.",
-  暂无打卡记录: "No check-in records",
+  暂无历史打卡记录: "No historical check-in records",
   "学生提交后的记录会保留在此处。":
     "Submitted student records remain available here.",
-  "切换到全部记录可回看已处理内容。":
-    "Switch to all records to review processed content.",
+  "切换到全部历史记录可回看已处理内容。":
+    "Switch to all record history to review processed records.",
   "先查看全体学生的学时与系统辅助置信度，再进入个人详情，以列表或相册方式浏览全部打卡凭证。":
     "Start with all students’ credits and system confidence, then open a student record to view all evidence as a list or album.",
   查看学生打卡: "View student check-ins",
@@ -499,7 +498,6 @@ const englishText: Record<string, string> = {
     " files · Select a thumbnail or filename to preview",
   "预览 ↗": "Preview ↗",
   图片: "Image",
-  凭证: "Evidence",
   文件: "File",
   未知教学班: "Unknown class",
   未知学生: "Unknown student",
@@ -923,9 +921,6 @@ const englishText: Record<string, string> = {
   无效: "Invalid",
   审核状态: "Review status",
   无效原因: "Reason for invalidation",
-  "该记录已被判定为无效。": "This record has been marked invalid.",
-  "该记录已判定无效，本页暂不支持改回有效。":
-    "This record is invalid. Changing it back to valid is not supported on this page.",
   打卡审核汇总: "Check-in review summary",
   审核已完成: "Review complete",
   审核中: "Review in progress",
@@ -933,11 +928,13 @@ const englishText: Record<string, string> = {
   已达到教师设置的学时目标:
     "The teacher-configured credit target has been reached",
   条: "records",
+  重新确认完成: "Reconfirm completion",
   完成审核: "Complete review",
   待录入: "Awaiting entry",
   缺考: "Absent",
   已录入: "Entered",
   待补正: "Correction required",
+  "已恢复为待审核。": "Restored to pending review.",
   "请选择一项无效原因。": "Select a reason for invalidation.",
   "选择“其他”时，请填写备注。": "Enter a note when selecting “Other.”",
   "暂无打卡记录需要审核。": "There are no check-in records to review.",
@@ -1755,10 +1752,6 @@ const dynamicText: Array<[RegExp, (...matches: string[]) => string]> = [
     /^显示 (\d+) 条历史记录$/,
     (_, count) =>
       `Showing ${count} history record${count === "1" ? "" : "s"}`,
-  ],
-  [
-    /^显示 (\d+) 条记录$/,
-    (_, count) => `Showing ${count} record${count === "1" ? "" : "s"}`,
   ],
   [/^(\d+) 条$/, (_, count) => `${count} record${count === "1" ? "" : "s"}`],
   [/^打开(.*)的用户信息$/, (_, name) => `Open ${name}'s profile`],

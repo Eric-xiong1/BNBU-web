@@ -1,4 +1,4 @@
-// Contract 2.0.2 email-only first binding and verified-email change flow.
+// Contract 1.5 email-only first binding and verified-email change flow.
 
 import { tx } from "../i18n.js";
 import { icon } from "../icons.js";
@@ -174,15 +174,14 @@ export const bindingActions = {
     state.message = null;
     app.render();
     try {
-      await verifyEmailVerificationChallenge(state.challengeId, {
+      const currentUser = await verifyEmailVerificationChallenge(state.challengeId, {
         currentEmailCode: state.initiallyVerified ? state.currentEmailCode : null,
         newEmailCode: state.newEmailCode,
       });
       state.isError = false;
       state.message = tx("邮箱验证成功。", "Email verification succeeded.");
-      await app.reloadApiWorkspace();
+      await app.reloadApiWorkspace({ currentUser, deferInitialRender: true });
       app.ui.binding = null;
-      app.state.requiresContactBinding = false;
       app.navDirection = "forward";
       app.render();
     } catch (error) {

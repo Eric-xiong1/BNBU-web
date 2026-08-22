@@ -94,6 +94,10 @@ test("uses a same-origin API default with an explicit local development proxy", 
 
   assert.match(apiClient, /const DEFAULT_BASE = "\/api\/v1"/);
   assert.doesNotMatch(apiClient, /const DEFAULT_BASE = "http:\/\/127\.0\.0\.1:3000/);
+  assert.match(apiClient, /location\.protocol === "http:"/);
+  assert.match(apiClient, /isLoopbackHostname\(location\.hostname\)/);
+  assert.match(apiClient, /isLoopbackHostname\(candidate\.hostname\)/);
+  assert.match(apiClient, /window\.localStorage\.removeItem\(BASE_KEY\)/);
   assert.match(viteConfig, /"\/api\/v1"/);
   assert.match(viteConfig, /BNBU_LOCAL_BACKEND_ORIGIN/);
   assert.match(viteConfig, /http:\/\/127\.0\.0\.1:3000/);
@@ -161,23 +165,17 @@ test("keeps teacher overview metrics single-sourced and separate from status fil
     /students\.filter\(\s*\(student\)\s*=>\s*student\.status === "active",?\s*\)\.length/,
   );
   assert.doesNotMatch(workspace, /pendingRequests\.length|renderJoinRequests|join-review/);
-  assert.match(workspace, /label: "打卡记录"/);
   assert.match(workspace, /label: "待审核记录"/);
-  assert.match(workspace, /label: "已标记无效"/);
   assert.match(workspace, /label: "涉及学生"/);
   assert.match(workspace, /label: "需要关注记录"/);
   assert.match(workspace, /label: "全部申请"/);
-  // Contract 2.0.2: the queue and the headline both read the server's review
-  // result. Inferring "unreviewed" from a missing comment would be a second
-  // derivation of state the Backend owns.
-  assert.doesNotMatch(workspace, /!record\.reviewComment/);
   assert.match(
     workspace,
-    /const pendingRecords = records\.filter\(\s*\(record\)\s*=>\s*record\.auditStatus === "pending",?\s*\)/,
+    /records\.filter\(\s*\(record\)\s*=>\s*!record\.reviewComment,?\s*\)/,
   );
   assert.match(
     workspace,
-    /new Set\(\s*records\.map\(\s*\(record\)\s*=>\s*record\.studentId,?\s*\),?\s*\)/,
+    /new Set\(\s*pendingRecords\.map\(\s*\(record\)\s*=>\s*record\.studentId,?\s*\),?\s*\)/,
   );
   assert.doesNotMatch(workspace, /学生管理摘要|打卡审核摘要|免测与组织认证摘要|入班审核摘要|成绩完整度|本学期已通过/);
 

@@ -1,33 +1,65 @@
-// Smoke test for the Contract 2.0.2 Web student client.
+// Smoke test for the Contract 1.5 Web student client.
 // Exercises the framework-free logic modules (i18n, session policy, synthetic
 // fixtures, API projection mapping, proof rules, local store) without a DOM.
 
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 // localStorage shim so store.js is testable in Node. Safe with hoisted static
 // imports: store.js only touches localStorage inside function bodies.
 const memoryStorage = new Map();
 globalThis.localStorage = {
-  getItem(key) { return memoryStorage.has(key) ? memoryStorage.get(key) : null; },
-  setItem(key, value) { memoryStorage.set(key, String(value)); },
-  removeItem(key) { memoryStorage.delete(key); },
+  getItem(key) {
+    return memoryStorage.has(key) ? memoryStorage.get(key) : null;
+  },
+  setItem(key, value) {
+    memoryStorage.set(key, String(value));
+  },
+  removeItem(key) {
+    memoryStorage.delete(key);
+  },
 };
 
 import { t, tx, setLanguage } from "./js/i18n.js";
 import {
-  canStartExercise, hasSubmittedCheckInToday, startSession, pauseSession,
-  resumeSession, sessionDurationMs, creditedHours, formatTimer,
+  canStartExercise,
+  hasSubmittedCheckInToday,
+  startSession,
+  pauseSession,
+  resumeSession,
+  sessionDurationMs,
+  creditedHours,
+  formatTimer,
   SESSION_MAX_MILLIS,
 } from "./js/session.js";
 import { createMockWorkspace, MOCK_INVITES, hourText } from "./js/data.js";
-import { canNormalizeCapturedImage, mimeEssence, validateProofFile } from "./js/proofs.js";
-import { mapPublishedScore, mapServerRecord, mapServerStudent } from "./js/api.js";
+import {
+  canNormalizeCapturedImage,
+  mimeEssence,
+  validateProofFile,
+} from "./js/proofs.js";
+import {
+  apiBaseUrl,
+  mapServerStudent,
+  resolveStudentApiState,
+} from "./js/api.js";
 import { localStore } from "./js/store.js";
+import { consumeInviteDeepLink, inviteCodeFromQr } from "./js/screens/join.js";
 
 const failures = [];
 const check = (name, fn) => {
   try {
     fn();
+    console.log(`ok - ${name}`);
+  } catch (error) {
+    failures.push(name);
+    console.error(`FAIL - ${name}: ${error.message}`);
+  }
+};
+
+const checkAsync = async (name, fn) => {
+  try {
+    await fn();
     console.log(`ok - ${name}`);
   } catch (error) {
     failures.push(name);
@@ -64,15 +96,31 @@ check("invite lookup table exposes shared demo codes", () => {
 });
 
 check("time window evaluator blocks unavailable policy", () => {
-  const reason = canStartExercise({ windowMode: "unavailable", dailyStartTime: "", dailyEndTime: "", excludedDates: [] });
+  const reason = canStartExercise({
+    windowMode: "unavailable",
+    dailyStartTime: "",
+    dailyEndTime: "",
+    excludedDates: [],
+  });
   assert.ok(reason && reason.length > 0);
-  const open = canStartExercise({ windowMode: "semester_wide", dailyStartTime: "00:00", dailyEndTime: "23:59", excludedDates: [], dateRangeStart: null, dateRangeEnd: null, semesterDeadline: null });
+  const open = canStartExercise({
+    windowMode: "semester_wide",
+    dailyStartTime: "00:00",
+    dailyEndTime: "23:59",
+    excludedDates: [],
+    dateRangeStart: null,
+    dateRangeEnd: null,
+    semesterDeadline: null,
+  });
   assert.equal(open, null);
 });
 
 check("session timing: pause/resume, 2h cap, credited hours", () => {
   const t0 = 1_000_000;
-  let session = startSession({ creditType: "general", sportType: "running" }, t0);
+  let session = startSession(
+    { creditType: "general", sportType: "running" },
+    t0,
+  );
   assert.equal(session.phase, "active");
   session = pauseSession(session, t0 + 10 * 60_000);
   assert.equal(sessionDurationMs(session, t0 + 60 * 60_000), 10 * 60_000);
@@ -107,131 +155,399 @@ check("time window blocks excluded dates and passed deadlines", () => {
   // 2026-07-29 04:00 UTC = 2026-07-29 12:00 Asia/Shanghai.
   const now = new Date(Date.UTC(2026, 6, 29, 4, 0, 0));
   const base = {
-    windowMode: "semester_wide", dailyStartTime: "00:00", dailyEndTime: "23:59",
-    excludedDates: [], dateRangeStart: null, dateRangeEnd: null, semesterDeadline: null,
+    windowMode: "semester_wide",
+    dailyStartTime: "00:00",
+    dailyEndTime: "23:59",
+    excludedDates: [],
+    dateRangeStart: null,
+    dateRangeEnd: null,
+    semesterDeadline: null,
   };
   assert.equal(canStartExercise(base, now), null);
-  const excluded = canStartExercise({ ...base, excludedDates: ["2026-07-29"] }, now);
+  const excluded = canStartExercise(
+    { ...base, excludedDates: ["2026-07-29"] },
+    now,
+  );
   assert.ok(excluded && excluded.length > 0);
-  const pastDeadline = canStartExercise({ ...base, semesterDeadline: "2026-07-28" }, now);
+  const pastDeadline = canStartExercise(
+    { ...base, semesterDeadline: "2026-07-28" },
+    now,
+  );
   assert.ok(pastDeadline && pastDeadline.includes("2026-07-28"));
 });
 
-check("proof rules follow the exact Contract 2.0.2 media allowlist", () => {
+check("proof rules follow the exact Contract 1.5 media allowlist", () => {
   assert.equal(mimeEssence("video/webm;codecs=vp8,opus"), "video/webm");
-  assert.deepEqual(validateProofFile({ type: "image/jpeg", size: 100 }, "image"), {
-    ok: true, extension: "jpg", mimeType: "image/jpeg", durationSeconds: null,
-  });
-  assert.deepEqual(validateProofFile({ type: "image/png", size: 100 }, "image"), {
-    ok: true, extension: "png", mimeType: "image/png", durationSeconds: null,
-  });
-  assert.equal(canNormalizeCapturedImage({ name: "capture.HEIC", type: "" }), true);
-  assert.equal(canNormalizeCapturedImage({ name: "capture.webp", type: "image/webp" }), true);
-  assert.deepEqual(validateProofFile({ type: "image/webp", size: 100 }, "image"), { ok: false, error: "format" });
-  assert.deepEqual(validateProofFile({ type: "image/jpeg", size: 10_485_761 }, "image"), { ok: false, error: "size" });
-
-  const webm = validateProofFile({ type: "video/webm;codecs=vp8,opus", size: 100 }, "video", { durationSeconds: 14.1 });
-  assert.deepEqual(webm, { ok: true, extension: "webm", mimeType: "video/webm", durationSeconds: 15 });
-  for (const type of ["video/mp4", "video/quicktime", "video/3gpp", "video/webm"]) {
-    assert.equal(validateProofFile({ type, size: 100 }, "video", { durationSeconds: 15 }).ok, true);
-  }
-  assert.deepEqual(validateProofFile({ type: "video/x-matroska", size: 100 }, "video", { durationSeconds: 10 }), { ok: false, error: "format" });
-  assert.deepEqual(validateProofFile({ name: "capture.mov", type: "", size: 100 }, "video", { durationSeconds: 10 }), { ok: false, error: "format" });
-  assert.deepEqual(validateProofFile({ type: "video/mp4", size: 100 }, "video", { durationSeconds: 15.4 }), { ok: false, error: "duration" });
-  assert.deepEqual(validateProofFile({ type: "video/mp4", size: 100 }, "video", { durationSeconds: null }), { ok: false, error: "duration" });
-  assert.deepEqual(validateProofFile({ type: "video/mp4", size: 0 }, "video", { durationSeconds: 10 }), { ok: false, error: "empty" });
-  assert.deepEqual(validateProofFile({ type: "video/mp4", size: 536_870_913 }, "video", { durationSeconds: 10 }), { ok: false, error: "size" });
-});
-
-check("/me mapping uses the Contract 2.0.2 masked email and verification fields", () => {
-  const student = mapServerStudent(
-    { user: { primaryEmailMasked: "s***@example.edu", emailVerified: true, version: 4, status: "ACTIVE" } },
-    { studentNumber: "00001234", fullName: "Synthetic Student", gender: "FEMALE", gradeYear: 2026, collegeName: null, administrativeClassName: null },
-    { academicYear: "2026-2027" },
-  );
-  assert.equal(student.id, "00001234");
-  assert.equal(student.email, "s***@example.edu");
-  assert.equal(student.emailVerified, true);
-  assert.equal(student.userVersion, 4);
-});
-
-check("a submitted record is valid on arrival and credits the server's hours", () => {
-  // Contract 2.0.2: /submit atomically appends the system ReviewRecord v1
-  // (result VALID, teacherId null) and the record becomes REVIEWED.
-  const record = mapServerRecord({
-    id: "record-1", status: "REVIEWED", creditType: "GENERAL",
-    classSectionId: "section-1", sportType: "RUNNING", sportName: null,
-    actualDurationSeconds: 3900, creditedDurationSeconds: 3600,
-    businessDate: "2026-08-18", submittedAt: "2026-08-18T02:05:00Z",
-    description: "晨跑 5 公里",
-    currentReview: { result: "VALID", reasonCode: null, publicComment: null },
-  });
-
-  assert.equal(record.reviewResult, "VALID");
-  assert.equal(record.hours, 1);
-  assert.match(record.teacherPublicFeedback, /记录有效/);
-});
-
-check("a teacher's INVALID verdict reaches the student verbatim", () => {
-  const invalidRecord = (creditedDurationSeconds) => mapServerRecord({
-    id: "record-2", status: "REVIEWED", creditType: "GENERAL",
-    classSectionId: "section-1", sportType: "BADMINTON", sportName: null,
-    actualDurationSeconds: 3900, creditedDurationSeconds,
-    businessDate: "2026-08-18", submittedAt: "2026-08-18T02:05:00Z",
-    description: "羽毛球专项练习",
-    currentReview: {
-      result: "INVALID", reasonCode: "INSUFFICIENT_EVIDENCE",
-      publicComment: "凭证无法证明运动过程，请重新打卡。",
+  assert.deepEqual(
+    validateProofFile({ type: "image/jpeg", size: 100 }, "image"),
+    {
+      ok: true,
+      extension: "jpg",
+      mimeType: "image/jpeg",
+      durationSeconds: null,
     },
+  );
+  assert.deepEqual(
+    validateProofFile({ type: "image/png", size: 100 }, "image"),
+    {
+      ok: true,
+      extension: "png",
+      mimeType: "image/png",
+      durationSeconds: null,
+    },
+  );
+  assert.equal(
+    canNormalizeCapturedImage({ name: "capture.HEIC", type: "" }),
+    true,
+  );
+  assert.equal(
+    canNormalizeCapturedImage({ name: "capture.webp", type: "image/webp" }),
+    true,
+  );
+  assert.deepEqual(
+    validateProofFile({ type: "image/webp", size: 100 }, "image"),
+    { ok: false, error: "format" },
+  );
+  assert.deepEqual(
+    validateProofFile({ type: "image/jpeg", size: 10_485_761 }, "image"),
+    { ok: false, error: "size" },
+  );
+
+  const webm = validateProofFile(
+    { type: "video/webm;codecs=vp8,opus", size: 100 },
+    "video",
+    { durationSeconds: 14.1 },
+  );
+  assert.deepEqual(webm, {
+    ok: true,
+    extension: "webm",
+    mimeType: "video/webm",
+    durationSeconds: 15,
   });
-
-  // 2.0.2 has no way for an INVALID review to zero creditedDurationSeconds
-  // (creditedDurationOverrideSeconds is blocked until ADR-047), so a rejected
-  // record normally keeps the credit it was submitted with — exactly what
-  // `npm run demo:setup` seeds. The client passes the server value through and
-  // leaves the exclusion to the review result.
-  const stillCredited = invalidRecord(3600);
-  assert.equal(stillCredited.reviewResult, "INVALID");
-  assert.equal(stillCredited.hours, 1);
-  assert.match(stillCredited.teacherPublicFeedback, /凭证无法证明运动过程/);
-
-  // And when the server credits nothing, the client must not invent hours from
-  // the actual duration.
-  assert.equal(invalidRecord(0).hours, 0);
+  for (const type of [
+    "video/mp4",
+    "video/quicktime",
+    "video/3gpp",
+    "video/webm",
+  ]) {
+    assert.equal(
+      validateProofFile({ type, size: 100 }, "video", { durationSeconds: 15 })
+        .ok,
+      true,
+    );
+  }
+  assert.deepEqual(
+    validateProofFile({ type: "video/x-matroska", size: 100 }, "video", {
+      durationSeconds: 10,
+    }),
+    { ok: false, error: "format" },
+  );
+  assert.deepEqual(
+    validateProofFile({ name: "capture.mov", type: "", size: 100 }, "video", {
+      durationSeconds: 10,
+    }),
+    { ok: false, error: "format" },
+  );
+  assert.deepEqual(
+    validateProofFile({ type: "video/mp4", size: 100 }, "video", {
+      durationSeconds: 15.4,
+    }),
+    { ok: false, error: "duration" },
+  );
+  assert.deepEqual(
+    validateProofFile({ type: "video/mp4", size: 100 }, "video", {
+      durationSeconds: null,
+    }),
+    { ok: false, error: "duration" },
+  );
+  assert.deepEqual(
+    validateProofFile({ type: "video/mp4", size: 0 }, "video", {
+      durationSeconds: 10,
+    }),
+    { ok: false, error: "empty" },
+  );
+  assert.deepEqual(
+    validateProofFile({ type: "video/mp4", size: 536_870_913 }, "video", {
+      durationSeconds: 10,
+    }),
+    { ok: false, error: "size" },
+  );
 });
 
-check("published scores read finalScore/baseScore and never invent a zero", () => {
-  const published = mapPublishedScore({
-    status: "PUBLISHED", finalScore: 86.5, baseScore: 80, adjustmentTotal: 6.5,
-  });
-  assert.equal(published.totalScore, 86.5);
-  assert.equal(published.totalDisplay, "86.5");
+check(
+  "/me mapping uses Contract 1.5 masked email and verification fields",
+  () => {
+    const student = mapServerStudent(
+      {
+        user: {
+          primaryEmailMasked: "s***@example.edu",
+          emailVerified: true,
+          version: 4,
+          status: "ACTIVE",
+        },
+      },
+      {
+        studentNumber: "00001234",
+        fullName: "Synthetic Student",
+        gender: "FEMALE",
+        gradeYear: 2026,
+        collegeName: null,
+        administrativeClassName: null,
+      },
+      { academicYear: "2026-2027" },
+    );
+    assert.equal(student.id, "00001234");
+    assert.equal(student.email, "s***@example.edu");
+    assert.equal(student.emailVerified, true);
+    assert.equal(student.userVersion, 4);
+  },
+);
 
-  // finalScore is nullable even once PUBLISHED; baseScore is the fallback.
-  const baseOnly = mapPublishedScore({
-    status: "PUBLISHED", finalScore: null, baseScore: 78, adjustmentTotal: null,
-  });
-  assert.equal(baseOnly.totalScore, 78);
-  assert.equal(baseOnly.totalDisplay, "78");
+check(
+  "canonical teacher QR payload is accepted and non-canonical URL origins are rejected",
+  () => {
+    const token = "InviteAbC_0123456789.secret-XyZ~";
+    assert.equal(
+      inviteCodeFromQr(
+        `https://www.verityai.cn/join/${encodeURIComponent(token)}`,
+      ),
+      token,
+    );
+    assert.equal(inviteCodeFromQr(token), token);
+    assert.equal(inviteCodeFromQr(`http://127.0.0.1:4174/join/${token}`), null);
+    assert.equal(
+      inviteCodeFromQr(`https://sports.example.com/join/${token}`),
+      null,
+    );
+    assert.equal(
+      inviteCodeFromQr(`http://www.verityai.cn/join/${token}`),
+      null,
+    );
+  },
+);
 
-  // A published 0 is a legal score (DecimalScore has no minimum) and must not
-  // be swallowed by a truthiness fallback.
-  const publishedZero = mapPublishedScore({
-    status: "PUBLISHED", finalScore: 0, baseScore: 80, adjustmentTotal: -80,
-  });
-  assert.equal(publishedZero.totalScore, 0);
-  assert.equal(publishedZero.totalDisplay, "0");
+check(
+  "staging invite deep link is removed from the address bar before use",
+  () => {
+    const token = "InviteAbC_0123456789.secret-XyZ~";
+    const calls = [];
+    const history = {
+      state: { synthetic: true },
+      replaceState(...args) {
+        calls.push(args);
+      },
+    };
+    assert.equal(
+      consumeInviteDeepLink(
+        { href: `https://www.verityai.cn/join/${encodeURIComponent(token)}` },
+        history,
+      ),
+      token,
+    );
+    assert.deepEqual(calls, [[history.state, "", "/"]]);
+  },
+);
 
-  const pendingCalc = mapPublishedScore({
-    status: "PUBLISHED", finalScore: null, baseScore: null, adjustmentTotal: null,
-  });
-  assert.equal(pendingCalc.totalScore, null);
-  assert.equal(pendingCalc.totalDisplay, "待计算");
+check(
+  "staging invite deep link fails closed when browser history cannot be scrubbed",
+  () => {
+    const token = "InviteAbC_0123456789.secret-XyZ~";
+    let replacement = null;
+    assert.equal(
+      consumeInviteDeepLink(
+        {
+          href: `https://www.verityai.cn/join/${encodeURIComponent(token)}`,
+          replace(value) {
+            replacement = value;
+          },
+        },
+        {
+          replaceState() {
+            throw new Error("synthetic history rejection");
+          },
+        },
+      ),
+      null,
+    );
+    assert.equal(replacement, "/");
+  },
+);
 
-  const unpublished = mapPublishedScore(null);
-  assert.equal(unpublished.totalScore, null);
-  assert.equal(unpublished.totalDisplay, "未开放");
+check("local preview consumes only loopback invite deep links", () => {
+  const token = "InviteAbC_0123456789.secret-XyZ~";
+  const replacements = [];
+  const history = {
+    replaceState(_state, _title, path) {
+      replacements.push(path);
+    },
+  };
+  assert.equal(
+    consumeInviteDeepLink(
+      { href: `http://127.0.0.1:4174/join/${encodeURIComponent(token)}` },
+      history,
+    ),
+    token,
+  );
+  assert.equal(
+    consumeInviteDeepLink(
+      { href: `http://localhost:4174/join/${encodeURIComponent(token)}` },
+      history,
+    ),
+    token,
+  );
+  assert.equal(
+    consumeInviteDeepLink(
+      { href: `https://attacker.invalid/join/${encodeURIComponent(token)}` },
+      history,
+    ),
+    null,
+  );
+  assert.deepEqual(replacements, ["/student/", "/student/"]);
 });
+
+await checkAsync(
+  "Student Web deep-link HTML keeps root assets compatible with staging and local preview",
+  async () => {
+    const [html, previewServer] = await Promise.all([
+      readFile(new URL("./index.html", import.meta.url), "utf8"),
+      readFile(new URL("../preview-server.cjs", import.meta.url), "utf8"),
+    ]);
+    const referrerMeta = '<meta name="referrer" content="no-referrer" />';
+    assert.ok(html.includes(referrerMeta));
+    assert.ok(
+      html.indexOf(referrerMeta) < html.indexOf('<link rel="stylesheet"'),
+    );
+    for (const asset of [
+      "/css/tokens.css",
+      "/css/components.css",
+      "/css/screens.css",
+      "/js/emblem.js",
+      "/js/app.js",
+    ]) {
+      assert.match(html, new RegExp(`["']${asset.replaceAll("/", "\\/")}["']`));
+    }
+    assert.match(previewServer, /\^\\\/join\\\/\[\^\/\]\+\$/);
+    assert.match(previewServer, /\["\/css\/", "\/js\/", "\/assets\/"\]/);
+  },
+);
+
+const studentProfile = {
+  studentNumber: "R01-WEB-01",
+  fullName: "R01 Web Student",
+  gender: "FEMALE",
+  gradeYear: 2026,
+  collegeName: null,
+  administrativeClassName: null,
+};
+const currentUser = (status, emailVerified) => ({
+  user: {
+    id: "user-r01-web",
+    role: "STUDENT",
+    status,
+    primaryEmailMasked: emailVerified ? "r***@example.edu" : null,
+    emailVerified,
+    version: emailVerified ? 2 : 1,
+  },
+  studentProfile,
+  teacherProfile: null,
+  adminProfile: null,
+});
+
+await checkAsync(
+  "invite join keeps a new PENDING student in binding-only mode",
+  async () => {
+    let currentUserLoads = 0;
+    let workspaceLoads = 0;
+    const joinedProjection = currentUser("PENDING_CONTACT_BINDING", false);
+    const resolved = await resolveStudentApiState({
+      currentUser: joinedProjection,
+      loadCurrentUser: async () => {
+        currentUserLoads += 1;
+        return joinedProjection;
+      },
+      loadWorkspace: async () => {
+        workspaceLoads += 1;
+        throw new Error("protected workspace must not load");
+      },
+    });
+    assert.equal(resolved.mode, "binding");
+    assert.equal(resolved.student.id, "R01-WEB-01");
+    assert.equal(currentUserLoads, 0);
+    assert.equal(workspaceLoads, 0);
+  },
+);
+
+await checkAsync(
+  "session restore reads only /me for a PENDING student",
+  async () => {
+    let currentUserLoads = 0;
+    let workspaceLoads = 0;
+    const pending = currentUser("PENDING_CONTACT_BINDING", false);
+    const resolved = await resolveStudentApiState({
+      loadCurrentUser: async () => {
+        currentUserLoads += 1;
+        return pending;
+      },
+      loadWorkspace: async () => {
+        workspaceLoads += 1;
+        throw new Error("protected workspace must not load");
+      },
+    });
+    assert.equal(resolved.mode, "binding");
+    assert.equal(currentUserLoads, 1);
+    assert.equal(workspaceLoads, 0);
+  },
+);
+
+await checkAsync(
+  "successful email verification transitions to one full workspace load",
+  async () => {
+    let currentUserLoads = 0;
+    let workspaceLoads = 0;
+    const active = currentUser("ACTIVE", true);
+    const workspace = { student: { id: "R01-WEB-01", emailVerified: true } };
+    const resolved = await resolveStudentApiState({
+      currentUser: active,
+      loadCurrentUser: async () => {
+        currentUserLoads += 1;
+        return active;
+      },
+      loadWorkspace: async (me) => {
+        workspaceLoads += 1;
+        assert.equal(me, active);
+        return { workspace };
+      },
+    });
+    assert.equal(resolved.mode, "active");
+    assert.equal(resolved.workspace, workspace);
+    assert.equal(currentUserLoads, 0);
+    assert.equal(workspaceLoads, 1);
+  },
+);
+
+await checkAsync(
+  "ACTIVE session restore loads /me and the protected workspace once",
+  async () => {
+    let currentUserLoads = 0;
+    let workspaceLoads = 0;
+    const active = currentUser("ACTIVE", true);
+    const resolved = await resolveStudentApiState({
+      loadCurrentUser: async () => {
+        currentUserLoads += 1;
+        return active;
+      },
+      loadWorkspace: async () => {
+        workspaceLoads += 1;
+        return {
+          workspace: { student: { id: "R01-WEB-01", emailVerified: true } },
+        };
+      },
+    });
+    assert.equal(resolved.mode, "active");
+    assert.equal(currentUserLoads, 1);
+    assert.equal(workspaceLoads, 1);
+  },
+);
 
 check("store self-heals corrupted keys and merges overlay defaults", () => {
   // Corrupted JSON → defaults returned and the bad key removed.
@@ -241,7 +557,10 @@ check("store self-heals corrupted keys and merges overlay defaults", () => {
   assert.equal(overlay.healthReminderAck, false);
   assert.equal(memoryStorage.has("bnbu.student.web.workspaceOverlay"), false);
   // Partial legacy overlay → missing fields filled, wrong shapes coerced.
-  memoryStorage.set("bnbu.student.web.workspaceOverlay", JSON.stringify({ readNoticeIds: "oops", healthReminderAck: true }));
+  memoryStorage.set(
+    "bnbu.student.web.workspaceOverlay",
+    JSON.stringify({ readNoticeIds: "oops", healthReminderAck: true }),
+  );
   overlay = localStore.getOverlay();
   assert.deepEqual(overlay.readNoticeIds, []);
   assert.equal(overlay.healthReminderAck, true);
@@ -250,8 +569,44 @@ check("store self-heals corrupted keys and merges overlay defaults", () => {
   memoryStorage.delete("bnbu.student.web.workspaceOverlay");
 });
 
+check(
+  "public API base rejects query-string token exfiltration overrides",
+  () => {
+    const originalLocation = globalThis.location;
+    try {
+      memoryStorage.set(
+        "bnbu.student.web.apiBase",
+        "https://attacker.invalid/api/v1",
+      );
+      globalThis.location = {
+        protocol: "https:",
+        hostname: "www.verityai.cn",
+        origin: "https://www.verityai.cn",
+        search: "?api=https%3A%2F%2Fattacker.invalid%2Fcollect",
+      };
+      assert.equal(apiBaseUrl(), "/api/v1");
+      assert.equal(memoryStorage.has("bnbu.student.web.apiBase"), false);
+
+      globalThis.location = {
+        protocol: "http:",
+        hostname: "localhost",
+        origin: "http://localhost:8080",
+        search: "?api=http%3A%2F%2F127.0.0.1%3A3000%2Fapi%2Fv1",
+      };
+      assert.equal(apiBaseUrl(), "http://127.0.0.1:3000/api/v1");
+    } finally {
+      memoryStorage.delete("bnbu.student.web.apiBase");
+      if (originalLocation === undefined) delete globalThis.location;
+      else globalThis.location = originalLocation;
+    }
+  },
+);
+
 check("exercise session round-trips through the store per account", () => {
-  const session = startSession({ creditType: "course", sportType: "badminton" }, 5_000);
+  const session = startSession(
+    { creditType: "course", sportType: "badminton" },
+    5_000,
+  );
   localStore.setExerciseSession("acct-1", session);
   assert.deepEqual(localStore.getExerciseSession("acct-1"), session);
   assert.equal(localStore.getExerciseSession("acct-2"), null);

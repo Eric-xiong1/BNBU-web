@@ -1,8 +1,8 @@
 # BNBU Sports Web 学生端
 
-本目录是 BNBU Sports 的 Web 学生端。业务、网络请求和字段约束以 Backend `/api/v1` 的正式 Contract 2.0.2 为基线。
+本目录是 BNBU Sports 的 Web 学生端。业务、网络请求和字段约束以 Backend `/api/v1` 的正式 Contract 1.5 为基线。
 
-## Contract 2.0.2 行为
+## Contract 1.5 行为
 
 - 学生账号只使用邮箱验证码登录；手机号和短信验证码入口已下线。
 - 首次邮箱绑定和已验证邮箱换绑均调用 Backend challenge 接口，验证码、频率和失败次数由 Backend 裁决。
@@ -12,9 +12,6 @@
 - 最终图片只上传 JPEG/PNG。浏览器能够解码的 WebP/HEIC/HEIF 会先重编码为不含原始 EXIF/GPS 的 JPEG；不能解码时要求重新拍摄。
 - 最终视频只允许 MP4、MOV、3GP、WebM。空 MIME、未知容器和 MKV 会在客户端失败关闭；Backend 最终校验容器、轨道、真实时长、文件大小、SHA-256 和位置元数据。
 - Web 不申请定位权限，也不主动采集经纬度。Backend 返回 `MEDIA_LOCATION_METADATA_NOT_ALLOWED` 时要求用户重新拍摄。
-- 提交成功后记录**立即有效**：Backend 原子追加 `result=VALID` 的系统审核行，学时当场入账，学生端不再显示「等待教师审核」。
-- 教师事后只能追加 `INVALID`。学生端在记录卡片和详情里显示后端返回的审核状态与教师意见；`INVALID` 记录仍在列表中，但不计入学时。
-- 记录显示的学时一律取 Backend 的 `creditedDurationSeconds`，客户端不再用实际运动时长兜底。
 - 邀请预览、扫码/手输邀请码、加入课程、工作区、运动、媒体和记录请求全部走真实 `/api/v1`；请求失败不会回退到 Mock 数据。
 
 ## 运行
@@ -32,7 +29,7 @@ npm run preview
 npm run test:student
 ```
 
-冒烟测试覆盖双语、时间窗、运动计时、Contract 2.0.2 媒体格式与时长边界，以及本地状态容错。`js/data.js` 中的 synthetic 数据只供单元测试和静态展示逻辑使用，不作为真实模式请求失败时的回退数据。
+冒烟测试覆盖双语、时间窗、运动计时、Contract 1.5 媒体格式与时长边界，以及本地状态容错。`js/data.js` 中的 synthetic 数据只供单元测试和静态展示逻辑使用，不作为真实模式请求失败时的回退数据。
 
 ## 主要功能
 
@@ -51,7 +48,7 @@ index.html            入口
 css/                  设计 token、通用组件和页面样式
 js/app.js             根状态机
 js/api.js             `/api/v1` 客户端与数据映射
-js/proofs.js          Contract 2.0.2 媒体规则
+js/proofs.js          Contract 1.5 媒体规则
 js/session.js         运动会话与时间窗策略
 js/screens/           学生端页面
 assets/               校徽与隐私政策

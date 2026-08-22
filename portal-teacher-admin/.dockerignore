@@ -1,0 +1,15 @@
+node_modules
+dist
+.next
+.vinext
+.wrangler
+coverage
+outputs
+work
+.env
+.env.*
+*.log
+*.pem
+tests
+docs
+examples

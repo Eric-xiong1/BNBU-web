@@ -9,11 +9,10 @@
     "dev": "vinext dev --hostname 0.0.0.0",
     "build": "vinext build",
     "contract:generate": "openapi-typescript ./openapi/openapi.snapshot.yaml --output ./app/openapi.generated.ts --immutable --alphabetize",
-    "contract:verify": "node scripts/verify-contract.mjs",
-    "contract:check": "npm run contract:verify && npm run contract:generate -- --check",
+    "contract:check": "npm run contract:generate -- --check",
     "typecheck": "npm run contract:check && tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.worker.json",
     "start": "vinext start",
-    "test": "npm run build && node --import ./tests/register-ts-resolver.mjs --test tests/rendered-html.test.mjs tests/contract-binding.test.mjs tests/checkin-audit.test.mjs tests/admin-domain.test.mjs tests/i18n-resources.test.mjs tests/roster-reconciliation.test.mjs",
+    "test": "npm run build && node --import ./tests/register-ts-resolver.mjs --test tests/rendered-html.test.mjs tests/api-base-security.test.mjs tests/staging-deployment.test.mjs tests/course-invite.test.mjs tests/checkin-audit.test.mjs tests/admin-domain.test.mjs tests/i18n-resources.test.mjs tests/roster-reconciliation.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

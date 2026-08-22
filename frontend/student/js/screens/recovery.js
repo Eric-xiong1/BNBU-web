@@ -1,4 +1,4 @@
-// Contract 2.0.2 exposes account-recovery commands only for pre-provisioned
+// Contract 1.5 exposes account-recovery commands only for pre-provisioned
 // TEACHER/ADMIN accounts. The student Web client therefore provides an honest
 // support path instead of simulating a successful recovery request.
 

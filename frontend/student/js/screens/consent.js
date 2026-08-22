@@ -125,6 +125,7 @@ export const consentActions = {
     app.state.loginPrivacyAccepted = true;
     app.state.needsPrivacyConsent = false;
     app.navDirection = "forward";
+    if (app.openDeepLinkInvite()) return;
     app.render();
   },
   "consent.decline": (app) => {

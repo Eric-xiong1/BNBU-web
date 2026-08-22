@@ -5,8 +5,21 @@
 
 import { tx } from "../i18n.js";
 import { icon } from "../icons.js";
-import { esc, spinner, sectionTitle, statusBadge, validationPanel, actionButton } from "../ui.js";
-import { previewInvite, joinWithInvite, storeJoinContext, apiErrorText, ApiError } from "../api.js";
+import {
+  esc,
+  spinner,
+  sectionTitle,
+  statusBadge,
+  validationPanel,
+  actionButton,
+} from "../ui.js";
+import {
+  previewInvite,
+  joinWithInvite,
+  storeJoinContext,
+  apiErrorText,
+  ApiError,
+} from "../api.js";
 
 // Real backend invite tokens are "<id>.<secret>" — dots/underscores allowed.
 const INVITE_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~-]{15,199}$/;
@@ -14,27 +27,85 @@ const isInviteCode = (value) => INVITE_CODE_PATTERN.test(value.trim());
 const MAX_NAME = 64;
 const MAX_STUDENT_NUMBER = 32;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const COURSE_JOIN_QR_ORIGIN = "https://www.verityai.cn";
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+function inviteCodeFromJoinUrl(uri, { allowLoopback = false } = {}) {
+  const isOfficial = uri.origin === COURSE_JOIN_QR_ORIGIN;
+  const isLoopback =
+    allowLoopback &&
+    (uri.protocol === "http:" || uri.protocol === "https:") &&
+    LOOPBACK_HOSTNAMES.has(uri.hostname);
+  if (!isOfficial && !isLoopback) return null;
+
+  const segments = uri.pathname.split("/").filter(Boolean);
+  if (segments.length !== 2 || segments[0] !== "join") return null;
+  let code;
+  try {
+    code = decodeURIComponent(segments[1]);
+  } catch {
+    return null;
+  }
+  return isInviteCode(code) ? code : null;
+}
 
 /** Extracts an invite code from the HTTPS /join/{code} QR URL, or accepts a
  *  bare backend invite token rendered directly as QR content. */
-function inviteCodeFromQr(rawValue) {
+export function inviteCodeFromQr(rawValue) {
   const raw = rawValue.trim();
   try {
-    const uri = new URL(raw);
-    if (uri.protocol !== "https:" || !uri.host) return null;
-    const segments = uri.pathname.split("/").filter(Boolean);
-    if (segments.length !== 2 || segments[0] !== "join") return null;
-    return isInviteCode(segments[1]) ? segments[1] : null;
+    return inviteCodeFromJoinUrl(new URL(raw));
   } catch {
     return raw.includes(".") && isInviteCode(raw) ? raw : null;
   }
+}
+
+/**
+ * Reads the official staging deep link and removes its bearer invite token
+ * from the address bar and browser history before any asynchronous work.
+ * If the current history entry cannot be replaced, navigate to the safe root
+ * and fail closed instead of continuing with a token-bearing URL.
+ */
+export function consumeInviteDeepLink(
+  locationLike = globalThis.location,
+  historyLike = globalThis.history,
+) {
+  const href = typeof locationLike?.href === "string" ? locationLike.href : "";
+  let uri;
+  try {
+    uri = new URL(href);
+  } catch {
+    return null;
+  }
+  const code = inviteCodeFromJoinUrl(uri, { allowLoopback: true });
+  if (!code) return null;
+  const safePath = uri.origin === COURSE_JOIN_QR_ORIGIN ? "/" : "/student/";
+
+  if (typeof historyLike?.replaceState === "function") {
+    try {
+      historyLike.replaceState(historyLike.state ?? null, "", safePath);
+      return code;
+    } catch {
+      // Fall through to a safe navigation when history mutation is blocked.
+    }
+  }
+
+  try {
+    locationLike?.replace?.(safePath);
+  } catch {
+    /* fail closed below */
+  }
+  return null;
 }
 
 /** Every invite lookup uses the real backend. Failures never fall back to mock data. */
 function lookupInvite(code, { onResolved, onUnavailable, onError }) {
   previewInvite(code).then(
     (preview) => {
-      if (!preview.enrollmentOpen) { onUnavailable(); return; }
+      if (!preview.enrollmentOpen) {
+        onUnavailable();
+        return;
+      }
       onResolved(code, {
         name: preview.courseName,
         courseNumber: preview.courseCode,
@@ -46,17 +117,26 @@ function lookupInvite(code, { onResolved, onUnavailable, onError }) {
       });
     },
     (error) => {
-      if (error instanceof ApiError && (error.status === 404 || error.status === 410)) onUnavailable();
+      if (
+        error instanceof ApiError &&
+        (error.status === 404 || error.status === 410)
+      )
+        onUnavailable();
       else onError(apiErrorText(error));
-    }
+    },
   );
 }
 
 const inviteExpiredMessage = () =>
-  tx("该邀请已过期或已被撤销，请联系教师获取新二维码或邀请码", "This invitation has expired or was revoked. Contact the teacher for a new QR code or invitation code.");
+  tx(
+    "该邀请已过期或已被撤销，请联系教师获取新二维码或邀请码",
+    "This invitation has expired or was revoked. Contact the teacher for a new QR code or invitation code.",
+  );
 
 /** Backend invite tokens are opaque and case-sensitive. */
-function normalizeInviteInput(value) { return value.trim(); }
+function normalizeInviteInput(value) {
+  return value.trim();
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  #9 Scan to join
@@ -85,8 +165,9 @@ function scanMessage(text) {
 
 export function renderScanJoin(app, { preLogin = false } = {}) {
   const ui = scanState(app);
-  const cameraArea = ui.permission === "denied"
-    ? `<div class="scan-permission-card">
+  const cameraArea =
+    ui.permission === "denied"
+      ? `<div class="scan-permission-card">
         <span class="scan-permission-icon">${icon("camera-alt", 28)}</span>
         <div style="height:20px"></div>
         <div class="title-large text-on-surface">${tx("需要相机权限", "Camera permission required")}</div>
@@ -95,21 +176,27 @@ export function renderScanJoin(app, { preLogin = false } = {}) {
         <div style="height:20px"></div>
         <button class="primary-btn pressable" data-action="scan.requestPermission" style="width:auto;min-height:48px;padding:0 24px">${tx("允许使用相机", "Allow camera access")}</button>
       </div>`
-    : `<div class="scan-camera" data-scan-camera>
+      : `<div class="scan-camera" data-scan-camera>
         <video class="scan-video" autoplay playsinline muted></video>
         <svg class="scan-guide" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
-        ${ui.resolving ? `<div class="scan-resolving">
+        ${
+          ui.resolving
+            ? `<div class="scan-resolving">
           ${spinner(30, "on-primary")}
           <div style="height:14px"></div>
           <span class="label-large" style="color:#fff">${tx("正在识别", "Recognising")}</span>
-        </div>` : ""}
+        </div>`
+            : ""
+        }
       </div>`;
 
   const hint = ui.message
     ? scanMessage(ui.message)
     : `<div class="body-medium ${ui.resolving ? "text-primary" : "text-muted"}" style="width:100%">${ui.resolving ? tx("正在读取课程信息…", "Reading course information…") : tx("将二维码完整放入扫描框内", "Place the entire QR code inside the frame.")}</div>`;
 
-  const manualDialog = ui.showManualInput ? renderManualInviteDialog(app, ui) : "";
+  const manualDialog = ui.showManualInput
+    ? renderManualInviteDialog(app, ui)
+    : "";
 
   return `<div class="screen scan-screen">
     <div class="scan-topbar">
@@ -138,7 +225,8 @@ export function renderScanJoin(app, { preLogin = false } = {}) {
 
 function renderManualInviteDialog(app, ui) {
   const normalized = normalizeInviteInput(ui.manualCode);
-  const showFormatError = ui.manualCode.trim() !== "" && !isInviteCode(normalized);
+  const showFormatError =
+    ui.manualCode.trim() !== "" && !isInviteCode(normalized);
   return `<div class="dialog-scrim" data-action="scan.dialogScrim">
     <div class="dialog" role="dialog" aria-modal="true">
       <div class="dialog-title">${tx("输入邀请码", "Enter invitation code")}</div>
@@ -173,13 +261,20 @@ function drawScanGuide(app) {
   const bottom = top + guide;
   const corner = 30;
   const lines = [
-    [left, top + corner, left, top], [left, top, left + corner, top],
-    [right - corner, top, right, top], [right, top, right, top + corner],
-    [left, bottom - corner, left, bottom], [left, bottom, left + corner, bottom],
-    [right - corner, bottom, right, bottom], [right, bottom, right, bottom - corner],
+    [left, top + corner, left, top],
+    [left, top, left + corner, top],
+    [right - corner, top, right, top],
+    [right, top, right, top + corner],
+    [left, bottom - corner, left, bottom],
+    [left, bottom, left + corner, bottom],
+    [right - corner, bottom, right, bottom],
+    [right, bottom, right, bottom - corner],
   ];
   svg.innerHTML = lines
-    .map(([x1, y1, x2, y2]) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#fff" stroke-width="4" stroke-linecap="round"/>`)
+    .map(
+      ([x1, y1, x2, y2]) =>
+        `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#fff" stroke-width="4" stroke-linecap="round"/>`,
+    )
     .join("");
 }
 
@@ -187,7 +282,10 @@ let mediaStream = null;
 let detectTimer = null;
 
 function stopCamera() {
-  if (detectTimer) { clearInterval(detectTimer); detectTimer = null; }
+  if (detectTimer) {
+    clearInterval(detectTimer);
+    detectTimer = null;
+  }
   if (mediaStream) {
     for (const track of mediaStream.getTracks()) track.stop();
     mediaStream = null;
@@ -199,7 +297,9 @@ async function startCamera(app) {
   const video = app._viewport?.querySelector(".scan-video");
   if (!video || mediaStream) return;
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+    });
     video.srcObject = mediaStream;
     ui.permission = "granted";
     // Continuous QR decoding via the platform BarcodeDetector when available.
@@ -214,12 +314,23 @@ async function startCamera(app) {
             ui.lastScannedValue = value;
             resolveQrValue(app, value);
           }
-        } catch { /* frame not ready */ }
+        } catch {
+          /* frame not ready */
+        }
       }, 400);
+    } else {
+      ui.message = tx(
+        "当前浏览器不支持二维码识别，请使用下方的“手动输入邀请码”。",
+        "This browser cannot decode QR codes. Use Enter invitation code manually below.",
+      );
+      app.render();
     }
   } catch {
     ui.permission = "denied";
-    ui.message = tx("需要相机权限才能扫描二维码，也可以手动输入邀请码", "Camera permission is required to scan a QR code. You can also enter an invitation code manually.");
+    ui.message = tx(
+      "需要相机权限才能扫描二维码，也可以手动输入邀请码",
+      "Camera permission is required to scan a QR code. You can also enter an invitation code manually.",
+    );
     app.render();
   }
 }
@@ -228,7 +339,10 @@ function resolveQrValue(app, value) {
   const ui = scanState(app);
   const code = inviteCodeFromQr(value);
   if (!code) {
-    ui.message = tx("无效的课程二维码，请确认后重试", "Invalid course QR code. Check it and try again.");
+    ui.message = tx(
+      "无效的课程二维码，请确认后重试",
+      "Invalid course QR code. Check it and try again.",
+    );
     app.render();
     return;
   }
@@ -261,6 +375,13 @@ function resolveCode(app, code) {
       app.render();
     },
   });
+}
+
+/** Starts the same preview flow for an HTTPS /join/{token} deep link. */
+export function beginInviteDeepLink(app, code) {
+  app.state.showScanJoin = true;
+  app.ui.scan = null;
+  resolveCode(app, code);
 }
 
 function onInviteResolved(app, code, course) {
@@ -306,7 +427,8 @@ export function attachScanCamera(app) {
 // ═══════════════════════════════════════════════════════════════
 
 function enterCodeState(app) {
-  if (!app.ui.enterCode) app.ui.enterCode = { code: "", resolving: false, error: null };
+  if (!app.ui.enterCode)
+    app.ui.enterCode = { code: "", resolving: false, error: null };
   return app.ui.enterCode;
 }
 
@@ -378,7 +500,8 @@ const GENDER_OPTIONS = () => [
 const GRADE_YEAR_OPTIONS = () => {
   const current = new Date().getFullYear();
   const years = [];
-  for (let y = current + 1; y >= current - 6; y--) years.push({ value: String(y), label: tx(`${y} 级`, `Class of ${y}`) });
+  for (let y = current + 1; y >= current - 6; y--)
+    years.push({ value: String(y), label: tx(`${y} 级`, `Class of ${y}`) });
   return years;
 };
 
@@ -389,7 +512,15 @@ function joinFact(label, value) {
   </div>`;
 }
 
-function joinField({ id, label, value, supporting, disabled, inputMode, maxlength }) {
+function joinField({
+  id,
+  label,
+  value,
+  supporting,
+  disabled,
+  inputMode,
+  maxlength,
+}) {
   return `<div class="col">
     <label class="field-label" for="join-${id}">${esc(label)}</label>
     <input id="join-${id}" class="text-field" type="text" inputmode="${inputMode || "text"}" ${maxlength ? `maxlength="${maxlength}"` : ""}
@@ -410,7 +541,11 @@ export function renderCourseJoinConfirm(app, params) {
       }
     : params.course;
   const writeEnabled = app.isWriteAllowed();
-  const canSubmitNew = params.correctionRequest ? true : (app.state.authenticated ? app.canStartNewCourseJoin() : true);
+  const canSubmitNew = params.correctionRequest
+    ? true
+    : app.state.authenticated
+      ? app.canStartNewCourseJoin()
+      : true;
   const formEnabled = !ui.submitting && writeEnabled && canSubmitNew;
 
   const identityContent = ui.submitted
@@ -423,10 +558,30 @@ export function renderCourseJoinConfirm(app, params) {
         ${ui.error ? validationPanel(ui.error) : ""}
         ${joinField({ id: "name", label: tx("姓名（必填）", "Name (required)"), value: ui.name, supporting: `${ui.name.length} / ${MAX_NAME}`, disabled: !formEnabled, maxlength: MAX_NAME })}
         ${joinField({ id: "studentNumber", label: tx("学号（必填）", "Student ID (required)"), value: ui.studentNumber, supporting: `${ui.studentNumber.length} / ${MAX_STUDENT_NUMBER}`, disabled: ui.submitting || !writeEnabled, maxlength: MAX_STUDENT_NUMBER })}
-        ${course && course.real
-          ? joinSelect({ id: "gender", label: tx("性别（必填）", "Gender (required)"), value: ui.gender, options: GENDER_OPTIONS(), disabled: ui.submitting || !writeEnabled })
-            + joinSelect({ id: "gradeYear", label: tx("入学年份（必填）", "Admission year (required)"), value: ui.gradeYear, options: GRADE_YEAR_OPTIONS(), disabled: ui.submitting || !writeEnabled })
-          : joinField({ id: "email", label: tx("邮箱（选填）", "Email (optional)"), value: ui.email, disabled: ui.submitting || !writeEnabled, inputMode: "email" })}
+        ${
+          course && course.real
+            ? joinSelect({
+                id: "gender",
+                label: tx("性别（必填）", "Gender (required)"),
+                value: ui.gender,
+                options: GENDER_OPTIONS(),
+                disabled: ui.submitting || !writeEnabled,
+              }) +
+              joinSelect({
+                id: "gradeYear",
+                label: tx("入学年份（必填）", "Admission year (required)"),
+                value: ui.gradeYear,
+                options: GRADE_YEAR_OPTIONS(),
+                disabled: ui.submitting || !writeEnabled,
+              })
+            : joinField({
+                id: "email",
+                label: tx("邮箱（选填）", "Email (optional)"),
+                value: ui.email,
+                disabled: ui.submitting || !writeEnabled,
+                inputMode: "email",
+              })
+        }
         <div style="height:2px"></div>
         <button class="primary-btn pressable" data-action="joinConfirm.submit" ${!ui.submitting && writeEnabled ? "" : "disabled"}>
           ${ui.submitting ? spinner(18, "on-primary") : icon("send", 18)}
@@ -472,7 +627,7 @@ function factList(facts) {
       ([label, value]) => `<div class="row" style="align-items:flex-start">
         <span class="body-medium text-muted" style="width:76px;flex:none">${esc(label)}：</span>
         <span class="body-medium text-on-surface grow">${esc(value) || tx("待公布", "To be announced")}</span>
-      </div>`
+      </div>`,
     )
     .join("")}</div>`;
 }
@@ -486,11 +641,16 @@ function reviewComment(label, comment) {
 
 export function localizedJoinStatus(status) {
   switch (status) {
-    case "PENDING": return tx("待审核", "Under review");
-    case "ACTIVE": return tx("已通过", "Approved");
-    case "REJECTED": return tx("已拒绝", "Rejected");
-    case "NEEDS_CORRECTION": return tx("需补正", "Information needed");
-    default: return status;
+    case "PENDING":
+      return tx("待审核", "Under review");
+    case "ACTIVE":
+      return tx("已通过", "Approved");
+    case "REJECTED":
+      return tx("已拒绝", "Rejected");
+    case "NEEDS_CORRECTION":
+      return tx("需补正", "Information needed");
+    default:
+      return status;
   }
 }
 
@@ -532,7 +692,10 @@ export function renderJoinRequestStatus(app, params) {
     panel = `<div class="swiss-panel"><div class="col" style="gap:16px">
       ${statusHeading(tx("申请状态：待教师审核", "Status: under teacher review"), "error-outline")}
       ${factList([
-        [tx("课程", "Course"), `${request.courseCode} / Section ${request.section}`],
+        [
+          tx("课程", "Course"),
+          `${request.courseCode} / Section ${request.section}`,
+        ],
         [tx("班级", "Class"), request.courseName],
         [tx("教师", "Teacher"), request.teacherName],
         [tx("学期", "Term"), request.semester],
@@ -595,9 +758,14 @@ export const joinActions = {
     const ui = scanState(app);
     ui.manualCode = el.value;
     const normalized = normalizeInviteInput(ui.manualCode);
-    const submit = app._viewport?.querySelector('[data-action="scan.dialogSubmit"]');
+    const submit = app._viewport?.querySelector(
+      '[data-action="scan.dialogSubmit"]',
+    );
     if (submit) submit.disabled = !isInviteCode(normalized) || ui.resolving;
-    el.classList.toggle("error", ui.manualCode.trim() !== "" && !isInviteCode(normalized));
+    el.classList.toggle(
+      "error",
+      ui.manualCode.trim() !== "" && !isInviteCode(normalized),
+    );
   },
   "scan.dialogScrim": (app, el, event) => {
     if (event.target !== el) return;
@@ -632,16 +800,24 @@ export const joinActions = {
     ui.code = el.value;
     ui.error = null;
     const normalized = normalizeInviteInput(ui.code);
-    const submit = app._viewport?.querySelector('[data-action="enterCode.submit"]');
+    const submit = app._viewport?.querySelector(
+      '[data-action="enterCode.submit"]',
+    );
     if (submit) submit.disabled = ui.resolving || !isInviteCode(normalized);
-    el.classList.toggle("error", ui.code.trim() !== "" && !isInviteCode(normalized));
+    el.classList.toggle(
+      "error",
+      ui.code.trim() !== "" && !isInviteCode(normalized),
+    );
   },
   "enterCode.submit": (app) => {
     const ui = enterCodeState(app);
     if (ui.resolving) return;
     const normalized = normalizeInviteInput(ui.code);
     if (!isInviteCode(normalized)) {
-      ui.error = tx("请输入教师提供的完整邀请码。", "Enter the complete invitation token supplied by your teacher.");
+      ui.error = tx(
+        "请输入教师提供的完整邀请码。",
+        "Enter the complete invitation token supplied by your teacher.",
+      );
       app.render();
       return;
     }
@@ -693,8 +869,11 @@ export const joinActions = {
     if (field === "name") value = value.slice(0, MAX_NAME);
     if (field === "studentNumber") value = value.slice(0, MAX_STUDENT_NUMBER);
     ui[field] = value;
-    const counter = app._viewport?.querySelector(`[data-join-counter="${field}"]`);
-    if (counter) counter.textContent = `${value.length} / ${field === "name" ? MAX_NAME : MAX_STUDENT_NUMBER}`;
+    const counter = app._viewport?.querySelector(
+      `[data-join-counter="${field}"]`,
+    );
+    if (counter)
+      counter.textContent = `${value.length} / ${field === "name" ? MAX_NAME : MAX_STUDENT_NUMBER}`;
   },
   "joinConfirm.select": (app, el) => {
     const ui = app.ui.joinConfirm;
@@ -705,12 +884,23 @@ export const joinActions = {
     const ui = app.ui.joinConfirm;
     const params = app.state.authenticated
       ? app.state.subParams
-      : { inviteCode: app.state.pendingInvite?.code, course: app.state.pendingInvite?.course, preLogin: true };
+      : {
+          inviteCode: app.state.pendingInvite?.code,
+          course: app.state.pendingInvite?.course,
+          preLogin: true,
+        };
     if (!ui || ui.submitting || ui.submitted) return;
     if (!app.isWriteAllowed()) return;
-    const canSubmitNew = params.correctionRequest ? true : (app.state.authenticated ? app.canStartNewCourseJoin() : true);
+    const canSubmitNew = params.correctionRequest
+      ? true
+      : app.state.authenticated
+        ? app.canStartNewCourseJoin()
+        : true;
     if (!canSubmitNew) {
-      ui.error = tx("本学期已选择课程或已有待处理申请，不能重复选课。", "You already have a course or a pending request this term and cannot submit another request.");
+      ui.error = tx(
+        "本学期已选择课程或已有待处理申请，不能重复选课。",
+        "You already have a course or a pending request this term and cannot submit another request.",
+      );
       app.render();
       return;
     }
@@ -721,11 +911,17 @@ export const joinActions = {
     ui.error = !name
       ? tx("请填写姓名。", "Enter your name.")
       : name.length > MAX_NAME
-        ? tx(`姓名不能超过 ${MAX_NAME} 个字符。`, `Name cannot exceed ${MAX_NAME} characters.`)
+        ? tx(
+            `姓名不能超过 ${MAX_NAME} 个字符。`,
+            `Name cannot exceed ${MAX_NAME} characters.`,
+          )
         : !studentNumber
           ? tx("请填写学号。", "Enter your student ID.")
           : studentNumber.length > MAX_STUDENT_NUMBER
-            ? tx(`学号不能超过 ${MAX_STUDENT_NUMBER} 个字符。`, `Student ID cannot exceed ${MAX_STUDENT_NUMBER} characters.`)
+            ? tx(
+                `学号不能超过 ${MAX_STUDENT_NUMBER} 个字符。`,
+                `Student ID cannot exceed ${MAX_STUDENT_NUMBER} characters.`,
+              )
             : realJoin && !ui.gender
               ? tx("请选择性别。", "Select your gender.")
               : realJoin && !ui.gradeYear
@@ -748,39 +944,48 @@ export const joinActions = {
         studentNumber,
         gender: ui.gender,
         gradeYear: Number(ui.gradeYear),
-      }).then((joined) => {
-        storeJoinContext({
-          classSectionId: course.classSectionId,
-          courseName: course.name,
-          courseCode: course.courseNumber,
-          teacherDisplayName: course.teacher,
-          semesterDisplayName: course.semester,
+      })
+        .then((joined) => {
+          storeJoinContext({
+            classSectionId: course.classSectionId,
+            courseName: course.name,
+            courseCode: course.courseNumber,
+            teacherDisplayName: course.teacher,
+            semesterDisplayName: course.semester,
+          });
+          app.ui.joinConfirm = null;
+          app.state.pendingInvite = null;
+          app.state.showScanJoin = false;
+          app.state.subScreen = null;
+          app.state.subParams = {};
+          return app.completeApiLogin(joined);
+        })
+        .catch((error) => {
+          ui.submitting = false;
+          if (error instanceof ApiError && error.status === 410) {
+            ui.error = inviteExpiredMessage();
+          } else {
+            ui.error = apiErrorText(error);
+          }
+          app.render();
         });
-        app.ui.joinConfirm = null;
-        app.state.pendingInvite = null;
-        app.state.showScanJoin = false;
-        app.state.subScreen = null;
-        app.state.subParams = {};
-        return app.completeApiLogin(joined);
-      }).catch((error) => {
-        ui.submitting = false;
-        if (error instanceof ApiError && error.status === 410) {
-          ui.error = inviteExpiredMessage();
-        } else {
-          ui.error = apiErrorText(error);
-        }
-        app.render();
-      });
       return;
     }
     setTimeout(() => {
       ui.submitting = false;
       const course = params.correctionRequest
-        ? { name: params.correctionRequest.courseName, courseNumber: params.correctionRequest.courseCode, section: params.correctionRequest.section, teacher: params.correctionRequest.teacherName, semester: params.correctionRequest.semester }
+        ? {
+            name: params.correctionRequest.courseName,
+            courseNumber: params.correctionRequest.courseCode,
+            section: params.correctionRequest.section,
+            teacher: params.correctionRequest.teacherName,
+            semester: params.correctionRequest.semester,
+          }
         : params.course;
       const request = {
         id: `join-${Date.now()}`,
-        inviteCode: params.inviteCode || params.correctionRequest?.inviteCode || "",
+        inviteCode:
+          params.inviteCode || params.correctionRequest?.inviteCode || "",
         courseName: course.name,
         courseCode: course.courseNumber,
         section: course.section,
@@ -836,7 +1041,12 @@ export const joinActions = {
 // Back interception: an in-flight lookup/submission locks back navigation
 // (扫码/邀请码查询中禁用返回); an open manual dialog closes first.
 export function joinBackInterceptor(app) {
-  if (app.ui.scan?.resolving || app.ui.enterCode?.resolving || app.ui.joinConfirm?.submitting) return true;
+  if (
+    app.ui.scan?.resolving ||
+    app.ui.enterCode?.resolving ||
+    app.ui.joinConfirm?.submitting
+  )
+    return true;
   if (app.ui.scan?.showManualInput) {
     app.ui.scan.showManualInput = false;
     app.render();

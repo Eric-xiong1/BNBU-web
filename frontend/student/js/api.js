@@ -1,4 +1,4 @@
-// Real backend client for the unified BNBU Sports backend (Contract 2.0.2,
+// Real backend client for the unified BNBU Sports backend (Contract 1.5,
 // NestJS `/api/v1`). Envelope: success `{data, meta}` / error
 // `{code, message, details, requestId, timestamp}`. Student sessions are
 // established by the student email challenge flow or by the QR/invite join
@@ -25,10 +25,42 @@ function writeRaw(key, value) {
 // backend and /minio/* to its object storage, so no CORS is involved.
 const DEFAULT_BASE = "/api/v1";
 
+function isLoopbackHostname(hostname) {
+  return hostname === "localhost"
+    || hostname === "127.0.0.1"
+    || hostname === "::1"
+    || hostname === "[::1]";
+}
+
+function localApiOverride(value) {
+  const location = globalThis.location;
+  if (!location || location.protocol !== "http:" || !isLoopbackHostname(location.hostname)) return null;
+  try {
+    const candidate = new URL(
+      value,
+      location.origin || `${location.protocol}//${location.hostname}`,
+    );
+    if (!isLoopbackHostname(candidate.hostname)) return null;
+    if (candidate.protocol !== "http:" && candidate.protocol !== "https:") return null;
+    return candidate.href.replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
 export function apiBaseUrl() {
   const fromQuery = new URLSearchParams(globalThis.location?.search || "").get("api");
-  if (fromQuery) { writeRaw("apiBase", fromQuery); return fromQuery.replace(/\/$/, ""); }
-  return (readRaw("apiBase") || DEFAULT_BASE).replace(/\/$/, "");
+  const acceptedQuery = fromQuery ? localApiOverride(fromQuery) : null;
+  if (acceptedQuery) {
+    writeRaw("apiBase", acceptedQuery);
+    return acceptedQuery;
+  }
+  const acceptedStored = localApiOverride(readRaw("apiBase") || "");
+  if (acceptedStored) return acceptedStored;
+  // Public staging is always same-origin. Drop any stale development override
+  // so a crafted query string can never redirect bearer tokens off-site.
+  writeRaw("apiBase", null);
+  return DEFAULT_BASE;
 }
 
 /** Rewrites direct MinIO object URLs onto the same-origin /minio proxy. */
@@ -135,7 +167,7 @@ export function apiErrorText(error) {
     return tx("网络连接失败，请确认后端服务已启动。", "Network connection failed. Make sure the backend service is running.");
   }
   if (isUnsupported(error)) return tx("该功能暂未开放。", "This feature is not yet available.");
-  // Keys are the backend's stable Contract 2.0.2 error codes.
+  // Keys are the backend's stable Contract 1.5 error codes.
   const known = {
     // Auth / session
     AUTH_REQUIRED: tx("请先登录后再继续操作。", "Sign in before continuing."),
@@ -227,7 +259,7 @@ export function apiErrorText(error) {
     MEDIA_VERIFICATION_INCOMPLETE: tx("凭证校验尚未完成，请稍候。", "Proof verification is not finished yet."),
     MEDIA_TRANSITION_NOT_ALLOWED: tx("凭证当前状态不支持该操作。", "This action is not allowed for the proof's current state."),
     MEDIA_FAILURE_NOT_RETRYABLE: tx("该凭证上传失败且无法重试，请重新拍摄。", "This upload failed permanently. Capture it again."),
-    // System mode (Contract 2.0.2 documents the full 503 family)
+    // System mode (Contract 1.5 documents the full 503 family)
     SYSTEM_READ_ONLY: tx("系统当前为只读模式，暂时无法提交。", "The system is read-only right now, so changes cannot be saved."),
     SYSTEM_MAINTENANCE: tx("系统正在维护中，请稍后再试。", "The system is under maintenance. Try again later."),
     SYSTEM_SERVICE_UNAVAILABLE: tx("依赖服务暂时不可用，请稍后再试。", "A required service is unavailable. Try again later."),
@@ -301,6 +333,23 @@ export async function joinWithInvite(inviteToken, profile) {
   });
   storeAuthSession(joined.authSession);
   return joined;
+}
+
+/**
+ * Rebuilds the `/me` projection already present in an atomic invite-join
+ * response. Keeping this local avoids an unnecessary authenticated request
+ * while a newly-created student is still limited to contact binding.
+ */
+export function currentUserFromJoin(joined) {
+  const user = joined?.authSession?.user;
+  const studentProfile = joined?.studentProfile;
+  if (!user || !studentProfile) return null;
+  return {
+    user,
+    studentProfile,
+    teacherProfile: null,
+    adminProfile: null,
+  };
 }
 
 /**
@@ -432,7 +481,7 @@ export async function uploadMediaDraft(serverSessionId, draft, blob) {
   const verdict = validateProofFile(blob, draft.type, { durationSeconds: draft.durationSeconds });
   if (!verdict.ok) {
     const code = verdict.error === "duration" ? "MEDIA_VIDEO_DURATION_EXCEEDED" : verdict.error === "size" ? "MEDIA_SIZE_EXCEEDED" : "MEDIA_TYPE_NOT_ALLOWED";
-    throw new ApiError(422, { code, message: "Media draft failed Contract 2.0.2 validation" });
+    throw new ApiError(422, { code, message: "Media draft failed Contract 1.5 validation" });
   }
 
   const declaredContentSha256 = await sha256Hex(blob);
@@ -610,11 +659,7 @@ export function mapServerRecord(record, { courseIdBySection = {} } = {}) {
     courseId: record.creditType === "COURSE_RELATED" ? (courseIdBySection[record.classSectionId] || null) : null,
     taskTitle: record.description || tx("运动打卡", "Exercise check-in"),
     creditType: record.creditType === "COURSE_RELATED" ? "course" : "general",
-    // creditedDurationSeconds is the Backend's authoritative credit. Falling
-    // back to the actual duration would be a second, client-side derivation of
-    // a value only the server owns (Contract 2.0.2). The raw activity time is
-    // still available below as actualDurationSeconds.
-    hours: credited,
+    hours: credited > 0 ? credited : Math.round(actual * 10) / 10,
     // The backend's business day (Beijing). Daily rules are evaluated against
     // this, never against the device date.
     businessDate: record.businessDate,
@@ -636,7 +681,7 @@ export function mapServerRecord(record, { courseIdBySection = {} } = {}) {
   };
 }
 
-/** Maps the exact Contract 2.0.2 `/me` projection without inventing plaintext contacts. */
+/** Maps the exact Contract 1.5 `/me` projection without inventing plaintext contacts. */
 export function mapServerStudent(me, profile, semester = null) {
   return {
     id: profile.studentNumber,
@@ -657,24 +702,56 @@ export function mapServerStudent(me, profile, semester = null) {
 }
 
 /**
- * StudentScore carries baseScore/adjustmentTotal/finalScore — there is no
- * `totalScore` or `score` field. Both stay nullable even once the score is
- * PUBLISHED, so a missing value must read as "not calculated" rather than 0.
+ * PENDING_CONTACT_BINDING sessions may call only `/me`, email verification,
+ * and logout. Treat an unverified projection as binding-only as a fail-safe,
+ * even if a malformed server projection reports another status.
  */
-export function mapPublishedScore(publishedScore) {
-  if (!publishedScore) {
-    return { totalScore: null, totalDisplay: tx("未开放", "Not available") };
+export function requiresContactBinding(me) {
+  return me?.user?.status === "PENDING_CONTACT_BINDING" || me?.user?.emailVerified !== true;
+}
+
+/**
+ * Resolves the student shell without ever probing protected sports endpoints
+ * for a binding-only account. Dependencies are injectable so the join,
+ * restore, verification-transition, and ACTIVE flows remain regression
+ * testable without exposing or persisting credentials.
+ */
+export async function resolveStudentApiState({
+  currentUser = null,
+  loadCurrentUser = getMe,
+  loadWorkspace = loadApiWorkspace,
+} = {}) {
+  const me = currentUser || await loadCurrentUser();
+  const profile = me?.studentProfile;
+  if (!profile) {
+    throw new ApiError(403, { code: "FORBIDDEN", message: "Not a student account" });
   }
-  const totalScore = publishedScore.finalScore ?? publishedScore.baseScore ?? null;
-  return {
-    totalScore,
-    totalDisplay: totalScore === null ? tx("待计算", "Not calculated") : String(totalScore),
-  };
+
+  const student = mapServerStudent(me, profile);
+  if (requiresContactBinding(me)) {
+    return { mode: "binding", currentUser: me, student, workspace: null, workspaceError: null };
+  }
+
+  try {
+    const loaded = await loadWorkspace(me);
+    return {
+      mode: "active",
+      currentUser: me,
+      student: loaded.workspace.student,
+      workspace: loaded.workspace,
+      workspaceError: null,
+    };
+  } catch (workspaceError) {
+    // `/me` proved the identity is ACTIVE. Preserve that transition even when
+    // a later workspace request is temporarily unavailable, while returning
+    // the error to the shell for its existing cached-data/401 handling.
+    return { mode: "active", currentUser: me, student, workspace: null, workspaceError };
+  }
 }
 
 /** Builds the workspace shape every screen already consumes from live data. */
-export async function loadApiWorkspace() {
-  const me = await getMe();
+export async function loadApiWorkspace(currentUser = null) {
+  const me = currentUser || await getMe();
   const profile = me.studentProfile;
   if (!profile) throw new ApiError(403, { code: "FORBIDDEN", message: "Not a student account" });
 
@@ -756,7 +833,6 @@ export async function loadApiWorkspace() {
     : { windowMode: "unavailable", dateRangeStart: null, dateRangeEnd: null, dailyStartTime: "", dailyEndTime: "", excludedDates: [], semesterDeadline: null };
 
   const publishedScore = scores.find((s) => s.status === "PUBLISHED") || null;
-  const { totalScore, totalDisplay } = mapPublishedScore(publishedScore);
 
   return {
     workspace: {
@@ -778,8 +854,8 @@ export async function loadApiWorkspace() {
         studentId: profile.studentNumber,
         studentName: profile.fullName,
         visibleBlocks: [],
-        totalScore,
-        totalDisplay,
+        totalScore: publishedScore ? Number(publishedScore.totalScore ?? publishedScore.score ?? null) : null,
+        totalDisplay: publishedScore ? String(publishedScore.totalScore ?? publishedScore.score ?? "") : tx("未开放", "Not available"),
         isPassed: null,
         courseGradeStatus: publishedScore ? "published" : "rules_not_published",
         displayConfigVersion: 0,
